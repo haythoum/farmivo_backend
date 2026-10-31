@@ -58,3 +58,49 @@ class GridFsPhotoStore:
         except (InvalidId, Exception):  # noqa: BLE001 - not found / malformed id
             return None
         return f.read(), f.content_type or "image/jpeg"
+
+
+class MinioPhotoStore:
+    """Stores photos in a private MinIO (S3) bucket; they are served through GET /v1/photos/{id}.
+
+    The bucket never has to be public: the API streams the object back, so a dedicated
+    access key limited to this bucket is enough.
+    """
+
+    def __init__(self, endpoint: str, access_key: str, secret_key: str, bucket: str, secure: bool, public_base_url: str) -> None:
+        from minio import Minio
+
+        self._client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure)
+        self._bucket = bucket
+        self._base = public_base_url.rstrip("/")
+        if not self._client.bucket_exists(bucket):
+            self._client.make_bucket(bucket)
+
+    def save(self, farm_id: str, animal_id: str, content: bytes, content_type: str) -> str:
+        import io
+
+        file_id = uuid.uuid4().hex
+        self._client.put_object(
+            self._bucket,
+            file_id,
+            io.BytesIO(content),
+            len(content),
+            content_type=content_type,
+            metadata={"farm-id": farm_id, "animal-id": animal_id},
+        )
+        return f"{self._base}/v1/photos/{file_id}"
+
+    def read(self, file_id: str) -> tuple[bytes, str] | None:
+        import re
+
+        if not re.fullmatch(r"[0-9a-f]{32}", file_id):
+            return None
+        try:
+            response = self._client.get_object(self._bucket, file_id)
+        except Exception:  # noqa: BLE001 - missing object / transport error
+            return None
+        try:
+            return response.read(), response.headers.get("Content-Type") or "image/jpeg"
+        finally:
+            response.close()
+            response.release_conn()

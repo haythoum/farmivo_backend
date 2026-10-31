@@ -5,14 +5,16 @@ import io
 from datetime import date, timedelta
 from enum import Enum
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from flask import Blueprint, Response
 
 from app.deps import Ctx, get_ctx
+from app.errors import ApiError
 from app.routers.animals import render_animal
 from app.routers.crud import path_of
 from app.utils import today
+from app.web import out, q_date, q_enum
 
-router = APIRouter(prefix="/reports", tags=["Reports"])
+bp = Blueprint("reports", __name__)
 
 
 class ReportKind(str, Enum):
@@ -57,36 +59,37 @@ def build_rows(ctx: Ctx, kind: ReportKind, start: date, end: date) -> tuple[list
     return columns, [{**r, "ear_tag": tag(r.get("animal_id"))} for r in records]
 
 
-@router.get("/{kind}")
-def report(
-    kind: ReportKind,
-    format: ReportFormat = Query(ReportFormat.json),
-    date_from: date | None = None,
-    date_to: date | None = None,
-    ctx: Ctx = Depends(get_ctx),
-):
+@bp.get("/reports/<kind>")
+def report(kind: str):
     """Tabular reports as JSON or downloadable CSV. Date range defaults to the last 90 days (ignored for 'herd')."""
+    ctx = get_ctx()
+    try:
+        kind = ReportKind(kind)  # type: ignore[assignment]
+    except ValueError:
+        raise ApiError(422, [{"loc": ["path", "kind"], "msg": "Input should be one of: herd, vaccinations, financial, production", "type": "enum"}]) from None
+    format = q_enum("format", ReportFormat, ReportFormat.json)
+    date_from, date_to = q_date("date_from"), q_date("date_to")
     end = date_to or today()
     start = date_from or end - timedelta(days=89)
     if start > end:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "date_from must not be after date_to")
+        raise ApiError(422, "date_from must not be after date_to")
     columns, rows = build_rows(ctx, kind, start, end)
     if format == ReportFormat.json:
-        return {
+        return out({
             "kind": kind.value,
             "date_from": start.isoformat(),
             "date_to": end.isoformat(),
             "columns": columns,
             "rows": [{c: r.get(c) for c in columns} for r in rows],
-        }
+        })
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(columns)
     for r in rows:
         writer.writerow([_csv_safe(r.get(c)) for c in columns])
     return Response(
-        content=buffer.getvalue(),
-        media_type="text/csv",
+        buffer.getvalue(),
+        mimetype="text/csv",
         headers={"Content-Disposition": f'attachment; filename="farmivo-{kind.value}-{today().isoformat()}.csv"'},
     )
 

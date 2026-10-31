@@ -3,7 +3,7 @@
 | # | Decision | Why | Trade-off |
 |---|---|---|---|
 | 1 | **Native apps** (Java Android, SwiftUI iOS) | Requested; best platform integration for push, camera, photos | Two codebases to keep in step. Both share one design and one resource registry layout to make this cheap. |
-| 2 | **Python FastAPI backend** | Requested; typed models double as validation and API docs (`/docs`) | — |
+| 2 | **Python Flask backend, gunicorn under supervisor** (first built on FastAPI, ported on request) | Requested stack (Flask, supervisor); gunicorn is the standard WSGI server for it. Pydantic is kept for validation, so the API contract is unchanged. | No auto-generated OpenAPI page; `docs/API.md` is the reference. Query-string and body parsing are small hand-written helpers (`app/web.py`). |
 | 3 | **MongoDB instead of Firestore** | Firestore/Firebase Storage push you toward a paid plan; MongoDB Atlas has a free tier and can be self-hosted | Extra service to run. Photos moved to GridFS because Firebase Storage needs a paid plan. |
 | 4 | **Firebase kept for Auth + push** | Both free, solid on mobile, no password handling in our code | Dependency on Google for sign-in; replaceable later behind `get_current_uid`. |
 | 5 | **Repository interface with 3 implementations** | Swap database without touching routers; tests run with no database | Filters beyond equality are applied in Python (fine at farm scale, revisit at tens of thousands of docs per farm). |
@@ -18,3 +18,4 @@
 | 14 | **Branch-per-repo, nothing merged to `master`** | Review before merging; the code was not compiled in the authoring sandbox | — |
 | 15 | **App identifier `com.quadralens.farmivo`** (Android package / applicationId / namespace, iOS bundle id) | Company namespace (Quadralens) so the app ships under the owner's organisation | Must match what is registered in Firebase and the stores; changing it later means re-registering the apps and a new store listing. |
 | 16 | **Cattle-head logo, barn-rust/wheat palette, "Powered by Quadralens"** | The app is for livestock, so the identity is animal-led and earthy instead of generic green leaf; attribution to the owning company | Palette lives in per-platform colour resources; keep them in step with [BRANDING.md](BRANDING.md). |
+| 17 | **Photos: GridFS by default, optional MinIO bucket (`farmivo-photos`)** | The server already runs MinIO; a separate bucket and access key keeps Farmivo isolated from other apps. GridFS needs no extra setup. | Photos always pass through the API (`/v1/photos/<id>`) so the bucket stays private; switching stores later does not migrate existing photos. |

@@ -3,7 +3,7 @@
 ## Storage layout
 MongoDB database `farmivo`:
 - Collection **`docs`**: every document, with `_id = "<path>/<docId>"` and a `_path` field (indexed). Paths mirror the Firestore layout, so the same code runs on both databases.
-- GridFS bucket **`photos`**: animal photos (`photos.files`, `photos.chunks`).
+- GridFS bucket **`photos`**: animal photos (`photos.files`, `photos.chunks`) when `FARMIVO_PHOTO_STORE=gridfs` (default). With `minio`, photos are objects (random 32-hex names) in the bucket `farmivo-photos` instead, and nothing photo-related is stored in Mongo except `photo_url` on the animal.
 
 All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are `YYYY-MM-DD` strings (sortable as text).
 

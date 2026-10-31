@@ -13,8 +13,8 @@ flowchart LR
     FCM[Cloud Messaging<br/>push]
   end
   subgraph SRV["Your server"]
-    API[FastAPI backend<br/>Python]
-    M[(MongoDB<br/>data + photos GridFS)]
+    API[Flask backend<br/>gunicorn + supervisor]
+    M[(MongoDB (data, photos in GridFS)<br/>optional MinIO bucket for photos)]
     CR[Scheduler<br/>daily cron]
   end
   A & I -- sign in --> AU
@@ -34,15 +34,17 @@ Principles:
 
 ```
 app/
-  main.py            FastAPI app, router registration, /healthz
+  main.py            Flask app factory create_app(), blueprint registration, /healthz; exposes `app` for gunicorn
   config.py          Settings from FARMIVO_* env vars (DB backend, Mongo URI, public URL, secrets)
-  deps.py            Dependency wiring: Firebase init, repository/photo store selection,
-                     get_current_uid (verifies the ID token), get_ctx (uid -> farm)
+  deps.py            Wiring: Firebase init, repository/photo store selection (tests inject fakes via
+                     create_app(overrides=...)), get_current_uid (verifies the ID token), get_ctx (uid -> farm)
+  errors.py          ApiError + JSON error handlers (every error body is {"detail": ...})
+  web.py             Request/response helpers: body(model) -> 422 on bad input, out(...), query-string parsers
   repository.py      Storage abstraction: MongoRepository (default), FirestoreRepository, InMemoryRepository (tests)
   schemas.py         Pydantic models = the API contract and all validation rules
   utils.py           Age calculation, gestation table
   routers/
-    crud.py          Generic CRUD router factory (list/get/create/patch/delete + hooks)
+    crud.py          Generic CRUD blueprint factory (list/get/create/patch/delete + hooks)
     animals.py       Animals, status changes, photo upload, family tree, delete cascade
     health.py        Vaccinations, treatments, vet visits, illnesses, reminders endpoints
     breeding.py      Breedings, birth recording (creates offspring)
@@ -57,7 +59,7 @@ app/
   services/
     reminders.py     Reminder sync + daily notification run
     notifier.py      FcmNotifier (prod) / NullNotifier (tests)
-    photos.py        GridFsPhotoStore (default), FirebasePhotoStore, MemoryPhotoStore
+    photos.py        GridFsPhotoStore (default), MinioPhotoStore, FirebasePhotoStore, MemoryPhotoStore
 tests/               pytest suite, runs on the in-memory repository (no database needed)
 ```
 
@@ -65,22 +67,22 @@ tests/               pytest suite, runs on the in-memory repository (no database
 1. App sends `Authorization: Bearer <Firebase ID token>`.
 2. `get_current_uid` verifies the token with Firebase Admin → `uid`.
 3. `get_ctx` loads `users/{uid}`; the first time, it creates a farm and links it. Result: `Ctx(uid, farm_id, repo)`.
-4. The router reads/writes only `farms/{farm_id}/<collection>` through the `Repository` interface.
+4. The blueprint view reads/writes only `farms/{farm_id}/<collection>` through the `Repository` interface.
 5. Pydantic validates input (unknown fields rejected → `422`) and shapes output.
 
 ### Repository pattern
 All data access goes through six methods (`get`, `list`, `create`, `update`, `set`, `delete`) addressed by Firestore-style paths such as `farms/{farm_id}/animals`. Equality filters are pushed to the database; range filters, sorting and limits run in Python (a single farm has at most a few thousand documents per collection). This keeps the project free of index management and makes the database swappable (see DECISIONS.md).
 
 ### Generic CRUD factory
-Most record types (vaccinations, treatments, vet visits, illnesses, breedings, weights, production, feedings, transactions) are produced by `build_crud_router(...)` from a create-model, an update-model (auto-generated all-optional copy), an output model and optional hooks (`before_create`, `after_write`, `after_delete`, `enrich`). PATCH re-validates the merged record, so cross-field rules (e.g. next vaccination not before date given) hold on edits.
+Most record types (vaccinations, treatments, vet visits, illnesses, breedings, weights, production, feedings, transactions) are produced by `build_crud_blueprint(...)` from a create-model, an update-model (auto-generated all-optional copy), an output model and optional hooks (`before_create`, `after_write`, `after_delete`, `enrich`). PATCH re-validates the merged record, so cross-field rules (e.g. next vaccination not before date given) hold on edits.
 
 ### Reminders (feature 2 "automatic reminders")
 - A source record that has a due date owns exactly one reminder with a deterministic id (`vacc_<id>`, vet visit follow-up, breeding expected birth). Create/update/delete of the source calls `sync_reminder` / `delete_reminder`, so the reminder always mirrors the record; changing the date resets notification state.
-- A scheduler calls `POST /v1/internal/reminders/run` (header `X-Cron-Secret`) once a day. For each pending reminder the server computes `days_until` and the **bucket**: 7 days, 1 day, today, overdue. Each bucket notifies once (`notified_buckets`): the server stores an in-app notification and pushes via FCM to every device registered by farm members; invalid tokens are removed.
+- A daily cron job calls `POST /v1/internal/reminders/run` (header `X-Cron-Secret`) once a day. For each pending reminder the server computes `days_until` and the **bucket**: 7 days, 1 day, today, overdue. Each bucket notifies once (`notified_buckets`): the server stores an in-app notification and pushes via FCM to every device registered by farm members; invalid tokens are removed.
 - Selling or losing an animal closes its pending reminders.
 
 ### Photos
-Apps resize to ~1600 px JPEG and upload multipart to `POST /animals/{id}/photo` (≤ 5 MB, JPEG/PNG/WebP). The server stores the bytes in MongoDB GridFS and returns `photo_url = <PUBLIC_BASE_URL>/v1/photos/<objectId>`. That endpoint is public with an unguessable id, so image loaders (Glide, AsyncImage) need no auth header, and responses are cached for a year (`immutable`).
+Apps resize to ~1600 px JPEG and upload multipart to `POST /animals/{id}/photo` (≤ 5 MB, JPEG/PNG/WebP). The server stores the bytes in MongoDB GridFS (default) or a private MinIO bucket (`FARMIVO_PHOTO_STORE=minio`) and returns `photo_url = <PUBLIC_BASE_URL>/v1/photos/<id>`. The API streams the image back from the store (the bucket itself is never public). That endpoint is public with an unguessable id, so image loaders (Glide, AsyncImage) need no auth header, and responses are cached for a year (`immutable`).
 
 ## 3. Mobile apps (same design on both platforms)
 

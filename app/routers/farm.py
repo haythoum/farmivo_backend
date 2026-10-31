@@ -1,40 +1,50 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response, status
+from flask import Blueprint
 
-from app.deps import Ctx, get_ctx
+from app.deps import get_ctx
+from app.errors import ApiError
 from app.schemas import DeviceIn, FarmOut, FarmUpdate
+from app.web import body, no_content, out, q_str
 
-router = APIRouter(tags=["Farm"])
-
-
-@router.get("/farm", response_model=FarmOut)
-def get_farm(ctx: Ctx = Depends(get_ctx)):
-    return FarmOut.model_validate(ctx.repo.get("farms", ctx.farm_id))
+bp = Blueprint("farm", __name__)
 
 
-@router.patch("/farm", response_model=FarmOut)
-def update_farm(body: FarmUpdate, ctx: Ctx = Depends(get_ctx)):  # type: ignore[valid-type]
-    patch = body.model_dump(exclude_unset=True, exclude_none=True)
+@bp.get("/farm")
+def get_farm():
+    ctx = get_ctx()
+    return out(FarmOut.model_validate(ctx.repo.get("farms", ctx.farm_id)))
+
+
+@bp.patch("/farm")
+def update_farm():
+    ctx = get_ctx()
+    patch = body(FarmUpdate).model_dump(exclude_unset=True, exclude_none=True)
     farm = ctx.repo.update("farms", ctx.farm_id, patch) if patch else ctx.repo.get("farms", ctx.farm_id)
-    return FarmOut.model_validate(farm)
+    return out(FarmOut.model_validate(farm))
 
 
-@router.post("/devices", status_code=status.HTTP_204_NO_CONTENT, tags=["Notifications"])
-def register_device(body: DeviceIn, ctx: Ctx = Depends(get_ctx)):
+@bp.post("/devices")
+def register_device():
     """Register (or refresh) the FCM token of this phone so it receives push reminders."""
+    ctx = get_ctx()
+    data = body(DeviceIn)
     path = f"users/{ctx.uid}/devices"
-    for existing in ctx.repo.list(path, [("token", "==", body.token)]):
-        ctx.repo.update(path, existing["id"], {"platform": body.platform})
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-    ctx.repo.create(path, {"token": body.token, "platform": body.platform})
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    for existing in ctx.repo.list(path, [("token", "==", data.token)]):
+        ctx.repo.update(path, existing["id"], {"platform": data.platform})
+        return no_content()
+    ctx.repo.create(path, {"token": data.token, "platform": data.platform})
+    return no_content()
 
 
-@router.delete("/devices", status_code=status.HTTP_204_NO_CONTENT, tags=["Notifications"])
-def unregister_device(token: str, ctx: Ctx = Depends(get_ctx)):
+@bp.delete("/devices")
+def unregister_device():
     """Call on sign-out so the phone stops receiving this user's notifications."""
+    ctx = get_ctx()
+    token = q_str("token")
+    if not token:
+        raise ApiError(422, [{"loc": ["query", "token"], "msg": "Field required", "type": "missing"}])
     path = f"users/{ctx.uid}/devices"
     for existing in ctx.repo.list(path, [("token", "==", token)]):
         ctx.repo.delete(path, existing["id"])
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return no_content()

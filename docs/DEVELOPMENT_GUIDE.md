@@ -21,7 +21,7 @@ pip install -r requirements-dev.txt
 docker compose up -d mongo
 cp .env.example .env     # FARMIVO_FIREBASE_PROJECT_ID is `farmivo-4d932` in the example; keep the Mongo defaults locally
 export GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json
-uvicorn app.main:app --reload      # http://localhost:8000/docs
+flask --app app.main run --debug --port 8000   # http://localhost:8000/healthz
 pytest                              # no database or Firebase needed
 ```
 Smoke test without an app: sign in through a client to get an ID token, then
@@ -31,19 +31,48 @@ Smoke test without an app: sign in through a client to get an ID token, then
 | Variable | Meaning |
 |---|---|
 | `DB_BACKEND` | `mongo` (default) or `firestore` |
-| `MONGO_URI`, `MONGO_DB` | Connection string (local `mongodb://localhost:27017`, Atlas `mongodb+srv://…`) and database name |
+| `MONGO_URI`, `MONGO_DB` | Connection string and database name. Local `mongodb://localhost:27017`; server with auth `mongodb://farmivo_app:<pwd>@host:27017/farmivo?authSource=farmivo`; Atlas `mongodb+srv://…` |
+| `PHOTO_STORE` | `gridfs` (default, photos inside the Mongo database) or `minio` |
+| `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `MINIO_SECURE` | Only with `PHOTO_STORE=minio`. Bucket default `farmivo-photos` (created if missing); `MINIO_SECURE=true` for https |
 | `PUBLIC_BASE_URL` | Public URL of the API; used to build photo URLs |
 | `FIREBASE_PROJECT_ID` | Firebase project (token verification, FCM) |
 | `CRON_SECRET` | Shared secret for the daily reminder job |
 | `CORS_ORIGINS` | Only for browser clients; mobile apps do not need it |
 | `FIREBASE_STORAGE_BUCKET` | Only with `DB_BACKEND=firestore` |
 
-### Deploy
-Any host that runs the `Dockerfile` (Render, Railway, Fly.io, a VPS, Cloud Run).
-1. Create a MongoDB Atlas cluster (free M0 is fine to start), create a database user, allow the host's IP, copy the connection string.
-2. Deploy the container with the environment variables above (`PUBLIC_BASE_URL` = the final https URL) and the service-account JSON (as a secret file, `GOOGLE_APPLICATION_CREDENTIALS`).
-3. Schedule a daily job (07:00 local) that runs `curl -X POST -H "X-Cron-Secret: $SECRET" https://<host>/v1/internal/reminders/run`. Any scheduler works (host cron, GitHub Actions, cron-job.org, Cloud Scheduler).
-4. Put the https URL into both apps' release configuration.
+### Deploy on your own server (supervisor)
+For a server that already runs MongoDB (and optionally MinIO). The API runs as a gunicorn process managed by supervisor, behind nginx.
+
+1. **Code and virtualenv**
+   ```bash
+   sudo mkdir -p /srv/farmivo /var/log/farmivo && sudo chown www-data: /var/log/farmivo
+   git clone -b feature/initial-api https://github.com/haythoum/farmivo_backend.git /srv/farmivo
+   cd /srv/farmivo && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+   ```
+2. **Database: a new Mongo database with its own user.** Do not reuse another app's database or login. In `mongosh` as an admin:
+   ```js
+   use farmivo
+   db.createUser({ user: "farmivo_app", pwd: "<strong password>", roles: [{ role: "readWrite", db: "farmivo" }] })
+   ```
+   The database itself is created on the first write. Connection string: `mongodb://farmivo_app:<password>@<host>:27017/farmivo?authSource=farmivo` (URL-encode special characters). If Mongo and the API run on the same server, use `localhost`.
+3. **Photos: pick one.**
+   - `FARMIVO_PHOTO_STORE=gridfs` (default): nothing to set up; photos live in the `farmivo` database.
+   - `FARMIVO_PHOTO_STORE=minio`: create a **new bucket** `farmivo-photos` (the API also creates it if the key may). In the MinIO console create a **dedicated access key** (policy limited to that bucket, e.g. `s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, `s3:CreateBucket` on `farmivo-photos`) and put it in `.env`. Keep the bucket private: the API streams images through `/v1/photos/<id>`.
+4. **Settings:** `cp .env.example .env`, fill in `FARMIVO_MONGO_URI`, `FARMIVO_PUBLIC_BASE_URL` (final https URL), `FARMIVO_CRON_SECRET`, MinIO values if used. Put the Firebase service account at `/srv/farmivo/serviceAccountKey.json` (`chmod 600`, owner `www-data`). Never commit `.env` or the key.
+5. **supervisor**
+   ```bash
+   sudo cp deploy/supervisor/farmivo.conf /etc/supervisor/conf.d/farmivo.conf
+   sudo supervisorctl reread && sudo supervisorctl update
+   sudo supervisorctl status farmivo        # RUNNING
+   curl localhost:8080/healthz               # {"status":"ok"}
+   ```
+   After a code update: `git pull && .venv/bin/pip install -r requirements.txt && sudo supervisorctl restart farmivo`. Logs: `/var/log/farmivo/`.
+6. **nginx + TLS** (`deploy/nginx/farmivo.conf`, then `certbot --nginx`): the apps need https in production.
+7. **Daily reminders:** add a cron entry (07:00 local): `0 7 * * * curl -fsS -X POST -H "X-Cron-Secret: <secret>" https://<host>/v1/internal/reminders/run`.
+8. **Firewall:** MongoDB (27017) and MinIO (9000/9001) should only accept connections from the API server itself (or a private network), not from the internet. Expose only 80/443.
+9. Put the https URL into both apps' release configuration.
+
+The `Dockerfile` (gunicorn on `$PORT`) is an alternative for container hosts.
 
 ## 3. Android
 ```bash
@@ -67,7 +96,7 @@ Set your Team in Signing & Capabilities; add **Push Notifications** capability (
 | Task | Where |
 |---|---|
 | Add a field to a record (e.g. vaccination "dose") | Backend: `schemas.py` model. Apps: one `Field` line in the resource registry. Update `docs/API.md`. |
-| Add a new record type | Backend: models in `schemas.py` + `build_crud_router(...)` + `include_router` in `main.py`. Apps: add a `Resource` entry; add it to a tab list. |
+| Add a new record type | Backend: models in `schemas.py` + `build_crud_blueprint(...)` registered in the module's blueprint (and the module in `main.py`). Apps: add a `Resource` entry; add it to a tab list. |
 | Change reminder timing | `reminder_bucket()` in `services/reminders.py` |
 | Add a species gestation | `GESTATION_DAYS` in `utils.py` |
 | Switch database | `FARMIVO_DB_BACKEND` |

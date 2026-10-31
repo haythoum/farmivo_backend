@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     mongo_db: str = "farmivo"
     # Used to build absolute photo URLs when photos are stored in MongoDB (GridFS)
     public_base_url: str = "http://localhost:8000"
+    # Where photos live: "gridfs" (inside the Mongo database, default) or "minio" (S3-compatible bucket)
+    photo_store: str = "gridfs"
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str | None = None
+    minio_secret_key: str | None = None
+    minio_bucket: str = "farmivo-photos"
+    minio_secure: bool = False
     cron_secret: str | None = None
     cors_origins: str = ""
     environment: str = "development"

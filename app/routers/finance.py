@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from flask import Blueprint
 
-from app.deps import Ctx, get_ctx
+from app.deps import get_ctx
+from app.errors import ApiError
 from app.repository import Repository, farm_path
-from app.routers.crud import build_crud_router
+from app.routers.crud import build_crud_blueprint
 from app.schemas import (
     FinanceSummary,
     MonthlyFinance,
@@ -15,17 +16,19 @@ from app.schemas import (
     TransactionUpdate,
 )
 from app.utils import today
+from app.web import out, q_date
 
-router = APIRouter()
+bp = Blueprint("finance", __name__)
 
-transactions = build_crud_router(
+transactions = build_crud_blueprint(
+    name="transactions",
     collection="transactions",
     create_model=TransactionBase,
     update_model=TransactionUpdate,
     out_model=TransactionOut,
     date_field="date",
 )
-router.include_router(transactions, prefix="/transactions", tags=["Finance"])
+bp.register_blueprint(transactions, url_prefix="/transactions")
 
 
 def farm_currency(repo: Repository, farm_id: str) -> str:
@@ -66,11 +69,13 @@ def compute_finance(repo: Repository, farm_id: str, start: date, end: date) -> F
     )
 
 
-@router.get("/finance/summary", response_model=FinanceSummary, tags=["Finance"])
-def finance_summary(date_from: date | None = None, date_to: date | None = None, ctx: Ctx = Depends(get_ctx)):
+@bp.get("/finance/summary")
+def finance_summary():
     """Income, expenses and net for a period (defaults to the last 30 days), with category and monthly breakdowns."""
+    ctx = get_ctx()
+    date_from, date_to = q_date("date_from"), q_date("date_to")
     end = date_to or today()
     start = date_from or end - timedelta(days=29)
     if start > end:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "date_from must not be after date_to")
-    return compute_finance(ctx.repo, ctx.farm_id, start, end)
+        raise ApiError(422, "date_from must not be after date_to")
+    return out(compute_finance(ctx.repo, ctx.farm_id, start, end))

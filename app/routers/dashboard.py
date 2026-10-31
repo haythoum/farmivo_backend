@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from flask import Blueprint
 
-from app.deps import Ctx, get_ctx
+from app.deps import get_ctx
 from app.routers.crud import path_of
 from app.routers.finance import compute_finance
 from app.schemas import ON_FARM_STATUSES, DashboardOut
 from app.services.reminders import animal_label
 from app.utils import parse_date, today
+from app.web import out, q_int
 
-router = APIRouter(tags=["Dashboard"])
+bp = Blueprint("dashboard", __name__)
 
 
 def _count_by(rows: list[dict], key: str) -> dict[str, int]:
@@ -21,12 +22,11 @@ def _count_by(rows: list[dict], key: str) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
-@router.get("/dashboard", response_model=DashboardOut)
-def dashboard(
-    period_days: int = Query(30, ge=1, le=366, description="Window for births/deaths/sales and finance"),
-    upcoming_days: int = Query(30, ge=1, le=365),
-    ctx: Ctx = Depends(get_ctx),
-):
+@bp.get("/dashboard")
+def dashboard():
+    ctx = get_ctx()
+    period_days = q_int("period_days", 30, ge=1, le=366)  # window for births/deaths/sales and finance
+    upcoming_days = q_int("upcoming_days", 30, ge=1, le=365)
     now = today()
     start = now - timedelta(days=period_days - 1)
     start_iso, end_iso = start.isoformat(), now.isoformat()
@@ -70,7 +70,7 @@ def dashboard(
     ongoing_illnesses = ctx.repo.list(path_of(ctx, "illnesses"))
     unread = len(ctx.repo.list(path_of(ctx, "notifications"), [("read", "==", False)]))
 
-    return DashboardOut(
+    return out(DashboardOut(
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         period_days=period_days,
         period_from=start,
@@ -110,4 +110,4 @@ def dashboard(
             "net": finance.net,
         },
         unread_notifications=unread,
-    )
+    ))

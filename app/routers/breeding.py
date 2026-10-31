@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
-
 from app.deps import Ctx, get_ctx
+from app.errors import ApiError
 from app.routers.animals import ear_tag_taken, render_animal
-from app.routers.crud import build_crud_router, path_of
+from app.routers.crud import build_crud_blueprint, path_of
 from app.schemas import (
     BirthOut,
     BirthRequest,
@@ -14,6 +13,7 @@ from app.schemas import (
 )
 from app.services.reminders import animal_label, delete_reminder, sync_reminder
 from app.utils import expected_birth, parse_date, today
+from app.web import body, out
 
 ACTIVE_PREGNANCY = {"pending", "confirmed"}
 
@@ -21,15 +21,15 @@ ACTIVE_PREGNANCY = {"pending", "confirmed"}
 def _validate_parents(ctx: Ctx, data: dict) -> None:
     dam = ctx.repo.get(path_of(ctx, "animals"), data["dam_id"])
     if not dam:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dam (female) not found")
+        raise ApiError(404, "Dam (female) not found")
     if dam.get("sex") != "female":
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "dam_id must reference a female animal")
+        raise ApiError(422, "dam_id must reference a female animal")
     if data.get("sire_id"):
         sire = ctx.repo.get(path_of(ctx, "animals"), data["sire_id"])
         if not sire:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Sire (male) not found")
+            raise ApiError(404, "Sire (male) not found")
         if sire.get("sex") != "male":
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "sire_id must reference a male animal")
+            raise ApiError(422, "sire_id must reference a male animal")
     if not data.get("expected_birth_date"):
         suggested = expected_birth(dam.get("species"), parse_date(data["mating_date"]))
         data["expected_birth_date"] = suggested.isoformat() if suggested else None
@@ -60,7 +60,8 @@ def _sync(ctx: Ctx, record: dict) -> None:
     )
 
 
-router = build_crud_router(
+bp = build_crud_blueprint(
+    name="breedings",
     collection="breedings",
     create_model=BreedingBase,
     update_model=BreedingUpdate,
@@ -73,43 +74,45 @@ router = build_crud_router(
 )
 
 
-@router.post("/{breeding_id}/births", response_model=BirthOut, status_code=status.HTTP_201_CREATED)
-def record_birth(breeding_id: str, body: BirthRequest, ctx: Ctx = Depends(get_ctx)):
+@bp.post("/<breeding_id>/births")
+def record_birth(breeding_id: str):
     """Record a birth: creates the offspring as animals linked to their parents and closes the pregnancy."""
+    ctx = get_ctx()
+    req = body(BirthRequest)
     breeding = ctx.repo.get(path_of(ctx, "breedings"), breeding_id)
     if not breeding:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Breeding record not found")
+        raise ApiError(404, "Breeding record not found")
     if breeding.get("pregnancy_status") == "delivered":
-        raise HTTPException(status.HTTP_409_CONFLICT, "A birth was already recorded for this breeding")
-    if body.birth_date > today():
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "birth_date cannot be in the future")
-    if body.birth_date < parse_date(breeding["mating_date"]):  # type: ignore[operator]
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "birth_date cannot be before the mating date")
+        raise ApiError(409, "A birth was already recorded for this breeding")
+    if req.birth_date > today():
+        raise ApiError(422, "birth_date cannot be in the future")
+    if req.birth_date < parse_date(breeding["mating_date"]):  # type: ignore[operator]
+        raise ApiError(422, "birth_date cannot be before the mating date")
 
-    tags = [o.ear_tag for o in body.offspring]
+    tags = [o.ear_tag for o in req.offspring]
     if len(set(tags)) != len(tags):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Duplicate ear tags in request")
+        raise ApiError(422, "Duplicate ear tags in request")
     for tag in tags:  # check everything first so a conflict creates nothing
         if ear_tag_taken(ctx, tag):
-            raise HTTPException(status.HTTP_409_CONFLICT, f"Ear tag '{tag}' is already used on this farm")
+            raise ApiError(409, f"Ear tag '{tag}' is already used on this farm")
 
     dam = ctx.repo.get(path_of(ctx, "animals"), breeding["dam_id"]) or {}
     created: list[dict] = []
-    for kid in body.offspring:
+    for kid in req.offspring:
         data = {
             "ear_tag": kid.ear_tag,
             "name": kid.name,
             "species": dam.get("species", "other"),
             "breed": dam.get("breed"),
             "sex": kid.sex.value,
-            "date_of_birth": body.birth_date.isoformat(),
-            "date_added": body.birth_date.isoformat(),
+            "date_of_birth": req.birth_date.isoformat(),
+            "date_added": req.birth_date.isoformat(),
             "origin": "born_on_farm",
             "mother_id": breeding["dam_id"],
             "father_id": breeding.get("sire_id"),
-            "notes": body.notes,
+            "notes": req.notes,
             "status": "deceased" if kid.stillborn else "active",
-            "status_date": body.birth_date.isoformat() if kid.stillborn else None,
+            "status_date": req.birth_date.isoformat() if kid.stillborn else None,
             "photo_url": None,
         }
         animal = ctx.repo.create(path_of(ctx, "animals"), data)
@@ -119,7 +122,7 @@ def record_birth(breeding_id: str, body: BirthRequest, ctx: Ctx = Depends(get_ct
                 path_of(ctx, "weights"),
                 {
                     "animal_id": animal["id"],
-                    "date": body.birth_date.isoformat(),
+                    "date": req.birth_date.isoformat(),
                     "weight_kg": kid.birth_weight_kg,
                     "notes": "Birth weight",
                 },
@@ -130,12 +133,12 @@ def record_birth(breeding_id: str, body: BirthRequest, ctx: Ctx = Depends(get_ct
         breeding_id,
         {
             "pregnancy_status": "delivered",
-            "actual_birth_date": body.birth_date.isoformat(),
+            "actual_birth_date": req.birth_date.isoformat(),
             "offspring_ids": [a["id"] for a in created],
         },
     )
     delete_reminder(ctx.repo, ctx.farm_id, f"birth_{breeding_id}")
-    return BirthOut(
+    return out(BirthOut(
         breeding=BreedingOut.model_validate(updated),
         offspring=[render_animal(a) for a in created],
-    )
+    ), 201)

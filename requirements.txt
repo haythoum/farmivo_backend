@@ -1,7 +1,8 @@
-fastapi>=0.115,<1.0
-uvicorn[standard]>=0.30
+flask>=3.0,<4.0
+flask-cors>=4.0
+gunicorn>=22.0
 pydantic>=2.8,<3.0
 pydantic-settings>=2.4
 firebase-admin>=6.5
-python-multipart>=0.0.9
 pymongo>=4.8
+minio>=7.2

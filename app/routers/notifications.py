@@ -1,42 +1,46 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from flask import Blueprint
 
-from app.deps import Ctx, get_ctx
+from app.deps import get_ctx
+from app.errors import ApiError
 from app.routers.crud import path_of
 from app.schemas import NotificationOut
+from app.web import no_content, out, q_bool, q_int
 
-router = APIRouter(prefix="/notifications", tags=["Notifications"])
+bp = Blueprint("notifications", __name__)
 
 
-@router.get("", response_model=list[NotificationOut])
-def list_notifications(
-    unread_only: bool = False,
-    limit: int = Query(50, ge=1, le=200),
-    ctx: Ctx = Depends(get_ctx),
-):
+@bp.get("/notifications")
+def list_notifications():
+    ctx = get_ctx()
+    unread_only = q_bool("unread_only")
+    limit = q_int("limit", 50, ge=1, le=200)
     filters = [("read", "==", False)] if unread_only else None
     rows = ctx.repo.list(path_of(ctx, "notifications"), filters, order_by="created_at", desc=True, limit=limit)
-    return [NotificationOut.model_validate(r) for r in rows]
+    return out([NotificationOut.model_validate(r) for r in rows])
 
 
-@router.post("/read-all", status_code=status.HTTP_204_NO_CONTENT)
-def mark_all_read(ctx: Ctx = Depends(get_ctx)):
+@bp.post("/notifications/read-all")
+def mark_all_read():
+    ctx = get_ctx()
     for n in ctx.repo.list(path_of(ctx, "notifications"), [("read", "==", False)]):
         ctx.repo.update(path_of(ctx, "notifications"), n["id"], {"read": True})
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return no_content()
 
 
-@router.post("/{notification_id}/read", response_model=NotificationOut)
-def mark_read(notification_id: str, ctx: Ctx = Depends(get_ctx)):
+@bp.post("/notifications/<notification_id>/read")
+def mark_read(notification_id: str):
+    ctx = get_ctx()
     record = ctx.repo.update(path_of(ctx, "notifications"), notification_id, {"read": True})
     if not record:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Notification not found")
-    return NotificationOut.model_validate(record)
+        raise ApiError(404, "Notification not found")
+    return out(NotificationOut.model_validate(record))
 
 
-@router.delete("/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_notification(notification_id: str, ctx: Ctx = Depends(get_ctx)):
+@bp.delete("/notifications/<notification_id>")
+def delete_notification(notification_id: str):
+    ctx = get_ctx()
     if not ctx.repo.delete(path_of(ctx, "notifications"), notification_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Notification not found")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+        raise ApiError(404, "Notification not found")
+    return no_content()

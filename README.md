@@ -1,26 +1,24 @@
 # Farmivo backend
 **Smart Farming. Better Living.**
 
-FastAPI + MongoDB (data and animal photos via GridFS) + Firebase (sign-in and push notifications only; both free). Firestore remains available with `FARMIVO_DB_BACKEND=firestore`. The mobile apps ([Android](https://github.com/haythoum/farmivo_android), [iOS](https://github.com/haythoum/farmivo_ios)) sign in with Firebase Auth and call this API with the ID token.
+Flask (served by gunicorn under supervisor) + MongoDB (data) + photos in GridFS or a MinIO bucket + Firebase (sign-in and push notifications only; both free). Firestore remains available with `FARMIVO_DB_BACKEND=firestore`. The mobile apps ([Android](https://github.com/haythoum/farmivo_android), [iOS](https://github.com/haythoum/farmivo_ios)) sign in with Firebase Auth and call this API with the ID token.
 
-API contract: [docs/API.md](docs/API.md) (Swagger at `/docs` when running).
+API contract: [docs/API.md](docs/API.md). Full documentation: [docs/](docs/README.md).
 
 ## Run locally
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-docker compose up -d mongo  # local MongoDB (or use a free MongoDB Atlas cluster)
+docker compose up -d mongo  # local MongoDB (or point FARMIVO_MONGO_URI at your server)
 cp .env.example .env        # set the Firebase project id and Mongo URI
 export GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json
-uvicorn app.main:app --reload
+flask --app app.main run --debug --port 8000
 pytest                      # runs against an in-memory repository, no Firebase needed
 ```
 
-## Deploy (Cloud Run)
+## Deploy on a server (supervisor + gunicorn)
 ```bash
-gcloud run deploy farmivo-api --source . --region <region> \
-  --set-env-vars FARMIVO_MONGO_URI=<atlas-uri>,FARMIVO_PUBLIC_BASE_URL=https://<host>,FARMIVO_FIREBASE_PROJECT_ID=<id>,FARMIVO_CRON_SECRET=<secret>
+sudo cp deploy/supervisor/farmivo.conf /etc/supervisor/conf.d/farmivo.conf
+sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl status farmivo
 ```
-Create a Cloud Scheduler job (daily, e.g. 07:00) that POSTs `https://<host>/v1/internal/reminders/run` with header `X-Cron-Secret: <secret>`. It sends the 7-day / 1-day / due-today / overdue push notifications.
-
-Any host that runs a Docker container works (Render, Railway, Fly.io, a VPS); Cloud Run is only an example. `firestore.rules` is only relevant if you choose the Firestore backend.
+Step by step (dedicated Mongo user, MinIO bucket and access key, nginx, daily reminder cron): [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md#deploy-on-your-own-server-supervisor). A `Dockerfile` (gunicorn) is also provided for container hosts. `firestore.rules` is only relevant if you choose the Firestore backend.
