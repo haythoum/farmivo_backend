@@ -16,3 +16,4 @@
 | 12 | **Photos public by unguessable URL** | Works with plain image loaders and caching | Not suitable for confidential images. |
 | 13 | **Dates as `YYYY-MM-DD` strings** | Time zone problems vanish for calendar concepts (birth, vaccination); sorts as text | Not for timestamps (those are ISO-8601 UTC). |
 | 14 | **Branch-per-repo, nothing merged to `master`** | Review before merging; the code was not compiled in the authoring sandbox | — |
+| 15 | **App identifier `com.quadralens.farmivo`** (Android package / applicationId / namespace, iOS bundle id) | Company namespace (Quadralens) so the app ships under the owner's organisation | Must match what is registered in Firebase and the stores; changing it later means re-registering the apps and a new store listing. |

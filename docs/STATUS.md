@@ -1,5 +1,7 @@
 # Project status (as of 31 Oct 2026)
 
+**App id:** `com.quadralens.farmivo` (Android + iOS).
+
 ## Delivered
 | Part | Branch | State |
 |---|---|---|

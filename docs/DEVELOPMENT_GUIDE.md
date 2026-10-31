@@ -3,10 +3,13 @@
 ## 0. What you need
 Python 3.12+, Docker (for local MongoDB), a Firebase project, Android Studio (JDK 17), Xcode 15+ with `xcodegen` (`brew install xcodegen`).
 
+## App identifiers
+Android package/applicationId and iOS bundle id are both **`com.quadralens.farmivo`**. Android sources live in `app/src/main/java/com/quadralens/farmivo/`. Register exactly this id in Firebase and in Google Play / App Store Connect; it cannot be changed after publishing.
+
 ## 1. Firebase (sign-in and push only)
 1. Console → create project (the free *Spark* plan is enough; nothing here needs billing).
 2. **Authentication → Sign-in method → Email/Password**: enable.
-3. **Project settings → Your apps**: add an Android app (`com.farmivo.app`) → download `google-services.json` into `farmivo_android/app/`. Add an iOS app (`com.farmivo.app`) → download `GoogleService-Info.plist` into the Xcode `Farmivo` target. Both files are git-ignored.
+3. **Project settings → Your apps**: add an Android app (`com.quadralens.farmivo`) → download `google-services.json` into `farmivo_android/app/`. Add an iOS app (`com.quadralens.farmivo`) → download `GoogleService-Info.plist` into the Xcode `Farmivo` target. Both files are git-ignored.
 4. **Cloud Messaging**: for iOS upload an APNs auth key (Apple Developer account) under Project settings → Cloud Messaging.
 5. **Project settings → Service accounts → Generate new private key** → save as `farmivo_backend/serviceAccountKey.json` (git-ignored). The backend uses it to verify tokens and send pushes.
 
