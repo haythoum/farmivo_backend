@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="1024" height="1024">
+  <rect width="108" height="108" fill="#8C4A2F"/>
+  <g transform="translate(54 56) scale(1.0) translate(-54 -54)"><path fill="#E9B44C" d="M43 35C40 27 35 22 29 22C30 30 34 37 41 41Z"/><path fill="#E9B44C" d="M65 35C68 27 73 22 79 22C78 30 74 37 67 41Z"/><path fill="#F7EBDD" d="M31 46C21 45 15 40 15 34C23 32 33 35 39 42Z"/><path fill="#F7EBDD" d="M77 46C87 45 93 40 93 34C85 32 75 35 69 42Z"/><path fill="#FFF8EE" d="M36 41C36 34 44 31 54 31C64 31 72 34 72 41L70 62C69 71 62 77 54 77C46 77 39 71 38 62Z"/><path fill="#E9B44C" d="M54 33C50 37 51 41 54 44C57 41 58 37 54 33Z"/><ellipse cx="54" cy="67" rx="14" ry="10" fill="#E9B44C"/><circle cx="49.5" cy="67" r="2" fill="#8C4A2F"/><circle cx="58.5" cy="67" r="2" fill="#8C4A2F"/><circle cx="45.1" cy="52" r="2.6" fill="#8C4A2F"/><circle cx="62.9" cy="52" r="2.6" fill="#8C4A2F"/></g>
+</svg>

@@ -8,7 +8,7 @@
 | Backend (FastAPI, MongoDB, Firebase auth/push) | `feature/initial-api` | All five feature areas implemented; tests, Dockerfile, docs |
 | Android (Java) | `feature/initial-app` | All five feature areas implemented |
 | iOS (SwiftUI) | `feature/initial-app` | All five feature areas implemented |
-| UI mockup | Claude artifact "Farmivo App Mockup" | 7 screens (sign in, dashboard, animals, profile, health, breeding, growth) |
+| UI mockup | Claude artifact "Farmivo App Mockup" | 7 screens in the new rust/wheat branding (sign in, dashboard, animals, profile, health, breeding, growth) |
 
 ## Be aware: what was NOT verified
 The code was written in a sandbox with **no access to PyPI, the Android SDK/Maven, Xcode or Swift**, and no Firebase/MongoDB instance. So:

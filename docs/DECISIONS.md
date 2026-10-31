@@ -17,3 +17,4 @@
 | 13 | **Dates as `YYYY-MM-DD` strings** | Time zone problems vanish for calendar concepts (birth, vaccination); sorts as text | Not for timestamps (those are ISO-8601 UTC). |
 | 14 | **Branch-per-repo, nothing merged to `master`** | Review before merging; the code was not compiled in the authoring sandbox | — |
 | 15 | **App identifier `com.quadralens.farmivo`** (Android package / applicationId / namespace, iOS bundle id) | Company namespace (Quadralens) so the app ships under the owner's organisation | Must match what is registered in Firebase and the stores; changing it later means re-registering the apps and a new store listing. |
+| 16 | **Cattle-head logo, barn-rust/wheat palette, "Powered by Quadralens"** | The app is for livestock, so the identity is animal-led and earthy instead of generic green leaf; attribution to the owning company | Palette lives in per-platform colour resources; keep them in step with [BRANDING.md](BRANDING.md). |
