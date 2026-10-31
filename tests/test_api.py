@@ -134,3 +134,10 @@ def test_photo_served_through_api():
     r = c.get("/v1/photos/ok")
     assert r.status_code == 200 and r.data == b"img" and r.mimetype == "image/png"
     assert c.get("/v1/photos/missing").status_code == 404
+
+
+def test_farm_address_roundtrip(client):
+    r = client.patch("/v1/farm", json={"name": "Green Valley", "address": "Route de Mateur, Bizerte"})
+    assert r.status_code == 200 and r.json["address"] == "Route de Mateur, Bizerte"
+    assert client.get("/v1/farm").json["address"] == "Route de Mateur, Bizerte"
+    assert client.patch("/v1/farm", json={"address": "x" * 201}).status_code == 422

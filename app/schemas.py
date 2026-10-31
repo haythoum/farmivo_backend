@@ -100,6 +100,7 @@ class FarmUpdate(Strict):
     name: str | None = Field(default=None, min_length=1, max_length=80)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     country: str | None = Field(default=None, max_length=60)
+    address: str | None = Field(default=None, max_length=200)
 
     @field_validator("currency")
     @classmethod
@@ -111,6 +112,7 @@ class FarmOut(Record):
     name: str
     currency: str = "USD"
     country: str | None = None
+    address: str | None = None
     owner_uid: str | None = None
 
 

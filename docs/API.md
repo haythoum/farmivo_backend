@@ -35,11 +35,11 @@ Suggested finance categories (free text, but offer these in the UI): income: `an
 | Method & path | Body | Response |
 |---|---|---|
 | `GET /farm` | | Farm |
-| `PATCH /farm` | `{name?, currency? (3 letters), country?}` | Farm |
+| `PATCH /farm` | `{name?, currency? (3 letters), country?, address? (max 200)}` | Farm |
 | `POST /devices` | `{token, platform: "android"\|"ios"}` (FCM token) | `204` |
 | `DELETE /devices?token=...` | | `204` (call on sign-out) |
 
-Farm: `{id, name, currency, country, owner_uid, created_at, updated_at}`. Default name "My Farm", currency "USD".
+Farm: `{id, name, currency, country, address, owner_uid, created_at, updated_at}`. Default name "My Farm", currency "USD".
 Call `POST /devices` after login and whenever the FCM token refreshes.
 
 ## Animals

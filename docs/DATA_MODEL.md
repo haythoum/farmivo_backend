@@ -9,7 +9,7 @@ All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are 
 
 | Path | Contents |
 |---|---|
-| `farms/{farmId}` | name, currency, country, owner_uid, member_uids[] |
+| `farms/{farmId}` | name, currency, country, address, owner_uid, member_uids[] |
 | `users/{uid}` | farm_id |
 | `users/{uid}/devices/{id}` | token (FCM), platform (android/ios) |
 | `farms/{farmId}/animals` | ear_tag (unique per farm), name, species, breed, sex, date_of_birth, date_added, origin, mother_id, father_id, notes, status, status_date, photo_url |
