@@ -1,0 +1,18 @@
+# Design decisions
+
+| # | Decision | Why | Trade-off |
+|---|---|---|---|
+| 1 | **Native apps** (Java Android, SwiftUI iOS) | Requested; best platform integration for push, camera, photos | Two codebases to keep in step. Both share one design and one resource registry layout to make this cheap. |
+| 2 | **Python FastAPI backend** | Requested; typed models double as validation and API docs (`/docs`) | — |
+| 3 | **MongoDB instead of Firestore** | Firestore/Firebase Storage push you toward a paid plan; MongoDB Atlas has a free tier and can be self-hosted | Extra service to run. Photos moved to GridFS because Firebase Storage needs a paid plan. |
+| 4 | **Firebase kept for Auth + push** | Both free, solid on mobile, no password handling in our code | Dependency on Google for sign-in; replaceable later behind `get_current_uid`. |
+| 5 | **Repository interface with 3 implementations** | Swap database without touching routers; tests run with no database | Filters beyond equality are applied in Python (fine at farm scale, revisit at tens of thousands of docs per farm). |
+| 6 | **Firestore-style paths in one Mongo collection** | Identical code for both databases, one index (`_path`) | Not idiomatic Mongo schema (no collection per type). Fine for this scale; can migrate to per-type collections behind the repository. |
+| 7 | **Farm scoping from the token, no farm id in URLs** | Impossible to address another farm's data; simpler client code | One farm per user for now (`member_uids` exists for future team sharing). |
+| 8 | **Generic CRUD factory on the server** | Ten record types share the same behaviour; fewer bugs | Slightly more abstraction when reading the code. |
+| 9 | **Untyped JSON + resource registry in the apps** | Ten record types and ~60 fields without ten model classes, adapters and forms per platform; adding a field is one line | Less compile-time safety in the apps; the server remains the validator. |
+| 10 | **Reminders owned by their source record (deterministic id)** | Always consistent: edit the date and the reminder follows; no orphans | Reminder titles are generated server-side (English). |
+| 11 | **Daily cron instead of per-reminder timers** | Simple, cheap, host-agnostic | Notifications arrive at the cron hour, not at an exact time. |
+| 12 | **Photos public by unguessable URL** | Works with plain image loaders and caching | Not suitable for confidential images. |
+| 13 | **Dates as `YYYY-MM-DD` strings** | Time zone problems vanish for calendar concepts (birth, vaccination); sorts as text | Not for timestamps (those are ISO-8601 UTC). |
+| 14 | **Branch-per-repo, nothing merged to `master`** | Review before merging; the code was not compiled in the authoring sandbox | — |
