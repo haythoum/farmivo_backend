@@ -116,3 +116,14 @@ Set your Team in Signing & Capabilities; add **Push Notifications** capability (
 | Photos upload but do not display | `PUBLIC_BASE_URL` wrong (the URL stored in the animal is built from it) |
 | No push on iOS | APNs key not uploaded to Firebase, simulator used, or capability missing |
 | Reminders never notify | Daily job not scheduled, wrong `X-Cron-Secret`, or the device token was never registered |
+
+## Demo data
+
+A new database is empty, so the apps show zeros and empty lists until someone adds records. To fill your farm with sample animals, vaccinations, a breeding, weights, milk, feeding and finance entries:
+
+```bash
+cd /srv/farmivo && source .venv/bin/activate
+python -m scripts.seed_demo --uid <Firebase user id>
+```
+
+The user id is in the Firebase console under Authentication > Users ("User UID"). Sign in to the app once first so the account exists. The script uses the real database from `.env`, goes through the normal API code, and writes nothing if the farm already has animals. Add `--memory` for a dry run.

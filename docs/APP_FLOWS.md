@@ -14,6 +14,8 @@ So **signing in can work while every data screen fails**: sign-in never touches 
 
 Every API call carries `Authorization: Bearer <Firebase ID token>`. The backend verifies the token with Firebase, takes the user id (`uid`) from it, and finds that user's farm. That is why no URL contains a farm id.
 
+> A new database is empty. Use `python -m scripts.seed_demo --uid <Firebase UID>` to load sample data (see DEVELOPMENT_GUIDE).
+
 ## 2. App start
 
 1. The app reads the saved Firebase session. **Signed in** goes to the main screen, **not signed in** goes to the Sign in screen.
