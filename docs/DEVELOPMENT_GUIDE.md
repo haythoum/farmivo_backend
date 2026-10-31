@@ -9,9 +9,9 @@ Android package/applicationId and iOS bundle id are both **`com.quadralens.farmi
 ## 1. Firebase (sign-in and push only)
 1. Console → create project (the free *Spark* plan is enough; nothing here needs billing).
 2. **Authentication → Sign-in method → Email/Password**: enable.
-3. **Project settings → Your apps**: add an Android app (`com.quadralens.farmivo`) → download `google-services.json` into `farmivo_android/app/`. Add an iOS app (`com.quadralens.farmivo`) → download `GoogleService-Info.plist` into the Xcode `Farmivo` target. Both files are git-ignored.
+3. **Project settings → Your apps**: the Firebase project is **`farmivo-4d932`** with an Android app and an iOS app, both `com.quadralens.farmivo`. Their config files are already committed in the app repos (`farmivo_android/app/google-services.json`, `farmivo_ios/Farmivo/Resources/GoogleService-Info.plist`); the repos are private. These contain client identifiers, not secrets, but restrict the API keys (Google Cloud Console → APIs & Services → Credentials) to the app ids. To use another Firebase project, replace both files and `FARMIVO_FIREBASE_PROJECT_ID`.
 4. **Cloud Messaging**: for iOS upload an APNs auth key (Apple Developer account) under Project settings → Cloud Messaging.
-5. **Project settings → Service accounts → Generate new private key** → save as `farmivo_backend/serviceAccountKey.json` (git-ignored). The backend uses it to verify tokens and send pushes.
+5. **Project settings → Service accounts → Generate new private key** → save as `farmivo_backend/serviceAccountKey.json` (git-ignored). The backend uses it to verify tokens and send pushes. **This one is a real secret: never commit it or paste it in chat.** It has not been provided yet, so the backend cannot verify tokens until you add it.
 
 ## 2. Backend
 ```bash
@@ -19,7 +19,7 @@ cd farmivo_backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 docker compose up -d mongo
-cp .env.example .env     # set FARMIVO_FIREBASE_PROJECT_ID; keep the Mongo defaults locally
+cp .env.example .env     # FARMIVO_FIREBASE_PROJECT_ID is `farmivo-4d932` in the example; keep the Mongo defaults locally
 export GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json
 uvicorn app.main:app --reload      # http://localhost:8000/docs
 pytest                              # no database or Firebase needed
@@ -81,7 +81,7 @@ Set your Team in Signing & Capabilities; add **Push Notifications** capability (
 ## 7. Troubleshooting
 | Symptom | Likely cause |
 |---|---|
-| App shows "Firebase is not configured" | `google-services.json` / `GoogleService-Info.plist` missing |
+| App shows "Firebase is not configured" | `google-services.json` / `GoogleService-Info.plist` missing or the bundle id does not match |
 | Every call returns 401 | Backend service-account/project id mismatch with the app's Firebase project |
 | Android cannot reach backend | Using `localhost` instead of `10.0.2.2` on the emulator; real device needs your LAN IP or a public URL |
 | Photos upload but do not display | `PUBLIC_BASE_URL` wrong (the URL stored in the animal is built from it) |

@@ -1,6 +1,6 @@
 # Project status (as of 31 Oct 2026)
 
-**App id:** `com.quadralens.farmivo` (Android + iOS).
+**App id:** `com.quadralens.farmivo` (Android + iOS). **Firebase project:** `farmivo-4d932` (client config files committed in the app repos). Still needed: the backend service-account key, Email/Password sign-in enabled, APNs key for iOS push, a MongoDB URI.
 
 ## Delivered
 | Part | Branch | State |
