@@ -12,6 +12,7 @@ Start here. The three repositories each have a `docs/` folder; this one (backend
 | [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md) | Set up Firebase + MongoDB, run the backend, build both apps, deploy, test |
 | [DECISIONS.md](DECISIONS.md) | Why things were built this way (MongoDB, generic records, no per-entity models, ...) |
 | [BRANDING.md](BRANDING.md) | Logo files, colour palette, where "Powered by Quadralens" appears |
+| [APP_FLOWS.md](APP_FLOWS.md) | Screen-by-screen guide: what each action calls and what comes back (real example responses), plus the "everything is 404" checklist |
 | [STATUS.md](STATUS.md) | What is done, what was **not** verified, known gaps, suggested next steps |
 
 Per app: [Android docs](https://github.com/haythoum/farmivo_android/tree/feature/initial-app/docs) · [iOS docs](https://github.com/haythoum/farmivo_ios/tree/feature/initial-app/docs)
