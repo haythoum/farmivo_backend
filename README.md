@@ -9,7 +9,7 @@ API contract: [docs/API.md](docs/API.md). Full documentation: [docs/](docs/READM
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-docker compose up -d mongo  # local MongoDB (or point FARMIVO_MONGO_URI at your server)
+docker compose up -d mongo  # local MongoDB (or set FARMIVO_MONGO_HOST/USER/PASSWORD for your server)
 cp .env.example .env        # set the Firebase project id and Mongo URI
 export GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json
 flask --app app.main run --debug --port 8000

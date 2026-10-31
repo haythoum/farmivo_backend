@@ -23,6 +23,8 @@ def create_app(overrides: dict | None = None) -> Flask:
         CORS(app, origins=settings.cors_origin_list)
 
     register_error_handlers(app)
+    if "repo" not in app.config["FARMIVO_OVERRIDES"] and settings.db_backend == "mongo":
+        log_mongo_target(app, settings)
 
     @app.get("/healthz")
     def healthz():
@@ -45,6 +47,26 @@ def create_app(overrides: dict | None = None) -> Flask:
     app.register_blueprint(health.reminders_bp, url_prefix=API_PREFIX)
     app.register_blueprint(growth.growth_bp, url_prefix=API_PREFIX)
     return app
+
+
+def log_mongo_target(app: Flask, settings) -> None:
+    """Say at startup which MongoDB the API will use (never the password), or what is wrong with the settings."""
+    from urllib.parse import urlsplit
+
+    url = settings.mongo_url
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname if "," not in parts.netloc else parts.netloc.rpartition("@")[2]
+        user = parts.username
+    except ValueError as exc:
+        app.logger.error("MongoDB settings are invalid (%s). Check FARMIVO_MONGO_* in .env", exc)
+        return
+    if not parts.scheme.startswith("mongodb") or not host:
+        app.logger.error("MongoDB settings are invalid: no host found. Check FARMIVO_MONGO_* in .env "
+                         "(a password with @ : / # ? must be URL-encoded in FARMIVO_MONGO_URI, "
+                         "or use FARMIVO_MONGO_PASSWORD instead)")
+        return
+    app.logger.warning("MongoDB: %s, database %s, user %s", host, settings.mongo_db, user or "(none)")
 
 
 # WSGI entry point: gunicorn 'app.main:app'

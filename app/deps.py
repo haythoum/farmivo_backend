@@ -35,9 +35,16 @@ def _firebase_app():
 @lru_cache
 def _mongo_db():
     from pymongo import MongoClient
+    from pymongo.errors import ConfigurationError
 
     settings = get_settings()
-    return MongoClient(settings.mongo_uri, tz_aware=True, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)[settings.mongo_db]
+    try:
+        client = MongoClient(settings.mongo_url, tz_aware=True, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)
+    except ConfigurationError as exc:
+        raise RuntimeError(
+            f"MongoDB settings are invalid ({exc}). Check FARMIVO_MONGO_HOST/PORT/USER/PASSWORD or FARMIVO_MONGO_URI in .env"
+        ) from exc
+    return client[settings.mongo_db]
 
 
 @lru_cache

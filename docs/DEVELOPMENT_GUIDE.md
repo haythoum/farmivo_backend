@@ -31,7 +31,8 @@ Smoke test without an app: sign in through a client to get an ID token, then
 | Variable | Meaning |
 |---|---|
 | `DB_BACKEND` | `mongo` (default) or `firestore` |
-| `MONGO_URI`, `MONGO_DB` | Connection string and database name. Local `mongodb://localhost:27017`; server with auth `mongodb://farmivo_app:<pwd>@host:27017/farmivo?authSource=farmivo`; Atlas `mongodb+srv://…` |
+| `MONGO_HOST`, `MONGO_PORT`, `MONGO_USER`, `MONGO_PASSWORD`, `MONGO_AUTH_DB`, `MONGO_DB` | MongoDB server, login and database. The password needs no escaping. `MONGO_AUTH_DB` is the database where the user was created (empty = `MONGO_DB`). On startup the log prints `MongoDB: <host>, database <db>, user <user>` or says what is wrong. |
+| `MONGO_URI` (optional) | One connection string instead of the fields (Atlas: `mongodb+srv://…`). Overrides them. Special characters in the password must be URL-encoded (`@` → `%40`, `:` → `%3A`, `/` → `%2F`, `#` → `%23`). |
 | `PHOTO_STORE` | `gridfs` (default, photos inside the Mongo database) or `minio` |
 | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `MINIO_SECURE` | Only with `PHOTO_STORE=minio`. Bucket default `farmivo-photos` (created if missing); `MINIO_SECURE=true` for https |
 | `PUBLIC_BASE_URL` | Public URL of the API; used to build photo URLs |
@@ -58,7 +59,7 @@ For a server that already runs MongoDB (and optionally MinIO). The API runs as a
 3. **Photos: pick one.**
    - `FARMIVO_PHOTO_STORE=gridfs` (default): nothing to set up; photos live in the `farmivo` database.
    - `FARMIVO_PHOTO_STORE=minio`: create a **new bucket** `farmivo-photos` (the API also creates it if the key may). In the MinIO console create a **dedicated access key** (policy limited to that bucket, e.g. `s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, `s3:CreateBucket` on `farmivo-photos`) and put it in `.env`. Keep the bucket private: the API streams images through `/v1/photos/<id>`.
-4. **Settings:** `cp .env.example .env`, fill in `FARMIVO_MONGO_URI`, `FARMIVO_PUBLIC_BASE_URL` (final https URL), `FARMIVO_CRON_SECRET`, MinIO values if used. Put the Firebase service account at `/srv/farmivo/serviceAccountKey.json` (`chmod 600`, owner `www-data`). Never commit `.env` or the key.
+4. **Settings:** `cp .env.example .env`, fill in `FARMIVO_MONGO_HOST`, `FARMIVO_MONGO_USER`, `FARMIVO_MONGO_PASSWORD` (and `FARMIVO_MONGO_AUTH_DB` if the user lives in another database), `FARMIVO_PUBLIC_BASE_URL` (final https URL), `FARMIVO_CRON_SECRET`, MinIO values if used. Put the Firebase service account at `/srv/farmivo/serviceAccountKey.json` (`chmod 600`, owner `www-data`). Never commit `.env` or the key.
 5. **supervisor**
    ```bash
    sudo cp deploy/supervisor/farmivo.conf /etc/supervisor/conf.d/farmivo.conf
@@ -100,7 +101,7 @@ Set your Team in Signing & Capabilities; add **Push Notifications** capability (
 | Change reminder timing | `reminder_bucket()` in `services/reminders.py` |
 | Add a species gestation | `GESTATION_DAYS` in `utils.py` |
 | Switch database | `FARMIVO_DB_BACKEND` |
-| Back up data | Atlas backups, or `mongodump --uri "$FARMIVO_MONGO_URI" --db farmivo` |
+| Back up data | Atlas backups, or `mongodump --host <host> -u <user> -p --authenticationDatabase <auth db> --db farmivo` |
 
 ## 6. Testing
 - Backend: `pytest` — API behaviour (auth, CRUD, reminders, breeding/births, finance, photos, reports) plus repository tests. The Mongo repository test uses `mongomock`.
