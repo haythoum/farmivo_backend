@@ -1,0 +1,26 @@
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="FARMIVO_", env_file=".env", extra="ignore")
+
+    firebase_project_id: str | None = None
+    firebase_storage_bucket: str | None = None
+    cron_secret: str | None = None
+    cors_origins: str = ""
+    environment: str = "development"
+
+    # Reminder buckets: a reminder notifies once when it enters each bucket
+    # (days before the due date). -1 means overdue.
+    max_photo_bytes: int = 5 * 1024 * 1024
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
