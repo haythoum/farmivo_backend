@@ -4,7 +4,7 @@ Farmivo is an app for livestock keepers, so the identity is built around the ani
 
 ## Logo
 
-Original drawing (not derived from any existing mark). Cream face, wheat horns and muzzle, rust eyes and nostrils, on a rust tile.
+Original drawing (not derived from any existing mark). Cream face, sunflower horns and muzzle, teal eyes and nostrils, on a teal tile.
 
 | File | Use |
 |---|---|
@@ -20,13 +20,13 @@ Where it lives in the apps:
 
 | Role | Light | Dark | Name |
 |---|---|---|---|
-| Primary | `#8C4A2F` | `#E0A07F` | Barn rust |
-| Primary dark / tile | `#5E2F1D` | | Deep rust |
-| Accent | `#E9B44C` | `#F2C766` | Wheat |
+| Primary | `#1F6F6B` | `#7CCBC5` | Pasture teal |
+| Primary dark / tile | `#134A47` | | Deep teal |
+| Accent | `#F2B544` | `#F2C766` | Sunflower |
 | Background | `#FBF6EE` | | Cream |
-| Surface tint | `#F5E6DC` | | Clay |
-| Text | `#2A1F1A` | | Soil |
-| Muted text | `#6B5A50` | | |
+| Surface tint | `#DDEEEC` | | Mist |
+| Text | `#1E2A29` | | Ink |
+| Muted text | `#5B6B69` | | |
 | Alert | `#B3261E` | | |
 
 Android: `res/values/colors.xml` and `values-night/colors.xml`. iOS: colour sets `BrandPrimary`, `AccentColor`, `BrandAccent`, `OnBrandPrimary`.
@@ -40,6 +40,6 @@ Android: `res/values/colors.xml` and `values-night/colors.xml`. iOS: colour sets
 Change the wording in one place per platform (string resource / `PoweredByView`).
 
 ## Rules of thumb
-- Keep the head on the rust tile or on cream; don't recolour the horns.
+- Keep the head on the teal tile or on cream; don't recolour the horns.
 - Minimum size 24 px for the mark.
 - Tagline: "Smart Farming. Better Living."
