@@ -4,5 +4,6 @@ gunicorn>=22.0
 pydantic>=2.8,<3.0
 pydantic-settings>=2.4
 firebase-admin>=6.5
-pymongo>=4.8
+# PyMongo 4.11+ dropped MongoDB 3.6; the production server runs 3.6 (wire version 6), so stay on 4.10.
+pymongo>=4.8,<4.11
 minio>=7.2

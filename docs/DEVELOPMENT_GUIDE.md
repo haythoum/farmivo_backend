@@ -32,6 +32,7 @@ Smoke test without an app: sign in through a client to get an ID token, then
 |---|---|
 | `DB_BACKEND` | `mongo` (default) or `firestore` |
 | `MONGO_HOST`, `MONGO_PORT`, `MONGO_USER`, `MONGO_PASSWORD`, `MONGO_AUTH_DB`, `MONGO_DB` | MongoDB server, login and database. The password needs no escaping. `MONGO_AUTH_DB` is the database where the user was created (empty = `MONGO_DB`). On startup the log prints `MongoDB: <host>, database <db>, user <user>` or says what is wrong. |
+| MongoDB version | Works with MongoDB 3.6 and newer. `requirements.txt` pins PyMongo below 4.11 because newer PyMongo refuses servers older than 4.0/4.4 (`reports wire version 6`). When the server is upgraded to MongoDB 4.4+, the pin can be lifted. |
 | `MONGO_URI` (optional) | One connection string instead of the fields (Atlas: `mongodb+srv://…`). Overrides them. Special characters in the password must be URL-encoded (`@` → `%40`, `:` → `%3A`, `/` → `%2F`, `#` → `%23`). |
 | `PHOTO_STORE` | `gridfs` (default, photos inside the Mongo database) or `minio` |
 | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `MINIO_SECURE` | Only with `PHOTO_STORE=minio`. Bucket default `farmivo-photos` (created if missing); `MINIO_SECURE=true` for https |
