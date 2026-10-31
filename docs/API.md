@@ -42,6 +42,9 @@ Suggested finance categories (free text, but offer these in the UI): income: `an
 Farm: `{id, name, currency, country, address, owner_uid, created_at, updated_at}`. Default name "My Farm", currency "USD".
 Call `POST /devices` after login and whenever the FCM token refreshes.
 
+### Sign-up rules (enforced by the apps before they call Firebase)
+Accounts are created with Firebase Auth, not by this API. The apps require: farm name 2-80 characters, farm address 5-200, a valid email, a password of at least 8 characters with a letter and a number, and a matching confirmation. Right after sign-up they call `PATCH /farm` with the trimmed name and address; if that call fails the user can retry or skip and edit the farm later. The API keeps the upper limits (name 80, address 200); the minimums are checked in the apps so the farm screen can still clear an address.
+
 ## Animals
 
 Animal (response):
