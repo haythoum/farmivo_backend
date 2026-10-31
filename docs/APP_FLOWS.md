@@ -1004,7 +1004,7 @@ Authorization: Bearer <Firebase ID token>
 Mark one read: `POST /v1/notifications/{id}/read`; mark all: `POST /v1/notifications/read-all`; delete: `DELETE /v1/notifications/{id}`.
 
 ## 14. Reports (More > Reports)
-`GET /v1/reports/<kind>` with kind `herd`, `vaccinations`, `financial` or `production`; optional `from` and `to` dates. The answer is a CSV file the app saves and opens.
+`GET /v1/reports/<kind>` with kind `herd`, `vaccinations`, `financial` or `production`; optional `date_from` and `date_to` (default: the last 90 days). Without `format` the answer is JSON (shown below); the app adds `?format=csv` to download a CSV file it saves and opens.
 ```http
 GET /v1/reports/herd
 Authorization: Bearer <Firebase ID token>
