@@ -28,3 +28,12 @@ def register_error_handlers(app: Flask) -> None:
     def _http_error(exc: HTTPException):
         # e.g. 404 unknown route, 405, 413 body too large
         return jsonify({"detail": exc.name}), exc.code or 500
+
+    @app.errorhandler(Exception)
+    def _unexpected(exc: Exception):
+        from pymongo.errors import PyMongoError
+
+        app.logger.exception("Unhandled error")
+        if isinstance(exc, PyMongoError):
+            return jsonify({"detail": "Database unavailable"}), 503
+        return jsonify({"detail": "Internal server error"}), 500

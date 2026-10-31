@@ -37,7 +37,7 @@ def _mongo_db():
     from pymongo import MongoClient
 
     settings = get_settings()
-    return MongoClient(settings.mongo_uri, tz_aware=True)[settings.mongo_db]
+    return MongoClient(settings.mongo_uri, tz_aware=True, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)[settings.mongo_db]
 
 
 @lru_cache
