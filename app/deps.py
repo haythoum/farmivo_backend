@@ -102,6 +102,8 @@ def get_current_uid() -> str:
     try:
         decoded = auth.verify_id_token(token.strip())
     except Exception as exc:  # noqa: BLE001
+        # The reason (wrong project, expired, clock skew, ...) goes to the log, never to the client.
+        current_app.logger.warning("Rejected Firebase token: %s", exc)
         raise ApiError(401, "Invalid or expired token") from exc
     return decoded["uid"]
 

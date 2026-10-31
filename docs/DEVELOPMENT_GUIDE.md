@@ -127,3 +127,17 @@ python -m scripts.seed_demo --uid <Firebase user id>
 ```
 
 The user id is in the Firebase console under Authentication > Users ("User UID"). Sign in to the app once first so the account exists. The script uses the real database from `.env`, goes through the normal API code, and writes nothing if the farm already has animals. Add `--memory` for a dry run.
+
+## "Invalid or expired token" (401) with a valid sign-in
+
+The server logs the real reason every time it rejects a token: `tail -n 30 /var/log/farmivo/farmivo.err.log` and look for `Rejected Firebase token:`.
+
+| Log message contains | Cause | Fix |
+|---|---|---|
+| `incorrect "aud"` / `audience` | The token belongs to another Firebase project than the server expects | Set `FARMIVO_FIREBASE_PROJECT_ID=farmivo-4d932` in `/srv/farmivo/.env` and make sure the service-account key (if any) and the app's `google-services.json` are from that same project; then `supervisorctl restart farmivo` |
+| `Token used too early` / `too late` | The server clock is wrong | Fix the time: `timedatectl set-ntp true` |
+| `expired` | The token is older than 1 hour | Get a fresh one (sign in again) |
+| `Could not verify token signature` / certificate or connection errors | The server cannot reach Google to fetch the signing keys | Allow outbound HTTPS from the server |
+| `Firebase ID token has incorrect "iss"` | Wrong project, same as `aud` | Same fix |
+
+Check what the server loaded: `grep FIREBASE /srv/farmivo/.env` and, for the key's project, `grep project_id /srv/farmivo/serviceAccountKey.json`. A key copied from another project (for example SOS Khedma) is a common cause.
