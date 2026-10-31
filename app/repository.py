@@ -3,7 +3,8 @@
 All data lives in Firestore, addressed by slash-separated collection paths such as
 ``farms/{farm_id}/animals``. The ``Repository`` protocol has two implementations:
 
-* ``FirestoreRepository`` - production.
+* ``MongoRepository``     - production (MongoDB / Atlas). Default.
+* ``FirestoreRepository`` - production alternative (Firebase).
 * ``InMemoryRepository``  - tests and local experiments (no Firebase needed).
 
 Only equality filters are pushed down to Firestore. Range filters, ordering and limits
@@ -179,6 +180,68 @@ class FirestoreRepository:
             return False
         ref.delete()
         return True
+
+
+class MongoRepository:
+    """All documents live in one collection, ``docs``; the Firestore-style path is stored in ``_path``."""
+
+    def __init__(self, db: Any) -> None:
+        self._c = db["docs"]
+        self._c.create_index("_path")
+
+    @staticmethod
+    def _out(raw: dict) -> dict:
+        doc = {k: v for k, v in raw.items() if k not in ("_id", "_path", "_doc_id")}
+        doc["id"] = raw["_doc_id"]
+        return doc
+
+    @staticmethod
+    def _key(path: str, doc_id: str) -> str:
+        return f"{path}/{doc_id}"
+
+    def get(self, path: str, doc_id: str) -> dict | None:
+        raw = self._c.find_one({"_id": self._key(path, doc_id)})
+        return self._out(raw) if raw else None
+
+    def list(self, path, filters=None, order_by=None, desc=False, limit=None) -> list[dict]:
+        query: dict[str, Any] = {"_path": path}
+        remaining: list[Filter] = []
+        for field, op, value in filters or []:
+            if op == "==" and value is not None:
+                query[field] = value
+            elif op == "in":
+                query[field] = {"$in": list(value)}
+            else:
+                remaining.append((field, op, value))
+        docs = [self._out(r) for r in self._c.find(query)]
+        return apply_query(docs, remaining, order_by, desc, limit)
+
+    def create(self, path: str, data: dict, doc_id: str | None = None) -> dict:
+        doc_id = doc_id or uuid.uuid4().hex
+        stamp = now_iso()
+        self._c.insert_one(
+            {**data, "_id": self._key(path, doc_id), "_path": path, "_doc_id": doc_id,
+             "created_at": stamp, "updated_at": stamp}
+        )
+        return self.get(path, doc_id)  # type: ignore[return-value]
+
+    def update(self, path: str, doc_id: str, data: dict) -> dict | None:
+        res = self._c.update_one({"_id": self._key(path, doc_id)}, {"$set": {**data, "updated_at": now_iso()}})
+        return self.get(path, doc_id) if res.matched_count else None
+
+    def set(self, path: str, doc_id: str, data: dict) -> dict:
+        existing = self._c.find_one({"_id": self._key(path, doc_id)}, {"created_at": 1})
+        created = (existing or {}).get("created_at") or now_iso()
+        self._c.replace_one(
+            {"_id": self._key(path, doc_id)},
+            {**data, "_id": self._key(path, doc_id), "_path": path, "_doc_id": doc_id,
+             "created_at": created, "updated_at": now_iso()},
+            upsert=True,
+        )
+        return self.get(path, doc_id)  # type: ignore[return-value]
+
+    def delete(self, path: str, doc_id: str) -> bool:
+        return self._c.delete_one({"_id": self._key(path, doc_id)}).deleted_count > 0
 
 
 # Path helpers --------------------------------------------------------------

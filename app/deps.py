@@ -8,9 +8,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import get_settings
-from app.repository import FirestoreRepository, Repository
+from app.repository import FirestoreRepository, MongoRepository, Repository
 from app.services.notifier import FcmNotifier, Notifier
-from app.services.photos import FirebasePhotoStore, PhotoStore
+from app.services.photos import FirebasePhotoStore, GridFsPhotoStore, PhotoStore
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -30,10 +30,20 @@ def _firebase_app():
 
 
 @lru_cache
-def get_repo() -> Repository:
-    from firebase_admin import firestore
+def _mongo_db():
+    from pymongo import MongoClient
 
-    return FirestoreRepository(firestore.client(_firebase_app()))
+    settings = get_settings()
+    return MongoClient(settings.mongo_uri, tz_aware=True)[settings.mongo_db]
+
+
+@lru_cache
+def get_repo() -> Repository:
+    if get_settings().db_backend == "firestore":
+        from firebase_admin import firestore
+
+        return FirestoreRepository(firestore.client(_firebase_app()))
+    return MongoRepository(_mongo_db())
 
 
 @lru_cache
@@ -44,8 +54,11 @@ def get_notifier() -> Notifier:
 
 @lru_cache
 def get_photo_store() -> PhotoStore:
-    _firebase_app()
-    return FirebasePhotoStore(get_settings().firebase_storage_bucket)
+    settings = get_settings()
+    if settings.db_backend == "firestore":
+        _firebase_app()
+        return FirebasePhotoStore(settings.firebase_storage_bucket)
+    return GridFsPhotoStore(_mongo_db(), settings.public_base_url)
 
 
 def get_current_uid(creds: HTTPAuthorizationCredentials | None = Depends(bearer)) -> str:

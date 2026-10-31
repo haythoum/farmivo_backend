@@ -8,6 +8,12 @@ class Settings(BaseSettings):
 
     firebase_project_id: str | None = None
     firebase_storage_bucket: str | None = None
+    # "mongo" (default: MongoDB for data and photos) or "firestore"
+    db_backend: str = "mongo"
+    mongo_uri: str = "mongodb://localhost:27017"
+    mongo_db: str = "farmivo"
+    # Used to build absolute photo URLs when photos are stored in MongoDB (GridFS)
+    public_base_url: str = "http://localhost:8000"
     cron_secret: str | None = None
     cors_origins: str = ""
     environment: str = "development"

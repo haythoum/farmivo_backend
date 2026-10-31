@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import animals, breeding, dashboard, farm, finance, growth, health, internal, notifications, reports
+from app.routers import animals, breeding, dashboard, farm, finance, growth, health, internal, notifications, photos, reports
 
 API_PREFIX = "/v1"
 
@@ -39,5 +39,6 @@ app.include_router(growth.router, prefix=API_PREFIX)
 app.include_router(finance.router, prefix=API_PREFIX)
 app.include_router(dashboard.router, prefix=API_PREFIX)
 app.include_router(notifications.router, prefix=API_PREFIX)
+app.include_router(photos.router, prefix=API_PREFIX)
 app.include_router(reports.router, prefix=API_PREFIX)
 app.include_router(internal.router, prefix=API_PREFIX)

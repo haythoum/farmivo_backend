@@ -62,7 +62,7 @@ Animal (response):
 - `GET /animals/{id}` → Animal
 - `PATCH /animals/{id}` → Animal. Same fields as create except `status`/`photo_url` (use the endpoints below). `409` on duplicate ear tag.
 - `POST /animals/{id}/status` → Animal. Body: `{status, date? (default today), sale_price?, buyer?, notes?}`. Marking `sold` with `sale_price` also creates an `animal_sale` income transaction. Marking `sold` or `deceased` closes the animal's pending reminders.
-- `POST /animals/{id}/photo` → Animal. `multipart/form-data`, field name `file`, JPEG/PNG/WebP, max 5 MB (compress/resize to ~1600px on device). `photo_url` in the response is a public HTTPS URL.
+- `POST /animals/{id}/photo` → Animal. `multipart/form-data`, field name `file`, JPEG/PNG/WebP, max 5 MB (compress/resize to ~1600px on device). `photo_url` in the response is a public URL (`/v1/photos/{id}` when stored in MongoDB) that image loaders can fetch without an auth header.
 - `DELETE /animals/{id}` → `204`. Deletes the animal and all its health, weight, production, feeding and breeding records.
 - `GET /animals/{id}/family` → `{animal, mother, father, siblings: [Animal], offspring: [Animal]}` (mother/father may be null).
 - `GET /animals/{id}/growth` → `{animal_id, points: [{date, weight_kg}] (ascending), latest_weight_kg, total_gain_kg, average_daily_gain_kg}` (aggregates null when not computable).
