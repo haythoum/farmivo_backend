@@ -64,7 +64,7 @@ For a server that already runs MongoDB (and optionally MinIO). The API runs as a
    sudo cp deploy/supervisor/farmivo.conf /etc/supervisor/conf.d/farmivo.conf
    sudo supervisorctl reread && sudo supervisorctl update
    sudo supervisorctl status farmivo        # RUNNING
-   curl localhost:8080/healthz               # {"status":"ok"}
+   curl localhost:8000/healthz               # {"status":"ok"}
    ```
    After a code update: `git pull && .venv/bin/pip install -r requirements.txt && sudo supervisorctl restart farmivo`. Logs: `/var/log/farmivo/`.
 6. **nginx + TLS** (`deploy/nginx/farmivo.conf`, then `certbot --nginx`): the apps need https in production.
@@ -72,7 +72,7 @@ For a server that already runs MongoDB (and optionally MinIO). The API runs as a
 8. **Firewall:** MongoDB (27017) and MinIO (9000/9001) should only accept connections from the API server itself (or a private network), not from the internet. Expose only 80/443.
 9. Put the https URL into both apps' release configuration.
 
-The `Dockerfile` (gunicorn on `$PORT`) is an alternative for container hosts.
+The `Dockerfile` (`gunicorn --bind 0.0.0.0:8000 app.main:app`) is an alternative for container hosts.
 
 ## 3. Android
 ```bash

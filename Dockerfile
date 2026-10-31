@@ -3,5 +3,5 @@ WORKDIR /srv/farmivo
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
-ENV PORT=8080
-CMD exec gunicorn --workers 2 --bind 0.0.0.0:${PORT} --access-logfile - app.main:app
+EXPOSE 8000
+CMD exec gunicorn --bind 0.0.0.0:8000 app.main:app
