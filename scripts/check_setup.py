@@ -30,7 +30,8 @@ def check_settings():
         ok("MongoDB from FARMIVO_MONGO_URI (the HOST/USER/PASSWORD fields are ignored)")
     else:
         ok(f"MongoDB {settings.mongo_host}:{settings.mongo_port}, user {settings.mongo_user or '(none)'}, "
-           f"auth database {settings.mongo_auth_db or settings.mongo_db}, data database {settings.mongo_db}")
+           f"auth database {settings.mongo_auth_db or settings.mongo_db}, data database {settings.mongo_db}, "
+           f"collections {settings.mongo_prefix}docs / {settings.mongo_prefix}photos")
     return settings
 
 
@@ -55,9 +56,9 @@ def check_mongo(settings) -> None:
 
     db = client[settings.mongo_db]
     try:
-        db["docs"].create_index("_path")
-        db["setup_check"].insert_one({"check": True})
-        db["setup_check"].drop()
+        db[f"{settings.mongo_prefix}docs"].create_index("_path")
+        db[f"{settings.mongo_prefix}setup_check"].insert_one({"check": True})
+        db[f"{settings.mongo_prefix}setup_check"].drop()
     except OperationFailure as exc:
         if exc.code == 13:
             fail(f"user '{settings.mongo_user}' may not write to database '{settings.mongo_db}'",

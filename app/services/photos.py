@@ -39,10 +39,10 @@ class FirebasePhotoStore:
 class GridFsPhotoStore:
     """Stores photos in MongoDB (GridFS) and serves them through GET /v1/photos/{id}."""
 
-    def __init__(self, db, public_base_url: str) -> None:
+    def __init__(self, db, public_base_url: str, collection: str = "photos") -> None:
         import gridfs
 
-        self._fs = gridfs.GridFS(db, collection="photos")
+        self._fs = gridfs.GridFS(db, collection=collection)
         self._base = public_base_url.rstrip("/")
 
     def save(self, farm_id: str, animal_id: str, content: bytes, content_type: str) -> str:

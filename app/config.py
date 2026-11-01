@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     mongo_auth_db: str | None = None  # database where the user was created; defaults to mongo_db
     mongo_uri: str | None = None
     mongo_db: str = "farmivo"
+    # Prefix for Farmivo's collections ("docs", "photos"), e.g. "farmivo_" when sharing another app's database.
+    mongo_prefix: str = ""
     # Used to build absolute photo URLs when photos are stored in MongoDB (GridFS)
     public_base_url: str = "http://localhost:8000"
     # Where photos live: "gridfs" (inside the Mongo database, default) or "minio" (S3-compatible bucket)

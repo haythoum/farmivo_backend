@@ -183,10 +183,10 @@ class FirestoreRepository:
 
 
 class MongoRepository:
-    """All documents live in one collection, ``docs``; the Firestore-style path is stored in ``_path``."""
+    """All documents live in one collection (default ``docs``); the Firestore-style path is stored in ``_path``."""
 
-    def __init__(self, db: Any) -> None:
-        self._c = db["docs"]
+    def __init__(self, db: Any, collection: str = "docs") -> None:
+        self._c = db[collection]
         self._c.create_index("_path")
 
     @staticmethod

@@ -73,7 +73,7 @@ def _repo() -> Repository:
         from firebase_admin import firestore
 
         return FirestoreRepository(firestore.client(_firebase_app()))
-    return MongoRepository(_mongo_db())
+    return MongoRepository(_mongo_db(), f"{get_settings().mongo_prefix}docs")
 
 
 @lru_cache
@@ -99,7 +99,7 @@ def _photo_store() -> PhotoStore:
     if settings.db_backend == "firestore":
         _firebase_app()
         return FirebasePhotoStore(settings.firebase_storage_bucket)
-    return GridFsPhotoStore(_mongo_db(), settings.public_base_url)
+    return GridFsPhotoStore(_mongo_db(), settings.public_base_url, f"{settings.mongo_prefix}photos")
 
 
 def get_repo() -> Repository:
