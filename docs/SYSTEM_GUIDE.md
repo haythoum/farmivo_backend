@@ -127,7 +127,7 @@ sequenceDiagram
   API->>FA: verify signature, expiry, project farmivo-4d932 (keys cached)
   alt token rejected
     API-->>App: 401 Invalid or expired token (reason in the server log)
-    App->>FA: refresh token once and retry, still 401: iOS signs out, Android shows the message
+    App->>FA: refresh token once and retry, still 401: both apps sign out and show the sign-in screen
   end
   API->>DB: users.find(_id = uid)
   opt first call of this user
@@ -287,7 +287,7 @@ flowchart LR
 - **Server:** `app/errors.py` turns every error into `{"detail": ...}`. `detail` is text, or for 422 a list of `{loc, msg, type}`.
 - **Android:** `data/Cb.errorMessage` reads `detail`. For a list, it shows the first `msg` plus its location. For a 404 it adds the URL that was called. A network failure becomes "No connection. Check your network and try again."
 - **iOS:** `APIClient` produces `APIError(status, message)` from `detail` and shows it in an alert or inline. A repeated 401 posts `farmivoSessionExpired`, and the app signs out.
-- **401:** both apps refresh the Firebase token once and retry (Android: OkHttp `RefreshAuthenticator`; iOS: `APIClient`). If it still fails, iOS signs the user out, and Android shows the server message ("Invalid or expired token").
+- **401:** both apps refresh the Firebase token once and retry (Android: OkHttp `RefreshAuthenticator`; iOS: `APIClient`). If it still fails, both apps sign the user out and return to the sign-in screen (Android: `Cb` calls `FarmivoApp.sessionExpired()`).
 
 ## 7. Security model
 
