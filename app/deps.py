@@ -1,3 +1,5 @@
+"""Request dependencies: authentication, farm context and the lazily created database, push and photo services."""
+
 from __future__ import annotations
 
 import os
@@ -23,6 +25,7 @@ def _override(name: str):
 
 @lru_cache
 def _firebase_app():
+    """Initialise Firebase Admin once (project id, optional storage bucket and service-account key)."""
     import firebase_admin
 
     settings = get_settings()
@@ -54,6 +57,7 @@ def _firebase_app():
 
 @lru_cache
 def _mongo_db():
+    """Open the MongoDB database once (5 s timeouts). Raises RuntimeError for invalid settings."""
     from pymongo import MongoClient
     from pymongo.errors import ConfigurationError
 
@@ -69,6 +73,7 @@ def _mongo_db():
 
 @lru_cache
 def _repo() -> Repository:
+    """The process-wide repository: Firestore if FARMIVO_DB_BACKEND=firestore, else MongoDB."""
     if get_settings().db_backend == "firestore":
         from firebase_admin import firestore
 
@@ -78,12 +83,14 @@ def _repo() -> Repository:
 
 @lru_cache
 def _notifier() -> Notifier:
+    """The process-wide push sender (Firebase Cloud Messaging)."""
     _firebase_app()
     return FcmNotifier()
 
 
 @lru_cache
 def _photo_store() -> PhotoStore:
+    """The process-wide photo store: MinIO, Firebase Storage or GridFS, depending on settings."""
     settings = get_settings()
     if settings.photo_store == "minio":
         if not (settings.minio_access_key and settings.minio_secret_key):
@@ -103,14 +110,17 @@ def _photo_store() -> PhotoStore:
 
 
 def get_repo() -> Repository:
+    """Repository for this request (test override or the shared one)."""
     return _override("repo") or _repo()
 
 
 def get_notifier() -> Notifier:
+    """Push notifier for this request (test override or FCM)."""
     return _override("notifier") or _notifier()
 
 
 def get_photo_store() -> PhotoStore:
+    """Photo store for this request (test override or the configured store)."""
     return _override("photo_store") or _photo_store()
 
 
@@ -137,6 +147,7 @@ def get_current_uid() -> str:
 
 @dataclass
 class Ctx:
+    """Per-request context: signed-in user id, that user's farm id and the repository."""
     uid: str
     farm_id: str
     repo: Repository

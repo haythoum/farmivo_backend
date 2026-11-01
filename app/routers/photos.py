@@ -1,3 +1,5 @@
+"""Public photo download by unguessable id (/v1/photos/<id>)."""
+
 from __future__ import annotations
 
 from flask import Blueprint, Response

@@ -1,3 +1,5 @@
+"""Income and expenses: transactions CRUD and the finance summary (/v1/transactions, /v1/finance/summary)."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -32,11 +34,13 @@ bp.register_blueprint(transactions, url_prefix="/transactions")
 
 
 def farm_currency(repo: Repository, farm_id: str) -> str:
+    """The farm's currency code (USD if not set)."""
     farm = repo.get("farms", farm_id) or {}
     return farm.get("currency", "USD")
 
 
 def compute_finance(repo: Repository, farm_id: str, start: date, end: date) -> FinanceSummary:
+    """Income, expenses, net, per-category and per-month totals of a farm for a date range."""
     rows = repo.list(
         farm_path(farm_id, "transactions"),
         [("date", ">=", start.isoformat()), ("date", "<=", end.isoformat())],

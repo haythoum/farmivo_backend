@@ -1,3 +1,5 @@
+"""In-app notification history (/v1/notifications...)."""
+
 from __future__ import annotations
 
 from flask import Blueprint
@@ -13,6 +15,7 @@ bp = Blueprint("notifications", __name__)
 
 @bp.get("/notifications")
 def list_notifications():
+    """GET /v1/notifications - newest first, optionally unread only."""
     ctx = get_ctx()
     unread_only = q_bool("unread_only")
     limit = q_int("limit", 50, ge=1, le=200)
@@ -23,6 +26,7 @@ def list_notifications():
 
 @bp.post("/notifications/read-all")
 def mark_all_read():
+    """POST /v1/notifications/read-all - mark every unread notification as read."""
     ctx = get_ctx()
     for n in ctx.repo.list(path_of(ctx, "notifications"), [("read", "==", False)]):
         ctx.repo.update(path_of(ctx, "notifications"), n["id"], {"read": True})
@@ -31,6 +35,7 @@ def mark_all_read():
 
 @bp.post("/notifications/<notification_id>/read")
 def mark_read(notification_id: str):
+    """POST /v1/notifications/<id>/read - mark one notification as read."""
     ctx = get_ctx()
     record = ctx.repo.update(path_of(ctx, "notifications"), notification_id, {"read": True})
     if not record:
@@ -40,6 +45,7 @@ def mark_read(notification_id: str):
 
 @bp.delete("/notifications/<notification_id>")
 def delete_notification(notification_id: str):
+    """DELETE /v1/notifications/<id> - delete one notification."""
     ctx = get_ctx()
     if not ctx.repo.delete(path_of(ctx, "notifications"), notification_id):
         raise ApiError(404, "Notification not found")

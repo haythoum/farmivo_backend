@@ -1,3 +1,5 @@
+"""Date helpers and the gestation table."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -14,10 +16,12 @@ GESTATION_DAYS: dict[str, int] = {
 
 
 def today() -> date:
+    """Today's date (a function so tests can patch it)."""
     return date.today()
 
 
 def parse_date(value: str | date | None) -> date | None:
+    """Accept a date, an ISO string (first 10 characters used) or None."""
     if value is None or isinstance(value, date):
         return value
     return date.fromisoformat(value[:10])
@@ -43,5 +47,6 @@ def age_parts(dob: date | None, until: date | None = None) -> tuple[int | None, 
 
 
 def expected_birth(species: str | None, mating: date) -> date | None:
+    """Mating date + typical gestation for the species, or None for unknown species."""
     days = GESTATION_DAYS.get(species or "")
     return mating + timedelta(days=days) if days else None

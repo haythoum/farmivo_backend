@@ -3,7 +3,7 @@
 Reminders are derived from other records (vaccination ``next_due_date``, vet visit
 ``follow_up_date``, breeding ``expected_birth_date``). Each source record owns one
 reminder with a deterministic id, so create/update/delete of the source keeps the
-reminder in sync. ``run_due_reminders`` is called by Cloud Scheduler and pushes
+reminder in sync. ``run_due_reminders`` is called by the daily cron job and pushes
 notifications when a reminder enters a new bucket: 7 days, 1 day, due today, overdue.
 """
 
@@ -22,6 +22,7 @@ BUCKET_OVERDUE = -1
 
 
 def reminder_bucket(days_until: int) -> int | None:
+    """Notification bucket for a number of days until due: -1 overdue, 0 today, 1, 7, or None (not yet)."""
     if days_until < 0:
         return BUCKET_OVERDUE
     if days_until == 0:
@@ -34,6 +35,7 @@ def reminder_bucket(days_until: int) -> int | None:
 
 
 def animal_label(repo: Repository, farm_id: str, animal_id: str | None) -> str | None:
+    """"Name (TAG)" of an animal, or whichever exists, or None."""
     if not animal_id:
         return None
     animal = repo.get(farm_path(farm_id, "animals"), animal_id)
@@ -80,6 +82,7 @@ def sync_reminder(
 
 
 def delete_reminder(repo: Repository, farm_id: str, reminder_id: str) -> None:
+    """Delete one reminder of a farm (no error if missing)."""
     repo.delete(farm_path(farm_id, "reminders"), reminder_id)
 
 

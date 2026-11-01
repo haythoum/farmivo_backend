@@ -1,3 +1,5 @@
+"""Farm dashboard: one call with herd, movements, health, breeding and finance figures (/v1/dashboard)."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -16,6 +18,7 @@ bp = Blueprint("dashboard", __name__)
 
 
 def _count_by(rows: list[dict], key: str) -> dict[str, int]:
+    """Count rows per value of a field (missing values count as "unknown")."""
     counts: dict[str, int] = {}
     for r in rows:
         counts[r.get(key) or "unknown"] = counts.get(r.get(key) or "unknown", 0) + 1
@@ -24,6 +27,7 @@ def _count_by(rows: list[dict], key: str) -> dict[str, int]:
 
 @bp.get("/dashboard")
 def dashboard():
+    """GET /v1/dashboard - figures for the dashboard screen."""
     ctx = get_ctx()
     period_days = q_int("period_days", 30, ge=1, le=366)  # window for births/deaths/sales and finance
     upcoming_days = q_int("upcoming_days", 30, ge=1, le=365)

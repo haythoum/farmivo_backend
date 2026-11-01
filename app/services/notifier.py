@@ -1,3 +1,5 @@
+"""Push notification senders."""
+
 from __future__ import annotations
 
 import logging
@@ -7,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class Notifier(Protocol):
+    """Interface of a push sender."""
     def send(self, tokens: list[str], title: str, body: str, data: dict[str, str]) -> list[str]:
         """Send a push notification. Returns tokens that are no longer valid."""
         ...
@@ -25,6 +28,7 @@ class NullNotifier:
 
 
 class FcmNotifier:
+    """Sends pushes with Firebase Cloud Messaging in batches of 500; returns tokens FCM reports as invalid."""
     def send(self, tokens: list[str], title: str, body: str, data: dict[str, str]) -> list[str]:
         if not tokens:
             return []

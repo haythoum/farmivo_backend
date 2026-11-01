@@ -1,3 +1,5 @@
+"""Tabular reports as JSON or CSV (/v1/reports/<kind>)."""
+
 from __future__ import annotations
 
 import csv
@@ -18,6 +20,7 @@ bp = Blueprint("reports", __name__)
 
 
 class ReportKind(str, Enum):
+    """Which report: herd, vaccinations, financial or production."""
     herd = "herd"
     vaccinations = "vaccinations"
     financial = "financial"
@@ -25,15 +28,18 @@ class ReportKind(str, Enum):
 
 
 class ReportFormat(str, Enum):
+    """Output format: json (default) or csv."""
     json = "json"
     csv = "csv"
 
 
 def _range_filters(field: str, start: date, end: date) -> list[tuple[str, str, object]]:
+    """Filters keeping records whose field lies between start and end (inclusive)."""
     return [(field, ">=", start.isoformat()), (field, "<=", end.isoformat())]
 
 
 def build_rows(ctx: Ctx, kind: ReportKind, start: date, end: date) -> tuple[list[str], list[dict]]:
+    """Column names and rows of one report for a date range (herd ignores the range)."""
     if kind == ReportKind.herd:
         columns = ["ear_tag", "name", "species", "breed", "sex", "date_of_birth", "age_label", "date_added", "status", "status_date"]
         rows = [render_animal(a).model_dump(mode="json") for a in ctx.repo.list(path_of(ctx, "animals"), order_by="ear_tag")]

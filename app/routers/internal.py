@@ -1,3 +1,5 @@
+"""Endpoints for server jobs only, protected by X-Cron-Secret (/v1/internal/...)."""
+
 from __future__ import annotations
 
 import hmac

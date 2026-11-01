@@ -1,3 +1,5 @@
+"""Settings loaded from FARMIVO_* environment variables and the .env file next to app/."""
+
 from functools import lru_cache
 from pathlib import Path
 
@@ -9,6 +11,7 @@ ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 
 class Settings(BaseSettings):
+    """All server settings. Each field maps to an environment variable with the FARMIVO_ prefix."""
     model_config = SettingsConfigDict(env_prefix="FARMIVO_", env_file=ENV_FILE, extra="ignore")
 
     firebase_project_id: str | None = None
@@ -47,6 +50,7 @@ class Settings(BaseSettings):
 
     @property
     def mongo_url(self) -> str:
+        """MongoDB connection string: FARMIVO_MONGO_URI if set, else built from the separate fields (password URL-encoded)."""
         if self.mongo_uri:
             return self.mongo_uri.strip().strip('"').strip("'")
         if not self.mongo_user:
@@ -59,9 +63,11 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
+        """FARMIVO_CORS_ORIGINS split into a list (empty = CORS disabled)."""
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 @lru_cache
 def get_settings() -> Settings:
+    """Return the process-wide Settings (read once, then cached)."""
     return Settings()

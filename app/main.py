@@ -1,3 +1,5 @@
+"""Flask application factory and WSGI entry point (gunicorn app.main:app)."""
+
 from __future__ import annotations
 
 from flask import Flask, jsonify

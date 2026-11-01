@@ -1,3 +1,5 @@
+"""Health: vaccinations, treatments, vet visits, illnesses and reminders (/v1/vaccinations, ... /v1/reminders)."""
+
 from __future__ import annotations
 
 import re
@@ -33,6 +35,7 @@ bp = Blueprint("health", __name__)
 
 # ------------------------------------------------------------- vaccinations
 def _sync_vaccination(ctx: Ctx, record: dict) -> None:
+    """CRUD hook: keep the vacc_<id> reminder on the vaccination's next_due_date."""
     label = animal_label(ctx.repo, ctx.farm_id, record["animal_id"])
     sync_reminder(
         ctx.repo,
@@ -72,6 +75,7 @@ bp.register_blueprint(treatments, url_prefix="/treatments")
 
 # --------------------------------------------------------------- vet visits
 def _sync_vet_visit(ctx: Ctx, record: dict) -> None:
+    """CRUD hook: keep the vet_<id> reminder on the vet visit's follow_up_date."""
     label = animal_label(ctx.repo, ctx.farm_id, record["animal_id"])
     sync_reminder(
         ctx.repo,
@@ -100,6 +104,7 @@ bp.register_blueprint(vet_visits, url_prefix="/vet-visits")
 
 # ------------------------------------------------------------------ illness
 def _illness_status(record: dict) -> dict:
+    """Add status "recovered" or "ongoing" depending on recovery_date."""
     return {**record, "status": "recovered" if record.get("recovery_date") else "ongoing"}
 
 
@@ -120,12 +125,14 @@ reminders_bp = Blueprint("reminders", __name__)
 
 
 def _render_reminder(record: dict, as_of: date) -> ReminderOut:
+    """Convert a stored reminder into ReminderOut with days_until counted from as_of."""
     due = parse_date(record["due_date"])
     return ReminderOut.model_validate({**record, "days_until": (due - as_of).days if due else None})
 
 
 @reminders_bp.get("/reminders")
 def list_reminders():
+    """GET /v1/reminders - reminders ordered by due date, filtered by status, animal, type or horizon."""
     ctx = get_ctx()
     status_ = q_str("status", "pending")
     if not re.fullmatch("pending|done|all", status_ or ""):
@@ -148,6 +155,7 @@ def list_reminders():
 
 @reminders_bp.post("/reminders")
 def create_custom_reminder():
+    """POST /v1/reminders - a reminder not tied to a record (source_type "custom")."""
     ctx = get_ctx()
     data = body(ReminderCreate)
     if data.animal_id:
@@ -169,6 +177,7 @@ def create_custom_reminder():
 
 @reminders_bp.post("/reminders/<reminder_id>/done")
 def mark_reminder_done(reminder_id: str):
+    """POST /v1/reminders/<id>/done - mark a reminder as done (no more pushes)."""
     ctx = get_ctx()
     record = ctx.repo.update(path_of(ctx, "reminders"), reminder_id, {"status": "done"})
     if not record:
@@ -178,6 +187,7 @@ def mark_reminder_done(reminder_id: str):
 
 @reminders_bp.delete("/reminders/<reminder_id>")
 def delete_custom_reminder(reminder_id: str):
+    """DELETE /v1/reminders/<id> - delete a reminder."""
     ctx = get_ctx()
     if not ctx.repo.delete(path_of(ctx, "reminders"), reminder_id):
         raise ApiError(404, "Reminder not found")

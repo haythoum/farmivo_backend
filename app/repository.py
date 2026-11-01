@@ -1,14 +1,14 @@
 """Storage abstraction.
 
-All data lives in Firestore, addressed by slash-separated collection paths such as
-``farms/{farm_id}/animals``. The ``Repository`` protocol has two implementations:
+Records are addressed by slash-separated paths such as ``farms/{farm_id}/animals`` plus an id.
+The ``Repository`` protocol has three implementations:
 
 * ``MongoRepository``     - production (MongoDB / Atlas). Default.
 * ``FirestoreRepository`` - production alternative (Firebase).
 * ``InMemoryRepository``  - tests and local experiments (no Firebase needed).
 
-Only equality filters are pushed down to Firestore. Range filters, ordering and limits
-are applied in Python. A single farm holds at most a few thousand documents per
+Only equality (and, for MongoDB, ``in``) filters are pushed down to the database. Range
+filters, ordering and limits are applied in Python (``apply_query``). A single farm holds at most a few thousand documents per
 collection, and this keeps the project free of composite-index management.
 """
 
@@ -23,10 +23,12 @@ Filter = tuple[str, str, Any]  # (field, op, value); op in ==, !=, <, <=, >, >=,
 
 
 def now_iso() -> str:
+    """Current UTC time as an ISO-8601 string (seconds precision); used for created_at/updated_at."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _matches(doc: dict, flt: Filter) -> bool:
+    """True if one document satisfies one (field, op, value) filter."""
     field, op, value = flt
     actual = doc.get(field)
     if op == "in":
@@ -58,6 +60,7 @@ def apply_query(
     desc: bool = False,
     limit: int | None = None,
 ) -> list[dict]:
+    """Filter, sort (missing values last) and limit a list of documents in Python."""
     result = [d for d in docs if all(_matches(d, f) for f in (filters or []))]
     if order_by:
         present = [d for d in result if d.get(order_by) is not None]
@@ -70,7 +73,11 @@ def apply_query(
 
 
 class Repository(Protocol):
-    def get(self, path: str, doc_id: str) -> dict | None: ...
+    """Storage interface used by all routers: records are addressed by a path and an id."""
+
+    def get(self, path: str, doc_id: str) -> dict | None:
+        """Return one record (with "id") or None."""
+        ...
 
     def list(
         self,
@@ -79,18 +86,29 @@ class Repository(Protocol):
         order_by: str | None = None,
         desc: bool = False,
         limit: int | None = None,
-    ) -> list[dict]: ...
+    ) -> list[dict]:
+        """Return the records under a path matching all filters, optionally ordered and limited."""
+        ...
 
-    def create(self, path: str, data: dict, doc_id: str | None = None) -> dict: ...
+    def create(self, path: str, data: dict, doc_id: str | None = None) -> dict:
+        """Insert a record (new id unless given), stamp created_at/updated_at, return it."""
+        ...
 
-    def update(self, path: str, doc_id: str, data: dict) -> dict | None: ...
+    def update(self, path: str, doc_id: str, data: dict) -> dict | None:
+        """Merge fields into a record and return it, or None if it does not exist."""
+        ...
 
-    def set(self, path: str, doc_id: str, data: dict) -> dict: ...
+    def set(self, path: str, doc_id: str, data: dict) -> dict:
+        """Create or replace a record with a known id (keeps created_at), return it."""
+        ...
 
-    def delete(self, path: str, doc_id: str) -> bool: ...
+    def delete(self, path: str, doc_id: str) -> bool:
+        """Delete a record; True if it existed."""
+        ...
 
 
 class InMemoryRepository:
+    """Dictionary-backed repository for tests and the demo seeder's dry run."""
     def __init__(self) -> None:
         self._data: dict[str, dict[str, dict]] = {}
 
@@ -130,6 +148,7 @@ class InMemoryRepository:
 
 
 class FirestoreRepository:
+    """Repository on Google Firestore (alternative backend; equality filters run in Firestore)."""
     def __init__(self, client: Any) -> None:
         self._db = client
 
@@ -263,4 +282,5 @@ class MongoRepository:
 # Path helpers --------------------------------------------------------------
 
 def farm_path(farm_id: str, collection: str) -> str:
+    """Path of a farm's sub-collection, e.g. farms/<farm_id>/animals."""
     return f"farms/{farm_id}/{collection}"

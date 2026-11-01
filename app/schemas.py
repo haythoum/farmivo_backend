@@ -1,3 +1,5 @@
+"""Request and response models (pydantic). *Base/*Create = request body, *Update = PATCH body (all optional), *Out = response."""
+
 from __future__ import annotations
 
 from datetime import date as Date
@@ -20,6 +22,7 @@ def make_partial(model: type[BaseModel], name: str) -> type[BaseModel]:
 
 # --------------------------------------------------------------------------- enums
 class Species(str, Enum):
+    """Animal species."""
     cattle = "cattle"
     sheep = "sheep"
     goat = "goat"
@@ -32,11 +35,13 @@ class Species(str, Enum):
 
 
 class Sex(str, Enum):
+    """Animal sex."""
     male = "male"
     female = "female"
 
 
 class AnimalStatus(str, Enum):
+    """Animal status; active/sick/quarantine count as on the farm."""
     active = "active"
     sick = "sick"
     quarantine = "quarantine"
@@ -48,12 +53,14 @@ ON_FARM_STATUSES = {AnimalStatus.active.value, AnimalStatus.sick.value, AnimalSt
 
 
 class Origin(str, Enum):
+    """How the animal arrived on the farm."""
     born_on_farm = "born_on_farm"
     purchased = "purchased"
     other = "other"
 
 
 class PregnancyStatus(str, Enum):
+    """State of a breeding's pregnancy."""
     pending = "pending"  # mated, not yet confirmed
     confirmed = "confirmed"
     not_pregnant = "not_pregnant"
@@ -62,11 +69,13 @@ class PregnancyStatus(str, Enum):
 
 
 class MatingMethod(str, Enum):
+    """Natural mating or artificial insemination."""
     natural = "natural"
     artificial_insemination = "artificial_insemination"
 
 
 class Product(str, Enum):
+    """Production product type."""
     milk = "milk"
     eggs = "eggs"
     wool = "wool"
@@ -78,12 +87,14 @@ DEFAULT_UNIT = {"milk": "liters", "eggs": "count", "wool": "kg", "meat": "kg", "
 
 
 class TransactionType(str, Enum):
+    """Income or expense."""
     income = "income"
     expense = "expense"
 
 
 # ------------------------------------------------------------------ common bases
 class Record(BaseModel):
+    """Base of all responses: id and timestamps; unknown stored fields are ignored."""
     model_config = ConfigDict(extra="ignore")
 
     id: str
@@ -92,11 +103,13 @@ class Record(BaseModel):
 
 
 class Strict(BaseModel):
+    """Base of all request bodies: unknown fields are rejected (422), strings are trimmed."""
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
 # ---------------------------------------------------------------------- farm
 class FarmUpdate(Strict):
+    """PATCH /v1/farm body. Currency is upper-cased."""
     name: str | None = Field(default=None, min_length=1, max_length=80)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     country: str | None = Field(default=None, max_length=60)
@@ -109,6 +122,7 @@ class FarmUpdate(Strict):
 
 
 class FarmOut(Record):
+    """Farm as returned by the API."""
     name: str
     currency: str = "USD"
     country: str | None = None
@@ -118,6 +132,7 @@ class FarmOut(Record):
 
 # ------------------------------------------------------------------- animals
 class AnimalBase(Strict):
+    """Animal fields a client may send. date_of_birth cannot be in the future."""
     ear_tag: str = Field(min_length=1, max_length=40)
     name: str | None = Field(default=None, max_length=80)
     species: Species
@@ -139,6 +154,7 @@ class AnimalBase(Strict):
 
 
 class AnimalCreate(AnimalBase):
+    """POST /v1/animals body (adds status and photo_url)."""
     status: AnimalStatus = AnimalStatus.active
     photo_url: str | None = None
 
@@ -147,6 +163,7 @@ AnimalUpdate = make_partial(AnimalBase, "AnimalUpdate")
 
 
 class AnimalOut(Record):
+    """Animal as returned, with computed age fields."""
     ear_tag: str
     name: str | None = None
     species: Species
@@ -167,6 +184,7 @@ class AnimalOut(Record):
 
 
 class StatusChange(Strict):
+    """POST /v1/animals/<id>/status body."""
     status: AnimalStatus
     date: Date = Field(default_factory=today)
     sale_price: float | None = Field(default=None, ge=0)
@@ -175,6 +193,7 @@ class StatusChange(Strict):
 
 
 class FamilyOut(BaseModel):
+    """Response of GET /v1/animals/<id>/family."""
     animal: AnimalOut
     mother: AnimalOut | None = None
     father: AnimalOut | None = None
@@ -184,6 +203,7 @@ class FamilyOut(BaseModel):
 
 # ------------------------------------------------------------------- health
 class VaccinationBase(Strict):
+    """Vaccination body; next_due_date cannot be before date_given."""
     animal_id: str
     vaccine_name: str = Field(min_length=1, max_length=120)
     date_given: Date
@@ -203,10 +223,12 @@ VaccinationUpdate = make_partial(VaccinationBase, "VaccinationUpdate")
 
 
 class VaccinationOut(VaccinationBase, Record):
+    """Vaccination as returned."""
     pass
 
 
 class TreatmentBase(Strict):
+    """Treatment body."""
     animal_id: str
     name: str = Field(min_length=1, max_length=120)
     medication: str | None = Field(default=None, max_length=120)
@@ -222,10 +244,12 @@ TreatmentUpdate = make_partial(TreatmentBase, "TreatmentUpdate")
 
 
 class TreatmentOut(TreatmentBase, Record):
+    """Treatment as returned."""
     pass
 
 
 class VetVisitBase(Strict):
+    """Vet visit body."""
     animal_id: str
     visit_date: Date
     vet_name: str | None = Field(default=None, max_length=120)
@@ -239,10 +263,12 @@ VetVisitUpdate = make_partial(VetVisitBase, "VetVisitUpdate")
 
 
 class VetVisitOut(VetVisitBase, Record):
+    """Vet visit as returned."""
     pass
 
 
 class IllnessBase(Strict):
+    """Illness body."""
     animal_id: str
     condition: str = Field(min_length=1, max_length=200)
     start_date: Date
@@ -255,10 +281,12 @@ IllnessUpdate = make_partial(IllnessBase, "IllnessUpdate")
 
 
 class IllnessOut(IllnessBase, Record):
+    """Illness as returned, with status ongoing/recovered."""
     status: str = "ongoing"  # ongoing | recovered (derived from recovery_date)
 
 
 class ReminderOut(Record):
+    """Reminder as returned, with days_until."""
     source_type: str  # vaccination | vet_visit | birth | custom
     source_id: str | None = None
     animal_id: str | None = None
@@ -269,6 +297,7 @@ class ReminderOut(Record):
 
 
 class ReminderCreate(Strict):
+    """POST /v1/reminders body."""
     title: str = Field(min_length=1, max_length=200)
     due_date: Date
     animal_id: str | None = None
@@ -276,6 +305,7 @@ class ReminderCreate(Strict):
 
 # ----------------------------------------------------------------- breeding
 class BreedingBase(Strict):
+    """Breeding (mating) body."""
     dam_id: str
     sire_id: str | None = None
     sire_note: str | None = Field(default=None, max_length=200)  # external sire / semen straw
@@ -291,11 +321,13 @@ BreedingUpdate = make_partial(BreedingBase, "BreedingUpdate")
 
 
 class BreedingOut(BreedingBase, Record):
+    """Breeding as returned, with birth result."""
     actual_birth_date: Date | None = None
     offspring_ids: list[str] = []
 
 
 class OffspringIn(Strict):
+    """One newborn in a birth request."""
     ear_tag: str = Field(min_length=1, max_length=40)
     name: str | None = Field(default=None, max_length=80)
     sex: Sex
@@ -304,18 +336,21 @@ class OffspringIn(Strict):
 
 
 class BirthRequest(Strict):
+    """POST /v1/breedings/<id>/births body."""
     birth_date: Date
     offspring: list[OffspringIn] = Field(min_length=1, max_length=20)
     notes: str | None = Field(default=None, max_length=1000)
 
 
 class BirthOut(BaseModel):
+    """Response of a recorded birth: updated breeding and created animals."""
     breeding: BreedingOut
     offspring: list[AnimalOut]
 
 
 # ------------------------------------------------------ growth & production
 class WeightBase(Strict):
+    """Weight record body."""
     animal_id: str
     date: Date
     weight_kg: float = Field(gt=0, lt=5000)
@@ -326,10 +361,12 @@ WeightUpdate = make_partial(WeightBase, "WeightUpdate")
 
 
 class WeightOut(WeightBase, Record):
+    """Weight record as returned."""
     pass
 
 
 class ProductionBase(Strict):
+    """Production record body; unit defaults from the product."""
     animal_id: str | None = None  # omit for herd/flock level records
     date: Date
     product: Product
@@ -348,10 +385,12 @@ ProductionUpdate = make_partial(ProductionBase, "ProductionUpdate")
 
 
 class ProductionOut(ProductionBase, Record):
+    """Production record as returned."""
     pass
 
 
 class FeedingBase(Strict):
+    """Feeding record body (one animal or a group)."""
     animal_id: str | None = None
     group_name: str | None = Field(default=None, max_length=80)
     date: Date
@@ -364,15 +403,18 @@ FeedingUpdate = make_partial(FeedingBase, "FeedingUpdate")
 
 
 class FeedingOut(FeedingBase, Record):
+    """Feeding record as returned."""
     pass
 
 
 class GrowthPoint(BaseModel):
+    """One point of the growth chart."""
     date: Date
     weight_kg: float
 
 
 class GrowthOut(BaseModel):
+    """Response of GET /v1/animals/<id>/growth."""
     animal_id: str
     points: list[GrowthPoint]
     latest_weight_kg: float | None = None
@@ -381,11 +423,13 @@ class GrowthOut(BaseModel):
 
 
 class DailyTotal(BaseModel):
+    """Total of one day in the production summary."""
     date: Date
     total: float
 
 
 class ProductionSummary(BaseModel):
+    """Response of GET /v1/production/summary."""
     product: Product
     unit: str
     date_from: Date
@@ -398,6 +442,7 @@ class ProductionSummary(BaseModel):
 
 # ------------------------------------------------------------------ finance
 class TransactionBase(Strict):
+    """Income/expense body."""
     type: TransactionType
     category: str = Field(min_length=1, max_length=60)
     amount: float = Field(gt=0)
@@ -410,16 +455,19 @@ TransactionUpdate = make_partial(TransactionBase, "TransactionUpdate")
 
 
 class TransactionOut(TransactionBase, Record):
+    """Transaction as returned."""
     pass
 
 
 class MonthlyFinance(BaseModel):
+    """Income and expenses of one month."""
     month: str  # YYYY-MM
     income: float
     expenses: float
 
 
 class FinanceSummary(BaseModel):
+    """Response of GET /v1/finance/summary."""
     date_from: Date
     date_to: Date
     currency: str
@@ -433,6 +481,7 @@ class FinanceSummary(BaseModel):
 
 # ------------------------------------------------------ notifications/devices
 class NotificationOut(Record):
+    """In-app notification as returned."""
     title: str
     body: str
     type: str = "info"
@@ -442,12 +491,14 @@ class NotificationOut(Record):
 
 
 class DeviceIn(Strict):
+    """POST /v1/devices body (FCM token)."""
     token: str = Field(min_length=10, max_length=4096)
     platform: str = Field(pattern="^(android|ios)$")
 
 
 # ---------------------------------------------------------------- dashboard
 class UpcomingItem(BaseModel):
+    """One upcoming reminder on the dashboard."""
     reminder_id: str
     animal_id: str | None = None
     animal_label: str | None = None
@@ -457,6 +508,7 @@ class UpcomingItem(BaseModel):
 
 
 class DashboardOut(BaseModel):
+    """Response of GET /v1/dashboard."""
     generated_at: str
     period_days: int
     period_from: Date

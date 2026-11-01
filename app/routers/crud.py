@@ -14,10 +14,12 @@ Hook = Callable[..., Any]
 
 
 def path_of(ctx: Ctx, collection: str) -> str:
+    """Path of one of the current farm's collections."""
     return farm_path(ctx.farm_id, collection)
 
 
 def get_animal_or_404(ctx: Ctx, animal_id: str) -> dict:
+    """Load an animal of the current farm or raise ApiError 404."""
     animal = ctx.repo.get(path_of(ctx, "animals"), animal_id)
     if not animal:
         raise ApiError(404, "Animal not found")
@@ -43,6 +45,7 @@ def build_crud_blueprint(
     after_delete: Hook | None = None,
     enrich: Callable[[dict], dict] | None = None,
 ) -> Blueprint:
+    """Build a Blueprint with list/create/get/update/delete routes for one farm collection, with optional hooks."""
     bp = Blueprint(name, __name__)
 
     def render(record: dict) -> Any:

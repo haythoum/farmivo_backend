@@ -1,3 +1,5 @@
+"""Breeding and reproduction: matings, pregnancy, expected birth reminder and births (/v1/breedings...)."""
+
 from __future__ import annotations
 
 from app.deps import Ctx, get_ctx
@@ -19,6 +21,7 @@ ACTIVE_PREGNANCY = {"pending", "confirmed"}
 
 
 def _validate_parents(ctx: Ctx, data: dict) -> None:
+    """Check dam (female) and sire (male) and fill expected_birth_date from the gestation table."""
     dam = ctx.repo.get(path_of(ctx, "animals"), data["dam_id"])
     if not dam:
         raise ApiError(404, "Dam (female) not found")
@@ -36,16 +39,19 @@ def _validate_parents(ctx: Ctx, data: dict) -> None:
 
 
 def _before_create(ctx: Ctx, data: dict) -> dict:
+    """CRUD hook: validate parents and start with no birth recorded."""
     _validate_parents(ctx, data)
     return {**data, "actual_birth_date": None, "offspring_ids": []}
 
 
 def _before_update(ctx: Ctx, existing: dict, merged: dict) -> dict:
+    """CRUD hook: re-validate parents on every update."""
     _validate_parents(ctx, merged)
     return merged
 
 
 def _sync(ctx: Ctx, record: dict) -> None:
+    """CRUD hook: keep the birth_<id> reminder on expected_birth_date while the pregnancy is pending/confirmed."""
     active = record.get("pregnancy_status") in ACTIVE_PREGNANCY
     label = animal_label(ctx.repo, ctx.farm_id, record["dam_id"])
     sync_reminder(

@@ -6,6 +6,8 @@ Start here. The three repositories each have a `docs/` folder; this one (backend
 
 | Document | What it answers |
 |---|---|
+| [SYSTEM_GUIDE.md](SYSTEM_GUIDE.md) | **Start here.** How backend, Android and iOS connect: components, deployment, sequence diagrams, screen → endpoint → code → collection map, configuration matrix, errors, security, glossary |
+| [CODE_REFERENCE.md](CODE_REFERENCE.md) | Every backend module, class, function and route: what it does, parameters, errors, side effects |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the whole system fits together: components, request flow, auth, reminders, photos |
 | [DATA_MODEL.md](DATA_MODEL.md) | What is stored in MongoDB, collections, relations, business rules |
 | [API.md](API.md) | The REST contract the apps use (every endpoint, field, error) |

@@ -1,3 +1,5 @@
+"""Animal profiles: CRUD, status changes, photo upload and family tree (/v1/animals...)."""
+
 from __future__ import annotations
 
 from flask import Blueprint, request
@@ -26,6 +28,7 @@ RELATED_COLLECTIONS = ["vaccinations", "treatments", "vet_visits", "illnesses", 
 
 
 def render_animal(record: dict) -> AnimalOut:
+    """Convert a stored animal into AnimalOut, adding age_days, age_months and age_label."""
     dob = parse_date(record.get("date_of_birth"))
     until = parse_date(record.get("status_date")) if record.get("status") == "deceased" else None
     days, months, label = age_parts(dob, until)
@@ -33,11 +36,13 @@ def render_animal(record: dict) -> AnimalOut:
 
 
 def ear_tag_taken(ctx: Ctx, ear_tag: str, exclude_id: str | None = None) -> bool:
+    """True if another animal of this farm already uses the ear tag."""
     matches = ctx.repo.list(path_of(ctx, "animals"), [("ear_tag", "==", ear_tag)])
     return any(m["id"] != exclude_id for m in matches)
 
 
 def check_parents(ctx: Ctx, data: dict, animal_id: str | None = None) -> None:
+    """Validate mother_id/father_id: must exist, have the right sex and not be the animal itself (404/422)."""
     for field, expected_sex in (("mother_id", "female"), ("father_id", "male")):
         parent_id = data.get(field)
         if not parent_id:
@@ -53,6 +58,7 @@ def check_parents(ctx: Ctx, data: dict, animal_id: str | None = None) -> None:
 
 @bp.get("/animals")
 def list_animals():
+    """GET /v1/animals - list the farm's animals, filtered by status/species/sex and searched by q."""
     ctx = get_ctx()
     status_ = q_str("status")  # a status, or 'on_farm' for active+sick+quarantine
     species, sex = q_str("species"), q_str("sex")
@@ -78,6 +84,7 @@ def list_animals():
 
 @bp.post("/animals")
 def create_animal():
+    """POST /v1/animals - create an animal (409 if the ear tag is taken)."""
     ctx = get_ctx()
     animal = body(AnimalCreate)
     if ear_tag_taken(ctx, animal.ear_tag):
@@ -91,11 +98,13 @@ def create_animal():
 
 @bp.get("/animals/<animal_id>")
 def get_animal(animal_id: str):
+    """GET /v1/animals/<id> - one animal (404 if missing)."""
     return out(render_animal(get_animal_or_404(get_ctx(), animal_id)))
 
 
 @bp.patch("/animals/<animal_id>")
 def update_animal(animal_id: str):
+    """PATCH /v1/animals/<id> - change some fields of an animal."""
     ctx = get_ctx()
     existing = get_animal_or_404(ctx, animal_id)
     patch = body(AnimalUpdate).model_dump(mode="json", exclude_unset=True)
@@ -167,6 +176,7 @@ def delete_animal(animal_id: str):
 
 @bp.post("/animals/<animal_id>/photo")
 def upload_photo(animal_id: str):
+    """POST /v1/animals/<id>/photo - store a JPEG/PNG/WebP (multipart field "file") and set photo_url."""
     ctx = get_ctx()
     store = get_photo_store()
     get_animal_or_404(ctx, animal_id)

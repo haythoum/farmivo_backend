@@ -40,20 +40,24 @@ def out(value: Any, status: int = 200) -> Response:
 
 
 def no_content() -> Response:
+    """Empty 204 response."""
     return Response(status=204)
 
 
 # ------------------------------------------------------------ query string
 def _bad(name: str, msg: str) -> ApiError:
+    """422 ApiError for an invalid query parameter, in pydantic's error format."""
     return ApiError(422, [{"loc": ["query", name], "msg": msg, "type": "value_error"}])
 
 
 def q_str(name: str, default: str | None = None) -> str | None:
+    """Query parameter as text (empty = default)."""
     value = request.args.get(name)
     return value if value not in (None, "") else default
 
 
 def q_int(name: str, default: int | None = None, ge: int | None = None, le: int | None = None) -> int | None:
+    """Query parameter as an integer within optional bounds (422 otherwise)."""
     raw = request.args.get(name)
     if raw in (None, ""):
         return default
@@ -69,6 +73,7 @@ def q_int(name: str, default: int | None = None, ge: int | None = None, le: int 
 
 
 def q_bool(name: str, default: bool = False) -> bool:
+    """Query parameter as a boolean (1/true/yes/on or 0/false/no/off)."""
     raw = request.args.get(name)
     if raw in (None, ""):
         return default
@@ -80,6 +85,7 @@ def q_bool(name: str, default: bool = False) -> bool:
 
 
 def q_date(name: str) -> date | None:
+    """Query parameter as a YYYY-MM-DD date."""
     raw = request.args.get(name)
     if raw in (None, ""):
         return None
@@ -90,6 +96,7 @@ def q_date(name: str) -> date | None:
 
 
 def q_enum(name: str, enum: type[Enum], default: Enum | None = None, required: bool = False):
+    """Query parameter as one of an Enum's values (422 otherwise)."""
     raw = request.args.get(name)
     if raw in (None, ""):
         if required:

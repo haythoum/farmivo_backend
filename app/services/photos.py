@@ -1,3 +1,5 @@
+"""Photo storage backends. Each save() returns the URL stored in the animal's photo_url."""
+
 from __future__ import annotations
 
 import uuid
@@ -7,12 +9,14 @@ ALLOWED_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
 
 
 class PhotoStore(Protocol):
+    """Interface of a photo store."""
     def save(self, farm_id: str, animal_id: str, content: bytes, content_type: str) -> str:
         """Store an image and return its URL."""
         ...
 
 
 class MemoryPhotoStore:
+    """Keeps photos in memory (tests)."""
     def __init__(self) -> None:
         self.files: dict[str, bytes] = {}
 
@@ -23,6 +27,7 @@ class MemoryPhotoStore:
 
 
 class FirebasePhotoStore:
+    """Uploads photos to Firebase Storage and returns their public URL (Firestore setup only)."""
     def __init__(self, bucket_name: str | None) -> None:
         self._bucket_name = bucket_name
 
@@ -50,6 +55,7 @@ class GridFsPhotoStore:
         return f"{self._base}/v1/photos/{file_id}"
 
     def read(self, file_id: str) -> tuple[bytes, str] | None:
+        """Return (bytes, content type) of a stored photo, or None if the id is unknown or malformed."""
         from bson import ObjectId
         from bson.errors import InvalidId
 
@@ -91,6 +97,7 @@ class MinioPhotoStore:
         return f"{self._base}/v1/photos/{file_id}"
 
     def read(self, file_id: str) -> tuple[bytes, str] | None:
+        """Return (bytes, content type) of a stored photo, or None if the id is unknown or malformed."""
         import re
 
         if not re.fullmatch(r"[0-9a-f]{32}", file_id):

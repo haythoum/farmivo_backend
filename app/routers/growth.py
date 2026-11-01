@@ -1,3 +1,5 @@
+"""Growth and production: weights, production, feeding, production summary and growth chart."""
+
 from __future__ import annotations
 
 from datetime import timedelta
