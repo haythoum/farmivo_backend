@@ -66,6 +66,10 @@ def log_mongo_target(app: Flask, settings) -> None:
                          "(a password with @ : / # ? must be URL-encoded in FARMIVO_MONGO_URI, "
                          "or use FARMIVO_MONGO_PASSWORD instead)")
         return
+    from app.config import ENV_FILE
+
+    source = str(ENV_FILE) if ENV_FILE.exists() else f"{ENV_FILE} NOT FOUND, using defaults"
+    app.logger.warning("Settings file: %s", source)
     app.logger.warning("MongoDB: %s, database %s, user %s", host, settings.mongo_db, user or "(none)")
 
 
