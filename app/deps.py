@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 
 from flask import current_app, g, request
 
-from app.config import get_settings
+from app.config import ENV_FILE, get_settings
 from app.errors import ApiError
 from app.repository import FirestoreRepository, MongoRepository, Repository
 from app.services.notifier import FcmNotifier, Notifier
@@ -28,8 +31,25 @@ def _firebase_app():
         options["projectId"] = settings.firebase_project_id
     if settings.firebase_storage_bucket:
         options["storageBucket"] = settings.firebase_storage_bucket
-    # Credentials come from GOOGLE_APPLICATION_CREDENTIALS or the runtime service account.
-    return firebase_admin.initialize_app(options=options or None)
+    # Firebase Admin needs the service-account key even to verify sign-in tokens.
+    # FARMIVO_FIREBASE_CREDENTIALS (path in .env, relative to the project folder) wins over
+    # GOOGLE_APPLICATION_CREDENTIALS (environment variable, e.g. from supervisor).
+    credential = None
+    if settings.firebase_credentials:
+        from firebase_admin import credentials
+
+        key_path = Path(settings.firebase_credentials)
+        if not key_path.is_absolute():
+            key_path = ENV_FILE.parent / key_path
+        if not key_path.is_file():
+            raise RuntimeError(f"Firebase key not found: {key_path} (FARMIVO_FIREBASE_CREDENTIALS)")
+        credential = credentials.Certificate(str(key_path))
+    elif not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+        current_app.logger.error(
+            "No Firebase service-account key: set FARMIVO_FIREBASE_CREDENTIALS in .env. "
+            "Every sign-in token will be rejected until then."
+        )
+    return firebase_admin.initialize_app(credential, options=options or None)
 
 
 @lru_cache
@@ -105,8 +125,8 @@ def get_current_uid() -> str:
         raise ApiError(401, "Missing bearer token")
     from firebase_admin import auth
 
-    _firebase_app()
     try:
+        _firebase_app()
         decoded = auth.verify_id_token(token.strip())
     except Exception as exc:  # noqa: BLE001
         # The reason (wrong project, expired, clock skew, ...) goes to the log, never to the client.

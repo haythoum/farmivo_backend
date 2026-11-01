@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     firebase_project_id: str | None = None
     firebase_storage_bucket: str | None = None
+    # Path to the Firebase service-account key JSON (absolute, or relative to this project folder).
+    firebase_credentials: str | None = None
     # "mongo" (default: MongoDB for data and photos) or "firestore"
     db_backend: str = "mongo"
     # MongoDB: either the separate fields below (simplest, the password needs no escaping)

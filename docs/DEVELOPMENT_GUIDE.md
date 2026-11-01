@@ -60,7 +60,7 @@ For a server that already runs MongoDB (and optionally MinIO). The API runs as a
 3. **Photos: pick one.**
    - `FARMIVO_PHOTO_STORE=gridfs` (default): nothing to set up; photos live in the `farmivo` database.
    - `FARMIVO_PHOTO_STORE=minio`: create a **new bucket** `farmivo-photos` (the API also creates it if the key may). In the MinIO console create a **dedicated access key** (policy limited to that bucket, e.g. `s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, `s3:CreateBucket` on `farmivo-photos`) and put it in `.env`. Keep the bucket private: the API streams images through `/v1/photos/<id>`.
-4. **Settings:** `cp .env.example .env`, fill in `FARMIVO_MONGO_HOST`, `FARMIVO_MONGO_USER`, `FARMIVO_MONGO_PASSWORD` (and `FARMIVO_MONGO_AUTH_DB` if the user lives in another database), `FARMIVO_PUBLIC_BASE_URL` (final https URL), `FARMIVO_CRON_SECRET`, MinIO values if used. Put the Firebase service account at `/srv/farmivo/serviceAccountKey.json` (`chmod 600`, owner `www-data`). Never commit `.env` or the key.
+4. **Settings:** `cp .env.example .env`, fill in `FARMIVO_MONGO_HOST`, `FARMIVO_MONGO_USER`, `FARMIVO_MONGO_PASSWORD` (and `FARMIVO_MONGO_AUTH_DB` if the user lives in another database), `FARMIVO_PUBLIC_BASE_URL` (final https URL), `FARMIVO_CRON_SECRET`, MinIO values if used. Put the Firebase service-account key next to `.env` as `serviceAccountKey.json` (`chmod 600`, owned by the user supervisor runs the app as) and set `FARMIVO_FIREBASE_CREDENTIALS=serviceAccountKey.json`. **Without the key every token is rejected with 401.** Never commit `.env` or the key.
 5. **supervisor**
    ```bash
    sudo cp deploy/supervisor/farmivo.conf /etc/supervisor/conf.d/farmivo.conf
@@ -113,7 +113,7 @@ Set your Team in Signing & Capabilities; add **Push Notifications** capability (
 | Symptom | Likely cause |
 |---|---|
 | App shows "Firebase is not configured" | `google-services.json` / `GoogleService-Info.plist` missing or the bundle id does not match |
-| Every call returns 401 | Backend service-account/project id mismatch with the app's Firebase project |
+| Every call returns 401 | Missing service-account key (`FARMIVO_FIREBASE_CREDENTIALS`), or key/project id from another Firebase project. The log line `Rejected Firebase token:` says which |
 | Android cannot reach backend | Using `localhost` instead of `10.0.2.2` on the emulator; real device needs your LAN IP or a public URL |
 | Photos upload but do not display | `PUBLIC_BASE_URL` wrong (the URL stored in the animal is built from it) |
 | No push on iOS | APNs key not uploaded to Firebase, simulator used, or capability missing |
@@ -136,6 +136,7 @@ The server logs the real reason every time it rejects a token: `tail -n 30 /var/
 
 | Log message contains | Cause | Fix |
 |---|---|---|
+| `DefaultCredentialsError` / `credentials were not found` / `No Firebase service-account key` | The server has no service-account key | Set `FARMIVO_FIREBASE_CREDENTIALS=serviceAccountKey.json` in `.env` (file next to `.env`), restart |
 | `incorrect "aud"` / `audience` | The token belongs to another Firebase project than the server expects | Set `FARMIVO_FIREBASE_PROJECT_ID=farmivo-4d932` in `/srv/farmivo/.env` and make sure the service-account key (if any) and the app's `google-services.json` are from that same project; then `supervisorctl restart farmivo` |
 | `Token used too early` / `too late` | The server clock is wrong | Fix the time: `timedatectl set-ntp true` |
 | `expired` | The token is older than 1 hour | Get a fresh one (sign in again) |
