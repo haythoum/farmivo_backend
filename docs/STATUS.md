@@ -23,7 +23,7 @@ Plan for the first session: run `pytest`, build both apps, fix compile errors, t
 - Android: no unit/UI tests; notification tap opens the app, not the specific animal; photo EXIF rotation not applied.
 - iOS: notification tap does not deep-link; no offline cache.
 - No offline mode on either app (needs a connection).
-- Single user per farm in practice (data model allows members; no invite flow).
+- Farm members (owner, manager, worker, viewer; invite code + approval) are done in the **backend** with tests; the **apps** still need the create-or-join screen, waiting screen, Members screen and role-based hiding (see ROLES_AND_MEMBERS.md). Until then a new account gets `403 no_farm` from the farm screens. One farm per person.
 - Finance: no budgets/recurring entries; reports are CSV only (no PDF).
 - Backend: no rate limiting, no audit log, no pagination beyond `limit`.
 - Mockup has no finance, reports, notifications or settings screens.
@@ -32,4 +32,4 @@ Plan for the first session: run `pytest`, build both apps, fix compile errors, t
 1. First build/test pass (above).
 2. Create the Firebase project, Atlas cluster, deploy backend, point apps at it.
 3. TestFlight / Play internal testing with one real farm.
-4. Deep links from notifications, offline cache, team invites, multi-language (Arabic/French/Spanish?), PDF reports.
+4. Deep links from notifications, offline cache, multi-language (Arabic/French/Spanish?), PDF reports.

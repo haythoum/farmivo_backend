@@ -6,7 +6,8 @@ This file is the reference for the contract; the backend serves no auto-generate
 ## Conventions
 
 - **Auth**: every `/v1` endpoint requires `Authorization: Bearer <Firebase ID token>`. Mobile apps sign in with Firebase Auth (email/password; Google optional) and send a fresh ID token on each request (the Firebase SDK refreshes it; call `getIdToken` / `getIDToken` per request). `401` = missing/invalid token: refresh the token once, retry once, otherwise sign the user out.
-- **Farm scoping**: each user is automatically given one farm on first request. There is no farm id in URLs.
+- **Farm scoping**: a user belongs to at most one farm, as owner, manager, worker or viewer (see [Members & roles](#members--roles) and [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md)). Nothing is created automatically: after sign-in the app calls `GET /me` and then creates a farm or asks to join one. Every farm endpoint uses the caller's farm; there is no farm id in URLs.
+- **Membership and role errors** are `403` with a machine-readable `code` next to `detail`: `{"detail": "...", "code": "no_farm" | "pending" | "rejected" | "forbidden_role"}`. Route on `code`, show `detail`.
 - **Dates**: `YYYY-MM-DD` (e.g. `2026-10-31`). Timestamps (`created_at`, `updated_at`): ISO-8601 UTC strings.
 - **IDs**: opaque strings.
 - **Nulls**: optional fields may be `null` or omitted on input. On `PATCH` only send fields to change; send `null` explicitly to clear a nullable field.
@@ -30,20 +31,73 @@ This file is the reference for the contract; the backend serves no auto-generate
 
 Suggested finance categories (free text, but offer these in the UI): income: `animal_sale`, `milk_sale`, `egg_sale`, `other_income`; expense: `feed`, `veterinary`, `medication`, `labor`, `equipment`, `purchase_animal`, `utilities`, `other_expense`.
 
+## Members & roles
+
+These four work **without** a farm (token only):
+
+| Method & path | Body | Response |
+|---|---|---|
+| `GET /me` | | `200 Me` |
+| `POST /farms` | `{name (2-80), address (5-200), country?, currency? (3 letters, default USD)}` | `201 Me` (caller becomes **owner**). `409` if already active in or waiting for a farm |
+| `POST /farms/join` | `{invite_code}` (e.g. `GVF-7K3P`; case, spaces and dash optional) | `200 Me` with `status: "pending"`. `404 "No farm with this code"`, `409` if already active in a farm. A pending request to another farm is replaced; a rejected one may be repeated |
+| `DELETE /me/membership` | | `200 Me` (`status: "none"`): cancels a pending request or leaves the farm. `409 "Transfer ownership first"` for the owner |
+
+`Me`: `{uid, email, status: "none" | "pending" | "active" | "rejected", role: "owner" | "manager" | "worker" | "viewer" | null (null unless active), farm: {id, name} | null}`.
+
+Member management (manager or owner; transfer: owner only):
+
+| Method & path | Body | Response |
+|---|---|---|
+| `GET /farm/members` | | `[Member]`: pending requests first (oldest first), then active members (owner, managers, workers, viewers). Rejected requests are not listed |
+| `POST /farm/members/{uid}/approve` | optional `{role: "manager" \| "worker" \| "viewer"}` (default `worker`) | `Member`. Pushes "Welcome to <farm>" to the person. `409` if not pending |
+| `POST /farm/members/{uid}/reject` | | `Member` (`status: "rejected"`). Pushes "Request not accepted". `409` if not pending |
+| `PATCH /farm/members/{uid}` | `{role: "manager" \| "worker" \| "viewer"}` | `Member`. `409` for the owner (use transfer) or a pending request |
+| `DELETE /farm/members/{uid}` | | `204`. Removes a member or a pending request; the person then has `status: "none"`. `409` for the owner |
+| `POST /farm/invite-code` | | `{invite_code}`: new code, the old one stops working |
+| `POST /farm/transfer-ownership` | `{uid}` (an active member) | `Member` (the new owner). The previous owner becomes a manager. `409` for yourself or a non-active member |
+
+`Member`: `{uid, email, name, role, status: "pending" | "active", requested_at, decided_at, decided_by}`. `404 "Member not found"` for an unknown uid.
+
+A join request also stores a farm notification of type `join_request` ("Ali wants to join") and is pushed to the owner and managers only.
+
+### Who may call what
+
+| | viewer | worker | manager | owner |
+|---|:-:|:-:|:-:|:-:|
+| Read (GET) animals, health, breeding, growth, production, feeding, reminders, notifications, dashboard, herd/vaccination/production reports, farm | ✓ | ✓ | ✓ | ✓ |
+| Mark notifications read (`/read`, `/read-all`) | ✓ | ✓ | ✓ | ✓ |
+| Create and edit records (POST/PATCH): animals, photo, status, health, reminders, reminder done, breedings, births, weights, production, feedings; delete notifications | | ✓ | ✓ | ✓ |
+| Delete records (any `DELETE` except notifications) | | | ✓ | ✓ |
+| Finance: `/transactions`, `/finance/summary`, `/reports/financial`; dashboard `finance` (null for others) | | | ✓ | ✓ |
+| Farm settings `PATCH /farm`, see `invite_code` in `GET /farm` | | | ✓ | ✓ |
+| Members: list, approve, reject, change role, remove; rotate invite code | | | ✓ | ✓ |
+| Transfer ownership | | | | ✓ |
+
+The server enforces this on every request (`app/permissions.py`); a refused call is `403` with `code: "forbidden_role"`. Apps should also hide what the role cannot do.
+
+### 403 codes
+
+| `code` | When | What the app shows |
+|---|---|---|
+| `no_farm` | Signed in but not in a farm (new account, removed, left) | "Create a farm" / "Join a farm" screen |
+| `pending` | Join request waiting for approval | Waiting screen with the farm name, "Cancel request" |
+| `rejected` | Join request refused | Message, then create a farm or join another one |
+| `forbidden_role` | The role may not call this route | `detail`, e.g. "Your role (worker) does not allow this" |
+
 ## Farm & devices
 
 | Method & path | Body | Response |
 |---|---|---|
 | `GET /farm` | | Farm |
-| `PATCH /farm` | `{name?, currency? (3 letters), country?, address? (max 200)}` | Farm |
-| `POST /devices` | `{token, platform: "android"\|"ios"}` (FCM token) | `204` |
+| `PATCH /farm` | `{name?, currency? (3 letters), country?, address? (max 200)}` (manager or owner) | Farm |
+| `POST /devices` | `{token, platform: "android"\|"ios"}` (FCM token) | `204`. Works without a farm, so a pending user receives the approval push |
 | `DELETE /devices?token=...` | | `204` (call on sign-out) |
 
-Farm: `{id, name, currency, country, address, owner_uid, created_at, updated_at}`. Default name "My Farm", currency "USD".
+Farm: `{id, name, currency, country, address, owner_uid, invite_code (null unless the caller is manager or owner), role (the caller's role), created_at, updated_at}`.
 Call `POST /devices` after login and whenever the FCM token refreshes.
 
 ### Sign-up rules (enforced by the apps before they call Firebase)
-Accounts are created with Firebase Auth, not by this API. The apps require: farm name 2-80 characters, farm address 5-200, a valid email, a password of at least 8 characters with a letter and a number, and a matching confirmation. Right after sign-up they call `PATCH /farm` with the trimmed name and address; if that call fails the user can retry or skip and edit the farm later. The API keeps the upper limits (name 80, address 200); the minimums are checked in the apps so the farm screen can still clear an address.
+Accounts are created with Firebase Auth, not by this API. The apps require a valid email, a password of at least 8 characters with a letter and a number, and a matching confirmation. After sign-up the user either creates a farm (`POST /farms`, farm name 2-80 characters, address 5-200, also checked by the API) or joins one with an invite code (`POST /farms/join`).
 
 ## Animals
 
@@ -128,7 +182,7 @@ Create requires `dam_id` (female) and `mating_date`; `sire_id` (male) optional, 
              "upcoming_vaccinations_count": 4, "overdue_vaccinations_count": 1,
              "sick_animals": 2, "ongoing_illnesses": 2},
   "breeding": {"pregnant_count": 5, "due_soon": [{"breeding_id","dam_id","dam_label","expected_birth_date","days_until"}]},
-  "finance": {"currency": "USD", "income": 1200.0, "expenses": 800.0, "net": 400.0},
+  "finance": {"currency": "USD", "income": 1200.0, "expenses": 800.0, "net": 400.0},  // null for workers and viewers
   "unread_notifications": 3
 }
 ```

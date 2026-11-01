@@ -84,7 +84,7 @@ The API runs over plain HTTP on an IP address for now. The Android debug build a
 
 ## 3. Sequences
 
-### 3.1 Create account
+### 3.1 Create account, then create or join a farm
 
 ```mermaid
 sequenceDiagram
@@ -93,22 +93,29 @@ sequenceDiagram
   participant FA as Firebase Auth
   participant API as Farmivo API
   participant DB as MongoDB
-  U->>App: farm name, address, email, password x2, "Create account"
+  U->>App: email, password x2, "Create account"
   App->>App: SignUpRules: all fields valid?
   alt invalid
     App-->>U: error under the field (nothing sent)
   end
   App->>FA: createUserWithEmailAndPassword
   FA-->>App: user + ID token (or "email already has an account", ...)
-  App->>API: PATCH /v1/farm {name, address}  [Bearer token]
-  API->>FA: verify_id_token → uid
-  API->>DB: users/<uid> exists? no → insert farms {name "My Farm", owner_uid}, users {_id uid, farm_id}
-  API->>DB: update farms {name, address}
-  API-->>App: 200 FarmOut
-  alt farm save failed
-    App-->>U: "could not save your farm details" with Retry / Skip for now
+  App->>API: GET /v1/me  [Bearer token]
+  API->>FA: verify_id_token, uid and email
+  API-->>App: status none
+  alt Create a new farm
+    U->>App: farm name, address
+    App->>API: POST /v1/farms {name, address}
+    API->>DB: farms (owner_uid, invite_code), members (owner, active), users (farm_id, active)
+    API-->>App: 201 Me (active, owner)
+    App->>App: open main screen (Dashboard)
+  else Join a farm
+    U->>App: invite code, e.g. GVF-7K3P
+    App->>API: POST /v1/farms/join {invite_code}
+    API->>DB: members (worker, pending), users (pending), notifications (join_request)
+    API-->>App: 200 Me (pending)
+    App->>App: waiting screen until a manager approves (see ROLES_AND_MEMBERS.md)
   end
-  App->>App: open main screen (Dashboard)
 ```
 
 ### 3.2 Sign in and first API call
@@ -121,19 +128,23 @@ sequenceDiagram
   participant DB as MongoDB
   App->>FA: signInWithEmailAndPassword
   FA-->>App: ID token (JWT, about 1 h) + refresh token
+  App->>API: GET /v1/me  Authorization: Bearer <JWT>
+  API-->>App: status and role (none, pending and rejected show their own screens)
   App->>App: open main screen, preload animals, register push token
   App->>API: GET /v1/dashboard  Authorization: Bearer <JWT>
-  API->>API: get_current_uid: header present? (else 401 Missing bearer token)
+  API->>API: get_identity: header present? (else 401 Missing bearer token)
   API->>FA: verify signature, expiry, project farmivo-4d932 (keys cached)
   alt token rejected
     API-->>App: 401 Invalid or expired token (reason in the server log)
     App->>FA: refresh token once and retry, still 401: both apps sign out and show the sign-in screen
   end
-  API->>DB: users.find(_id = uid)
-  opt first call of this user
-    API->>DB: insert farms + users (farm auto-creation)
+  API->>DB: users.find(_id = uid), members.find(_id = uid, farm_id)
+  alt no active membership
+    API-->>App: 403 code no_farm, pending or rejected
   end
+  API->>API: required_role(GET, /dashboard) is viewer, caller's role at least viewer
   API->>DB: queries limited to farm_id
+  Note over API: finance section only for manager or owner
   API-->>App: 200 DashboardOut
 ```
 
@@ -220,7 +231,9 @@ Android: `farmivo_android/app/src/main/java/com/quadralens/farmivo/ui/`. iOS: `f
 
 | Screen | Android | iOS | API calls | Backend function(s) | Collections |
 |---|---|---|---|---|---|
-| Sign in / create account | `LoginActivity`, `util/SignUpRules` | `Auth/Views/LoginView`, `Core/Auth/AuthStore`, `SignUpRules` | Firebase Auth; `PATCH /farm` after sign-up | `update_farm`, `get_ctx` | farms, users |
+| Sign in / create account | `LoginActivity`, `util/SignUpRules` | `Auth/Views/LoginView`, `Core/Auth/AuthStore`, `SignUpRules` | Firebase Auth; `GET /me` | `me`, `get_identity`, `membership.resolve` | users, members |
+| Create or join a farm, waiting screen | to be built | to be built | `POST /farms`, `POST /farms/join`, `DELETE /me/membership` | `create_farm`, `join_farm`, `leave_farm` | farms, members, users, notifications |
+| Members (managers, owner) | to be built | to be built | `GET /farm/members`, `.../approve`, `.../reject`, `PATCH`/`DELETE /farm/members/<uid>`, `POST /farm/invite-code`, `POST /farm/transfer-ownership` | `list_members`, `approve_member`, `reject_member`, `change_member_role`, `remove_member`, `rotate_invite_code`, `transfer_ownership` | members, users, farms |
 | Dashboard (tab 1) | `DashboardFragment` | `Dashboard/Views/DashboardView` | `GET /dashboard` | `dashboard`, `compute_finance` | animals, reminders, breedings, illnesses, transactions, notifications |
 | Animals list (tab 2) | `AnimalsFragment` | `Animals/Views/AnimalsView` | `GET /animals?status=&q=` | `list_animals` | animals |
 | Add / edit animal | `AnimalFormActivity` + `FormDialog` | `FormSheet` from `AnimalsView` / `AnimalDetailView` | `POST /animals`, `PATCH /animals/<id>` | `create_animal`, `update_animal`, `check_parents` | animals |
@@ -236,7 +249,7 @@ Android: `farmivo_android/app/src/main/java/com/quadralens/farmivo/ui/`. iOS: `f
 | Reminders | `HostActivity(REMINDERS)` → `RecordsFragment(reminders)` | `ResourceTabsView(reminders)` | `GET/POST /reminders`, `POST /reminders/<id>/done`, `DELETE /reminders/<id>` | `list_reminders`, `create_custom_reminder`, `mark_reminder_done`, `delete_custom_reminder` | reminders |
 | Notifications | `HostActivity(NOTIFICATIONS)` → `NotificationsFragment` | `Notifications/Views/NotificationsView` | `GET /notifications`, `/read`, `/read-all`, `DELETE` | notifications router | notifications |
 | Reports | `HostActivity(REPORTS)` → `ReportsFragment` | `Reports/Views/ReportsView` | `GET /reports/<kind>?format=csv` → share sheet | `report`, `build_rows` | animals, vaccinations, transactions, production |
-| Farm settings | `MoreFragment` (dialog) | `Settings/Views/FarmSettingsView` | `GET /farm`, `PATCH /farm` | `get_farm`, `update_farm` | farms |
+| Farm settings | `MoreFragment` (dialog) | `Settings/Views/FarmSettingsView` | `GET /farm` (role, invite code for managers), `PATCH /farm` (manager or owner) | `get_farm`, `update_farm`, `render_farm` | farms |
 | Sign out | `MoreFragment` → `fcm/DeviceRegistrar.unregisterAndSignOut` | `AuthStore.signOut` → `PushManager.unregisterDevice` | `DELETE /devices?token=` | `unregister_device` | devices |
 | Push registration | `fcm/DeviceRegistrar`, `fcm/FarmivoMessagingService` | `Core/Push/PushManager` | `POST /devices` | `register_device` | devices |
 
@@ -284,7 +297,7 @@ flowchart LR
   APP["App: Cb.onFail(message) / APIError.message"] --> UI[Message shown to the user<br/>form reopens with input on save errors]
 ```
 
-- **Server:** `app/errors.py` turns every error into `{"detail": ...}`. `detail` is text, or for 422 a list of `{loc, msg, type}`.
+- **Server:** `app/errors.py` turns every error into `{"detail": ...}`. `detail` is text, or for 422 a list of `{loc, msg, type}`. Membership and role errors are `403` with an extra `code` (`no_farm`, `pending`, `rejected`, `forbidden_role`) for the apps to route on.
 - **Android:** `data/Cb.errorMessage` reads `detail`. For a list, it shows the first `msg` plus its location. For a 404 it adds the URL that was called. A network failure becomes "No connection. Check your network and try again."
 - **iOS:** `APIClient` produces `APIError(status, message)` from `detail` and shows it in an alert or inline. A repeated 401 posts `farmivoSessionExpired`, and the app signs out.
 - **401:** both apps refresh the Firebase token once and retry (Android: OkHttp `RefreshAuthenticator`; iOS: `APIClient`). If it still fails, both apps sign the user out and return to the sign-in screen (Android: `Cb` calls `FarmivoApp.sessionExpired()`).
@@ -292,7 +305,8 @@ flowchart LR
 ## 7. Security model
 
 - **Identity:** the apps never send passwords to the API, only to Firebase. Every API call carries a Firebase ID token. The API checks its signature (Google's public keys), expiry and project (`farmivo-4d932`), then takes the `uid` from it.
-- **Farm scoping:** the farm comes from `users/<uid>.farm_id`, never from the URL or the body. Every repository query includes that `farm_id`, so one user cannot read or change another farm's data even with a guessed record id.
+- **Farm scoping:** the farm comes from the caller's active membership (`users/<uid>.farm_id` plus an active record in `members`), never from the URL or the body. Every repository query includes that `farm_id`, so one user cannot read or change another farm's data even with a guessed record id. Joining needs an invite code **and** approval by a manager or the owner.
+- **Roles:** owner, manager, worker, viewer. `get_ctx` checks the caller's role against `required_role(method, path)` (`app/permissions.py`) on every request; finance, deletes, farm settings and members are for managers and the owner. Role changes and removals take effect on the next request. Details: [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md).
 - **Validation:** request bodies reject unknown fields and bad values (422); cross-record rules are checked server-side (parents' sex, unique ear tags, birth dates).
 - **Public endpoints:** `/healthz` and `/v1/photos/<id>`, which needs a random, unguessable id. `/v1/internal/reminders/run` needs `X-Cron-Secret`.
 - **Secrets:** `.env`, `serviceAccountKey.json` and the database passwords stay on the server, git-ignored and `chmod 600`. The Firebase client files in the apps are not secrets.
@@ -305,7 +319,10 @@ flowchart LR
 | ID token / JWT | Signed token from Firebase Auth proving who the user is; sent as `Authorization: Bearer <token>`; valid for about 1 hour, refreshed by the app. |
 | UID | Firebase user id (28 characters). Also the `_id` of the user's record in `users`. |
 | Farm | One per user. Created on the user's first API call; all records belong to it via `farm_id`. |
-| Ctx | Backend request context: uid, farm id, repository (`app/deps.py`). |
+| Ctx | Backend request context of an active member: uid, farm id, role, farm, repository (`app/deps.py`). |
+| Identity | The caller from the token: uid, email, name (`get_identity`), used before a farm exists. |
+| Member / role | A person's record in a farm (`members`): owner, manager, worker or viewer; status pending, active or rejected. |
+| Invite code | Code like `GVF-7K3P` that people type to ask to join a farm. |
 | Repository | Backend storage interface; MongoDB in production (`app/repository.py`). |
 | Path | Internal record address such as `farms/<farm_id>/animals`; with MongoDB, the last part is the collection. |
 | Reminder bucket | When a reminder is pushed: 7 days before, 1 day before, on the day, overdue. Each only once. |

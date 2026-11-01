@@ -2,7 +2,7 @@
 
 ## Storage layout
 MongoDB database `farmivo`:
-- **One collection per record type**, named after it: `farms`, `users`, `animals`, `vaccinations`, `treatments`, `vet_visits`, `illnesses`, `reminders`, `breedings`, `weights`, `production`, `feedings`, `transactions`, `notifications`, `devices`. Photos: GridFS `photos.files` / `photos.chunks`.
+- **One collection per record type**, named after it: `farms`, `users`, `members`, `animals`, `vaccinations`, `treatments`, `vet_visits`, `illnesses`, `reminders`, `breedings`, `weights`, `production`, `feedings`, `transactions`, `notifications`, `devices`. Photos: GridFS `photos.files` / `photos.chunks`.
 - `_id` is the record id. Every farm record carries `farm_id` (indexed); devices carry `user_id`.
 - Look at the data in the shell: `use farmivo`, `show collections`, `db.animals.find().pretty()`, `db.vaccinations.find({farm_id: "<id>"})`. Your farm id: `db.users.find()` (one document per Firebase user, `_id` = Firebase UID).
 - Internally the code still addresses records by Firestore-style paths (`farms/<farm_id>/animals`); the Mongo repository turns the last part into the collection name and the parent ids into fields, so the same code also runs on Firestore.
@@ -12,8 +12,9 @@ All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are 
 
 | Path | Contents |
 |---|---|
-| `farms/{farmId}` | name, currency, country, address, owner_uid, member_uids[] |
-| `users/{uid}` | farm_id |
+| `farms/{farmId}` | name, currency, country, address, owner_uid, invite_code (uppercase, unique, e.g. `GVF-7K3P`); old farms may still have member_uids[] (only read for legacy accounts) |
+| `users/{uid}` | farm_id, status (`pending` / `active` / `rejected`, mirrors the member record). No document = no farm |
+| `farms/{farmId}/members/{uid}` | uid, email, name, role (`owner` / `manager` / `worker` / `viewer`), status (`pending` / `active` / `rejected`), requested_at, decided_at, decided_by |
 | `users/{uid}/devices/{id}` | token (FCM), platform (android/ios) |
 | `farms/{farmId}/animals` | ear_tag (unique per farm), name, species, breed, sex, date_of_birth, date_added, origin, mother_id, father_id, notes, status, status_date, photo_url |
 | `farms/{farmId}/vaccinations` | animal_id, vaccine_name, date_given, next_due_date, batch_number, administered_by, notes |
@@ -28,9 +29,23 @@ All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are 
 | `farms/{farmId}/reminders` | source_type, source_id, animal_id, title, due_date, status, notified_buckets[] |
 | `farms/{farmId}/notifications` | title, body, type, animal_id, reminder_id, read |
 
+## Members and users
+
+A person (Firebase uid) belongs to at most one farm. Their record in `members` (Mongo `_id` = uid, `farm_id` = the farm) holds the role and the status of the request; `users/{uid}` points at the farm so the server finds it in one read. Exactly one active member per farm has role `owner`, and `farms.owner_uid` names them. See [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md).
+
+```js
+db.members.find({farm_id: "<farm id>"}).pretty()   // who is in a farm, with roles and pending requests
+db.users.find({_id: "<firebase uid>"})              // which farm a person belongs to
+db.farms.find({}, {name: 1, invite_code: 1, owner_uid: 1})
+```
+
+Because `members._id` is the uid, a person has one member record at a time: joining another farm replaces a rejected record elsewhere.
+
 ## Relations
 ```mermaid
 erDiagram
+  FARM ||--o{ MEMBER : "has members"
+  USER ||--o| MEMBER : "is"
   FARM ||--o{ ANIMAL : has
   ANIMAL ||--o{ VACCINATION : receives
   ANIMAL ||--o{ TREATMENT : receives

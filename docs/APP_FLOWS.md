@@ -18,60 +18,52 @@ Every API call carries `Authorization: Bearer <Firebase ID token>`. The backend 
 
 ## 2. App start
 
-1. The app reads the saved Firebase session. **Signed in** goes to the main screen, **not signed in** goes to the Sign in screen.
-2. Main screen opens on the Dashboard and in the background: loads the animal list (used by the "+" forms), registers the phone for push (`POST /v1/devices`).
+1. The app reads the saved Firebase session. **Not signed in** goes to the Sign in screen.
+2. **Signed in**: the app registers the phone for push (`POST /v1/devices`, works without a farm) and asks the server where the user stands with `GET /v1/me`. The answer decides the screen:
 
-## 3. Create account
+| `status` | Screen |
+|---|---|
+| `none` | Choose **Create a new farm** or **Join a farm** (section 3) |
+| `pending` | "Waiting for approval from <farm>" with Cancel request / Sign out |
+| `rejected` | "Your request was not accepted", then create a farm or join another |
+| `active` | Main screen on the Dashboard; actions shown according to `role` |
 
-Screen fields: farm name, farm address, email, password, confirm password. All are required. Rules (checked in the app before anything is sent): farm name 2-80 characters, address 5-200, email in a valid format, password at least 8 characters with a letter and a digit, both passwords equal. Errors appear under each field.
-
-| Step | Call | Who answers |
-|---|---|---|
-| 1. Create the login | Firebase `createUserWithEmailAndPassword(email, password)` | Firebase |
-| 2. First API call creates the farm automatically | `GET /v1/farm` (see section 4) | Farmivo API |
-| 3. Save farm name and address | `PATCH /v1/farm` | Farmivo API |
-| 4. Open the Dashboard | | |
-
-Firebase failures are shown as: "This email already has an account", "Wrong email or password", weak password, "No connection", "Too many attempts".
-If step 3 fails the user sees "Account created but we could not save your farm details" with **Retry** and **Skip for now** (details can be edited later in More > Farm settings).
-
-## 4. Sign in
-
-Fields: email, password (both required, email must be valid).
-
-1. Firebase `signInWithEmailAndPassword`. Wrong data fails here with "Wrong email or password"; nobody gets in without a valid Firebase account.
-2. Open the main screen. Its first API call (`GET /v1/dashboard`) shows the data. A brand new account has no farm yet, so the **server creates one on the first call**.
-
-## 5. Sign out (More > Sign out)
-
-1. `DELETE /v1/devices?token=<push token>`: this phone stops receiving the farm's pushes.
-2. Firebase `signOut()`.
-3. Back to the Sign in screen.
-
-## 6. Farm settings (More > Farm settings)
-
-Opening the screen reads the farm, saving updates it. Fields: name, currency (3 letters), country, address.
+3. On the main screen the app loads the animal list in the background (used by the "+" forms).
 
 ```http
-GET /v1/farm
+GET /v1/me
 Authorization: Bearer <Firebase ID token>
 ```
 **Response `200`**
 ```json
 {
-  "id": "09313bd5a801432bbb182a8b0d0f7707",
-  "created_at": "2026-10-31T20:37:31+00:00",
-  "updated_at": "2026-10-31T20:37:31+00:00",
-  "name": "My Farm",
-  "currency": "USD",
-  "country": null,
-  "address": null,
-  "owner_uid": "uid-demo"
+  "uid": "uid-owner",
+  "email": "rahma@greenvalley.farm",
+  "status": "none",
+  "role": null,
+  "farm": null
 }
 ```
 
+Roles and who may do what: [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md).
+
+## 3. Create account, then create or join a farm
+
+Screen fields: email, password, confirm password. Rules (checked in the app before anything is sent): email in a valid format, password at least 8 characters with a letter and a digit, both passwords equal. Errors appear under each field.
+
+| Step | Call | Who answers |
+|---|---|---|
+| 1. Create the login | Firebase `createUserWithEmailAndPassword(email, password)` | Firebase |
+| 2. Where do I stand? | `GET /v1/me` gives `status: "none"` | Farmivo API |
+| 3a. **Create a new farm** (name 2-80, address 5-200) | `POST /v1/farms`: the user becomes the **owner** | Farmivo API |
+| 3b. **Join a farm** (invite code from the farm's owner or manager) | `POST /v1/farms/join`: the request waits for approval | Farmivo API |
+| 4. Open the Dashboard (3a) or the waiting screen (3b) | | |
+
+Firebase failures are shown as: "This email already has an account", "Wrong email or password", weak password, "No connection", "Too many attempts".
+
+### 3a. Create a new farm
 ```http
-PATCH /v1/farm
+POST /v1/farms
 Authorization: Bearer <Firebase ID token>
 Content-Type: application/json
 
@@ -82,17 +74,234 @@ Content-Type: application/json
   "currency": "TND"
 }
 ```
+**Response `201`**
+```json
+{
+  "uid": "uid-owner",
+  "email": "rahma@greenvalley.farm",
+  "status": "active",
+  "role": "owner",
+  "farm": {
+    "id": "861598b06c784d80bd3994b068e6e56c",
+    "name": "Green Valley Farm"
+  }
+}
+```
+
+### 3b. Join a farm
+The invite code is shown to managers and the owner in Farm settings (section 6). Case, spaces and the dash do not matter.
+```http
+POST /v1/farms/join
+Authorization: Bearer <Firebase ID token>
+Content-Type: application/json
+
+{
+  "invite_code": "GVF-X22Y"
+}
+```
 **Response `200`**
 ```json
 {
-  "id": "09313bd5a801432bbb182a8b0d0f7707",
-  "created_at": "2026-10-31T20:37:31+00:00",
-  "updated_at": "2026-10-31T20:37:31+00:00",
+  "uid": "uid-ali",
+  "email": "ali@example.com",
+  "status": "pending",
+  "role": null,
+  "farm": {
+    "id": "861598b06c784d80bd3994b068e6e56c",
+    "name": "Green Valley Farm"
+  }
+}
+```
+
+While waiting, every farm call answers `403` with `code: "pending"`:
+```http
+GET /v1/animals
+Authorization: Bearer <Firebase ID token>
+```
+**Response `403`**
+```json
+{
+  "detail": "Your request to join Green Valley Farm is waiting for approval",
+  "code": "pending"
+}
+```
+
+Wrong code:
+```http
+POST /v1/farms/join
+Authorization: Bearer <Firebase ID token>
+Content-Type: application/json
+
+{
+  "invite_code": "ZZZ-2222"
+}
+```
+**Response `404`**
+```json
+{
+  "detail": "No farm with this code"
+}
+```
+
+### 3c. Approval (owner or manager, More > Members)
+The owner and managers get a push "Ali wants to join" and see the request on top of the list:
+```http
+GET /v1/farm/members
+Authorization: Bearer <Firebase ID token>
+```
+**Response `200`**
+```json
+[
+  {
+    "uid": "uid-ali",
+    "email": "ali@example.com",
+    "name": "Ali",
+    "role": "worker",
+    "status": "pending",
+    "requested_at": "2026-11-01T11:46:53+00:00",
+    "decided_at": null,
+    "decided_by": null
+  },
+  {
+    "uid": "uid-owner",
+    "email": "rahma@greenvalley.farm",
+    "name": "Rahma",
+    "role": "owner",
+    "status": "active",
+    "requested_at": "2026-11-01T11:46:53+00:00",
+    "decided_at": "2026-11-01T11:46:53+00:00",
+    "decided_by": "uid-owner"
+  }
+]
+```
+
+```http
+POST /v1/farm/members/uid-ali/approve
+Authorization: Bearer <Firebase ID token>
+Content-Type: application/json
+
+{
+  "role": "worker"
+}
+```
+**Response `200`**
+```json
+{
+  "uid": "uid-ali",
+  "email": "ali@example.com",
+  "name": "Ali",
+  "role": "worker",
+  "status": "active",
+  "requested_at": "2026-11-01T11:46:53+00:00",
+  "decided_at": "2026-11-01T11:46:53+00:00",
+  "decided_by": "uid-owner"
+}
+```
+
+Ali gets a push "Welcome to Green Valley Farm"; his app calls `GET /v1/me` again:
+```http
+GET /v1/me
+Authorization: Bearer <Firebase ID token>
+```
+**Response `200`**
+```json
+{
+  "uid": "uid-ali",
+  "email": "ali@example.com",
+  "status": "active",
+  "role": "worker",
+  "farm": {
+    "id": "861598b06c784d80bd3994b068e6e56c",
+    "name": "Green Valley Farm"
+  }
+}
+```
+
+Reject instead: `POST /v1/farm/members/{uid}/reject`. Other member actions (change role, remove, new invite code, transfer ownership): [API.md](API.md#members--roles).
+
+## 4. Sign in
+
+Fields: email, password (both required, email must be valid).
+
+1. Firebase `signInWithEmailAndPassword`. Wrong data fails here with "Wrong email or password"; nobody gets in without a valid Firebase account.
+2. `GET /v1/me` decides the screen (section 2). Nothing is created automatically: an account without a farm sees the create-or-join screen, and a farm call answers `403 no_farm`:
+```http
+GET /v1/dashboard
+Authorization: Bearer <Firebase ID token>
+```
+**Response `403`**
+```json
+{
+  "detail": "You are not a member of a farm yet",
+  "code": "no_farm"
+}
+```
+
+## 5. Sign out (More > Sign out)
+
+1. `DELETE /v1/devices?token=<push token>`: this phone stops receiving the farm's pushes.
+2. Firebase `signOut()`.
+3. Back to the Sign in screen.
+
+Leaving the farm (not the same as signing out) is `DELETE /v1/me/membership`. The owner must transfer ownership first:
+```http
+DELETE /v1/me/membership
+Authorization: Bearer <Firebase ID token>
+```
+**Response `409`**
+```json
+{
+  "detail": "Transfer ownership first"
+}
+```
+
+## 6. Farm settings (More > Farm settings)
+
+Everyone can open it; only managers and the owner can save, and only they see the **invite code**. Fields: name, currency (3 letters), country, address. `role` is the caller's role.
+
+```http
+GET /v1/farm
+Authorization: Bearer <Firebase ID token>
+```
+**Response `200`**
+```json
+{
+  "id": "861598b06c784d80bd3994b068e6e56c",
+  "created_at": "2026-11-01T11:46:53+00:00",
+  "updated_at": "2026-11-01T11:46:53+00:00",
   "name": "Green Valley Farm",
   "currency": "TND",
   "country": "Tunisia",
   "address": "Route de Mateur, Bizerte, Tunisia",
-  "owner_uid": "uid-demo"
+  "owner_uid": "uid-owner",
+  "invite_code": "GVF-X22Y",
+  "role": "owner"
+}
+```
+
+```http
+PATCH /v1/farm
+Authorization: Bearer <Firebase ID token>
+Content-Type: application/json
+
+{
+  "name": "Green Valley Farm",
+  "address": "Route de Mateur km 4, Bizerte, Tunisia"
+}
+```
+**Response `200`**
+```json
+{
+  "id": "861598b06c784d80bd3994b068e6e56c",
+  "created_at": "2026-11-01T11:46:53+00:00",
+  "updated_at": "2026-11-01T11:46:53+00:00",
+  "name": "Green Valley Farm",
+  "currency": "TND",
+  "country": "Tunisia",
+  "address": "Route de Mateur km 4, Bizerte, Tunisia",
+  "owner_uid": "uid-owner",
+  "invite_code": "GVF-X22Y",
+  "role": "owner"
 }
 ```
 
@@ -832,6 +1041,7 @@ Content-Type: application/json
 
 
 ## 11. Finance
+Managers and the owner only; workers and viewers get `403 forbidden_role`, so the apps hide Finance for them.
 Income and expenses are records (`POST /v1/transactions`); selling an animal adds income automatically.
 ```http
 POST /v1/transactions
@@ -891,6 +1101,7 @@ Authorization: Bearer <Firebase ID token>
 
 
 ## 12. Dashboard (first tab)
+The `finance` section is `null` for workers and viewers (finance is for managers and the owner).
 One call returns everything the tiles need: animal counts, movements (births, deaths, sales, purchases), upcoming vaccinations, pregnancies, finance and production for the period.
 ```http
 GET /v1/dashboard
@@ -1067,7 +1278,7 @@ Authorization: Bearer <Firebase ID token>
 
 ## 15. Errors you can see
 
-Every error has the shape `{"detail": ...}`.
+Every error has the shape `{"detail": ...}`. Membership and role errors (`403`) add a `code`: `no_farm`, `pending`, `rejected`, `forbidden_role`.
 ```http
 GET /v1/animals
 ```
@@ -1090,11 +1301,26 @@ Authorization: Bearer <Firebase ID token>
 ```
 
 
+A worker opening finance:
+```http
+GET /v1/finance/summary
+Authorization: Bearer <Firebase ID token>
+```
+**Response `403`**
+```json
+{
+  "detail": "Your role (worker) does not allow this",
+  "code": "forbidden_role"
+}
+```
+
 | Status | Meaning | What the user sees |
 |---|---|---|
 | 401 | Missing, invalid or expired Firebase token | The app refreshes the token once, then asks to sign in again |
+| 403 `no_farm` / `pending` / `rejected` | No farm yet, waiting for approval, request refused | Create-or-join screen, waiting screen, or the refusal message |
+| 403 `forbidden_role` | The user's role may not do this (e.g. a worker opening finance) | The server's message; the app normally hides these actions |
 | 404 | The record, or the URL, does not exist | "Not Found" plus the URL (Android) |
-| 409 | Duplicate ear tag, birth already recorded | The server's message |
+| 409 | Duplicate ear tag, birth already recorded, already in a farm, owner leaving | The server's message |
 | 422 | Data failed validation | The first validation message |
 | 503 | The server cannot reach MongoDB | "Database unavailable" |
 

@@ -37,7 +37,7 @@ app/
   main.py            Flask app factory create_app(), blueprint registration, /healthz; exposes `app` for gunicorn
   config.py          Settings from FARMIVO_* env vars (DB backend, Mongo URI, public URL, secrets)
   deps.py            Wiring: Firebase init, repository/photo store selection (tests inject fakes via
-                     create_app(overrides=...)), get_current_uid (verifies the ID token), get_ctx (uid -> farm)
+                     create_app(overrides=...)), get_identity (verifies the ID token), get_ctx (active membership -> farm + role)
   errors.py          ApiError + JSON error handlers (every error body is {"detail": ...})
   web.py             Request/response helpers: body(model) -> 422 on bad input, out(...), query-string parsers
   repository.py      Storage abstraction: MongoRepository (default), FirestoreRepository, InMemoryRepository (tests)
@@ -66,7 +66,7 @@ tests/               pytest suite, runs on the in-memory repository (no database
 ### Request lifecycle
 1. App sends `Authorization: Bearer <Firebase ID token>`.
 2. `get_current_uid` verifies the token with Firebase Admin → `uid`.
-3. `get_ctx` loads `users/{uid}`; the first time, it creates a farm and links it. Result: `Ctx(uid, farm_id, repo)`.
+3. `get_ctx` loads `users/{uid}` and the member record; without an active membership it answers `403` (`no_farm`, `pending` or `rejected`), otherwise it checks the role for this route (`app/permissions.py`, `403 forbidden_role`). Result: `Ctx(uid, farm_id, repo, role, farm)`. Farms are created only by `POST /v1/farms`.
 4. The blueprint view reads/writes only `farms/{farm_id}/<collection>` through the `Repository` interface.
 5. Pydantic validates input (unknown fields rejected → `422`) and shapes output.
 
@@ -78,7 +78,7 @@ Most record types (vaccinations, treatments, vet visits, illnesses, breedings, w
 
 ### Reminders (feature 2 "automatic reminders")
 - A source record that has a due date owns exactly one reminder with a deterministic id (`vacc_<id>`, vet visit follow-up, breeding expected birth). Create/update/delete of the source calls `sync_reminder` / `delete_reminder`, so the reminder always mirrors the record; changing the date resets notification state.
-- A daily cron job calls `POST /v1/internal/reminders/run` (header `X-Cron-Secret`) once a day. For each pending reminder the server computes `days_until` and the **bucket**: 7 days, 1 day, today, overdue. Each bucket notifies once (`notified_buckets`): the server stores an in-app notification and pushes via FCM to every device registered by farm members; invalid tokens are removed.
+- A daily cron job calls `POST /v1/internal/reminders/run` (header `X-Cron-Secret`) once a day. For each pending reminder the server computes `days_until` and the **bucket**: 7 days, 1 day, today, overdue. Each bucket notifies once (`notified_buckets`): the server stores an in-app notification and pushes via FCM to every device registered by the farm's active members (pending or removed people get nothing); invalid tokens are removed.
 - Selling or losing an animal closes its pending reminders.
 
 ### Photos
@@ -110,3 +110,7 @@ flowchart TD
 - Input: strict Pydantic schemas, size limits (photo 5 MB, text lengths), unknown fields rejected.
 - Photos are public-by-URL but unguessable; do not treat them as confidential.
 - MongoDB must not be exposed publicly: use Atlas with an IP allow-list/VPC peering or keep it on a private network.
+
+## Members and roles
+
+A farm has one owner and any number of managers, workers and viewers. People join with the farm's invite code and are approved by a manager or the owner. Every farm request goes through `get_ctx`, which requires an active membership and checks the role with `app/permissions.py`. Details: [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md).

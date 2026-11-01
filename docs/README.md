@@ -7,6 +7,7 @@ Start here. The three repositories each have a `docs/` folder; this one (backend
 | Document | What it answers |
 |---|---|
 | [SYSTEM_GUIDE.md](SYSTEM_GUIDE.md) | **Start here.** How backend, Android and iOS connect: components, deployment, sequence diagrams, screen → endpoint → code → collection map, configuration matrix, errors, security, glossary |
+| [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md) | Farm members: owner, manager, worker, viewer; invite codes and approval; who may call what; what the apps show for each status |
 | [CODE_REFERENCE.md](CODE_REFERENCE.md) | Every backend module, class, function and route: what it does, parameters, errors, side effects |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the whole system fits together: components, request flow, auth, reminders, photos |
 | [DATA_MODEL.md](DATA_MODEL.md) | What is stored in MongoDB, collections, relations, business rules |
@@ -30,3 +31,4 @@ The UI mockup (7 screens) is the "Farmivo App Mockup" artifact in Claude; its sc
 | 3. Breeding (mating, pregnancy, expected birth, births/offspring, family) | `routers/breeding.py`, `GET /animals/{id}/family` | Breeding tab, `BirthDialog` | `BreedingView`, `BirthSheet` |
 | 4. Growth & production (weights, milk/eggs, feeding, charts) | `routers/growth.py` | Growth screen, `GrowthChartView` | `GrowthView` (Swift Charts) |
 | 5. Dashboard (counts, births/deaths/sales, upcoming vaccinations, finance, reports, notifications) | `routers/dashboard.py`, `finance.py`, `reports.py`, `notifications.py` | `DashboardFragment`, Finance/Reports/Notifications | `DashboardView`, `FinanceView`, `ReportsView`, `NotificationsView` |
+| 6. Farm members (create or join a farm, approval, roles) | `routers/members.py`, `services/membership.py`, `permissions.py` | to be built (see ROLES_AND_MEMBERS.md) | to be built |

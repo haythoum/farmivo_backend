@@ -4,20 +4,21 @@ Every module, class, function and route in `app/` and `scripts/`, what it does a
 
 Conventions used below:
 - **Path**: records are addressed by a Firestore-style path plus an id, for example `farms/<farm_id>/animals`. With MongoDB the last part of the path is the collection name and the parent ids become fields (`farm_id`, `user_id`).
-- **Ctx**: the request context, holding the signed-in user id, that user's farm id and the repository.
-- **Errors**: every `ApiError(status, detail)` becomes the JSON answer `{"detail": detail}` with that HTTP status.
+- **Identity**: the caller from the token (uid, email, name). **Ctx**: the request context of an active farm member, holding the uid, farm id, role, farm and repository.
+- **Errors**: every `ApiError(status, detail, code=None)` becomes the JSON answer `{"detail": detail}` (plus `"code"` when set) with that HTTP status.
+- **Roles**: owner > manager > worker > viewer; see [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md).
 
 ## Contents
 
 1. [Module map](#1-module-map)
 2. [app/main.py](#2-appmainpy): application factory
 3. [app/config.py](#3-appconfigpy): settings
-4. [app/deps.py](#4-appdepspy): auth, farm context, services
+4. [app/deps.py](#4-appdepspy): auth, farm context, services; [app/permissions.py](#4a-apppermissionspy): roles policy
 5. [app/errors.py](#5-apperrorspy) and [app/web.py](#6-appwebpy): errors and request helpers
 6. [app/repository.py](#7-apprepositorypy): storage
 7. [app/schemas.py](#8-appschemaspy): request and response models
 8. [app/utils.py](#9-apputilspy)
-9. [app/services/](#10-appservices): reminders, push, photos
+9. [app/services/](#10-appservices): reminders, push, photos, membership
 10. [app/routers/](#11-approuters): all endpoints
 11. [scripts/](#12-scripts)
 12. [tests/](#13-tests)
@@ -33,10 +34,14 @@ flowchart TD
   main --> errors[app.errors]
   main --> config[app.config]
   subgraph routers[app.routers]
-    farm & animals & health & breeding & growth & finance & dashboard & notifications & photos & reports & internal
+    members & farm & animals & health & breeding & growth & finance & dashboard & notifications & photos & reports & internal
     crud[crud<br/>build_crud_blueprint]
   end
-  routers --> deps[app.deps<br/>get_ctx / auth]
+  routers --> deps[app.deps<br/>get_identity / get_ctx]
+  deps --> perms[app.permissions<br/>required_role]
+  deps --> membership[services.membership]
+  members --> membership
+  membership --> reminders
   routers --> web[app.web<br/>body / out / q_*]
   routers --> schemas[app.schemas]
   health & breeding & dashboard --> reminders[services.reminders]
@@ -57,13 +62,15 @@ flowchart TD
 |---|---|---|---|
 | `app/main.py` | Creates the Flask app, registers blueprints and error handlers; `app` is the gunicorn entry point | config, errors, routers | gunicorn, tests, scripts.seed_demo |
 | `app/config.py` | Settings from `FARMIVO_*` variables and `.env` | none | everything |
-| `app/deps.py` | Token check, farm context, lazily created DB / push / photo services | config, errors, repository, services.notifier, services.photos | all routers, scripts |
+| `app/deps.py` | Token check (identity), membership and role context, lazily created DB / push / photo services | config, errors, permissions, repository, services.membership, services.notifier, services.photos | all routers, scripts |
+| `app/permissions.py` | Roles and the one permission policy (`required_role`) | none | deps, dashboard, farm router, membership |
 | `app/errors.py` | `ApiError` and the JSON error handlers | none | web, deps, routers |
 | `app/web.py` | Parse JSON bodies and query strings, build JSON responses | errors | routers |
 | `app/repository.py` | Storage interface and its MongoDB / Firestore / in-memory versions | none | deps, routers, services |
 | `app/schemas.py` | Pydantic models for every request and response | utils | routers |
 | `app/utils.py` | Dates, ages, gestation table | none | schemas, routers, services |
 | `app/services/reminders.py` | Reminders owned by records, the daily push job | repository, notifier, utils | health, breeding, dashboard, internal |
+| `app/services/membership.py` | Farm members: create, join, approve, reject, roles, invite codes, transfer, legacy upgrade | repository, errors, services.reminders | deps, members router, farm router |
 | `app/services/notifier.py` | Push senders (FCM, test double) | none | deps, reminders |
 | `app/services/photos.py` | Photo stores (GridFS, MinIO, Firebase Storage, memory) | none | deps, animals, photos router |
 | `app/routers/*.py` | One module per feature area | crud, deps, web, schemas, services | main |
@@ -123,7 +130,7 @@ Blueprint registration (all under `/v1`): `farm`, `animals`, `health` (vaccinati
 
 ## 4. app/deps.py
 
-Request dependencies: authentication, farm context and the services, each created once per process.
+Request dependencies: authentication (identity), farm membership and role context, and the services, each created once per process.
 
 | Name | Kind | Description |
 |---|---|---|
@@ -134,9 +141,24 @@ Request dependencies: authentication, farm context and the services, each create
 | `_notifier()` | function, cached | Initialises Firebase and returns `FcmNotifier()`. |
 | `_photo_store()` | function, cached | `MinioPhotoStore` if `photo_store == "minio"` (needs both keys, else `RuntimeError`); `FirebasePhotoStore` with Firestore; otherwise `GridFsPhotoStore(_mongo_db(), public_base_url, "<prefix>photos")`. |
 | `get_repo()`, `get_notifier()`, `get_photo_store()` | functions | The test override if present, else the cached service. |
-| `get_current_uid() -> str` | function | Reads `Authorization: Bearer <token>`. Missing or not Bearer: **401 "Missing bearer token"**. Then `_firebase_app()` + `firebase_admin.auth.verify_id_token`. Any failure, such as a wrong project, expiry, clock skew or a missing key, logs `Rejected Firebase token: <reason>` and raises **401 "Invalid or expired token"**. Returns the Firebase `uid`. Tests bypass it with the `uid` override. |
-| `Ctx` | dataclass | `uid: str`, `farm_id: str`, `repo: Repository`. |
-| `get_ctx() -> Ctx` | function | Called first by every protected route. Authenticates, then reads `users/<uid>`. If the user has no `farm_id`, it **creates a farm** (`farms/<new id>` with name "My Farm", currency USD, `owner_uid`, `member_uids`) and writes `users/<uid> = {farm_id}`. The result is cached on `flask.g` for the rest of the request. |
+| `get_identity() -> Identity` | function | Reads `Authorization: Bearer <token>`. Missing or not Bearer: **401 "Missing bearer token"**. Then `_firebase_app()` + `firebase_admin.auth.verify_id_token`. Any failure, such as a wrong project, expiry, clock skew or a missing key, logs `Rejected Firebase token: <reason>` and raises **401 "Invalid or expired token"**. Returns `Identity(uid, email, name)` from the token claims, cached on `flask.g`. Used directly by the onboarding routes (`/me`, `/farms`, `/farms/join`, `/me/membership`, `/devices`), which work without a farm. Tests set the caller with the `uid`, `email` and `name` overrides. |
+| `get_current_uid() -> str` | function | `get_identity().uid`. |
+| `Ctx` | dataclass | `uid`, `farm_id`, `repo`, `role` (owner, manager, worker, viewer), `farm` (the farm document). |
+| `Ctx.require(minimum)` | method | Raises **403** `code: forbidden_role` ("Your role (worker) does not allow this") unless `role` is `minimum` or higher. |
+| `get_ctx() -> Ctx` | function | Called first by every farm route. Gets the identity, then `membership.resolve`: `pending` → **403 code pending** ("Your request to join <farm> is waiting for approval"), `rejected` → **403 code rejected**, no active membership → **403 code no_farm** ("You are not a member of a farm yet"). Then checks the role against `required_role(request.method, request.path)` (403 `forbidden_role`). Nothing is created automatically. The result is cached on `flask.g` for the rest of the request. |
+
+---
+
+## 4a. app/permissions.py
+
+The whole permission policy in one place; `get_ctx` applies it to every farm request, so new routes are protected without extra code.
+
+| Name | Description |
+|---|---|
+| `ROLES`, `RANK` | `owner` 4 > `manager` 3 > `worker` 2 > `viewer` 1. |
+| `at_least(role, minimum) -> bool` | True if `role` ranks at or above `minimum`. |
+| `can_see_finance(role) -> bool` | Manager or owner. Used by the dashboard to return `finance: null` for others. |
+| `required_role(method, path) -> str` | First match wins: `/farm/transfer-ownership` owner; `/transactions`, `/finance`, `/reports/financial`, `/farm/members`, `/farm/invite-code` manager; any `GET` viewer; `/notifications/.../read` and `/read-all` viewer; other notification writes worker; `PATCH /farm` manager; any other `DELETE` manager; any other `POST`/`PATCH` worker. The path may include `/v1`. |
 
 ---
 
@@ -144,9 +166,9 @@ Request dependencies: authentication, farm context and the services, each create
 
 | Name | Kind | Description |
 |---|---|---|
-| `ApiError(status, detail)` | exception | `status` is the HTTP code; `detail` is a string or a list of field errors. |
+| `ApiError(status, detail, code=None)` | exception | `status` is the HTTP code; `detail` is a string or a list of field errors; `code` (optional) is a machine-readable reason added to the body, used for `no_farm`, `pending`, `rejected`, `forbidden_role`. |
 | `validation_error(exc) -> ApiError` | function | Pydantic `ValidationError` → `ApiError(422, [ {loc, msg, type, …} ])`. |
-| `register_error_handlers(app)` | function | Installs three nested handlers, `_api_error`, `_http_error` and `_unexpected`. `ApiError` → `{"detail": …}` with its status. Werkzeug HTTP errors such as an unknown route (404), a wrong method (405) or a too-large body (413) → `{"detail": "<name>"}`. Any other exception is logged with its traceback; a `PyMongoError` becomes **503 "Database unavailable"**, anything else **500 "Internal server error"**. |
+| `register_error_handlers(app)` | function | Installs three nested handlers, `_api_error`, `_http_error` and `_unexpected`. `ApiError` → `{"detail": …}` (plus `"code"` if set) with its status. Werkzeug HTTP errors such as an unknown route (404), a wrong method (405) or a too-large body (413) → `{"detail": "<name>"}`. Any other exception is logged with its traceback; a `PyMongoError` becomes **503 "Database unavailable"**, anything else **500 "Internal server error"**. |
 
 ## 6. app/web.py
 
@@ -190,7 +212,14 @@ Enums: `Species` (cattle, sheep, goat, pig, horse, chicken, duck, rabbit, other)
 
 | Model | Used for | Notes |
 |---|---|---|
-| `FarmUpdate` / `FarmOut` | PATCH / GET `/farm` | name 1–80 characters, currency 3 letters (upper-cased by `_upper`), country ≤ 60, address ≤ 200. |
+| `FarmUpdate` / `FarmOut` | PATCH / GET `/farm` | name 1–80 characters, currency 3 letters (upper-cased by `_upper`), country ≤ 60, address ≤ 200. Out adds `owner_uid`, `invite_code` (null below manager) and `role` (the caller's). |
+| `FarmCreate` | POST `/farms` | name 2–80, address 5–200 (both required), country ≤ 60, currency 3 letters (upper-cased). |
+| `JoinIn` | POST `/farms/join` | `invite_code` 4–20 characters (normalised by the service). |
+| `MeFarm`, `MeOut` | GET `/me` and the onboarding calls | `uid`, `email`, `status` (none, pending, active, rejected), `role` (only when active), `farm` `{id, name}` or null. |
+| `AssignableRole`, `ApproveIn`, `RoleIn` | approve / change role | Role must be `manager`, `worker` or `viewer` (`owner` only by transfer); approve defaults to `worker`. |
+| `TransferIn` | POST `/farm/transfer-ownership` | `uid` of the new owner. |
+| `MemberOut` | members list and actions | `uid`, `email`, `name`, `role`, `status`, `requested_at`, `decided_at`, `decided_by`. |
+| `InviteCodeOut` | POST `/farm/invite-code` | `invite_code`. |
 | `AnimalBase`, `AnimalCreate`, `AnimalUpdate`, `AnimalOut` | animals | Required: ear_tag (1–40), species, sex. `date_of_birth` cannot be in the future (`_dob_not_future`). `date_added` defaults to today, `origin` to purchased. Create adds `status` (default active) and `photo_url`. Out adds `status_date`, `photo_url`, `age_days`, `age_months`, `age_label`. |
 | `StatusChange` | POST `/animals/<id>/status` | `status`, `date` (default today), `sale_price` ≥ 0, `buyer`, `notes`. |
 | `FamilyOut` | GET `/animals/<id>/family` | `animal`, `mother`, `father`, `siblings[]`, `offspring[]`. |
@@ -210,7 +239,7 @@ Enums: `Species` (cattle, sheep, goat, pig, horse, chicken, duck, rabbit, other)
 | `MonthlyFinance`, `FinanceSummary` | finance summary | Period, currency, income, expenses, net, per-category maps, `monthly[]`. |
 | `NotificationOut` | notifications | `title`, `body`, `type`, `animal_id`, `reminder_id`, `read`. |
 | `DeviceIn` | POST `/devices` | `token` (10–4096 characters), `platform` android/ios. |
-| `UpcomingItem`, `DashboardOut` | dashboard | See section 11.9. |
+| `UpcomingItem`, `DashboardOut` | dashboard | See section 11.9. `finance` is optional (null for workers and viewers). |
 
 ---
 
@@ -239,9 +268,44 @@ Reminders are owned by a source record and have a predictable id: `vacc_<vaccina
 | `animal_label(repo, farm_id, animal_id)` | `"Name (TAG)"`, the name or tag alone, or `None`. |
 | `sync_reminder(repo, farm_id, reminder_id, *, source_type, source_id, animal_id, title, due_date)` | No date: deletes the reminder. Otherwise upserts `farms/<farm>/reminders/<reminder_id>`. If the due date changed, status resets to `pending` and `notified_buckets` to `[]`; otherwise both are kept. |
 | `delete_reminder(repo, farm_id, reminder_id)` | Deletes it (no error if missing). |
-| `farm_device_tokens(repo, farm)` | `(uid, token)` for every device of the farm's `owner_uid` and `member_uids`. |
-| `notify_farm(repo, notifier, farm, *, title, body, type_, animal_id, reminder_id)` | Writes a `notifications` record (`read: false`), sends the push to all the farm's devices, and deletes device records whose token FCM reports as invalid. |
+| `farm_member_uids(repo, farm, roles=None)` | Uids of the farm's **active** members (only those with one of `roles` if given). Farms without member records yet fall back to `owner_uid` / `member_uids`. Pending and rejected people never receive farm pushes. |
+| `device_tokens(repo, uids)` | `(uid, token)` for every registered phone of these users. |
+| `farm_device_tokens(repo, farm, roles=None)` | `device_tokens` of `farm_member_uids`. |
+| `_send(repo, notifier, pairs, title, body, data)` | Pushes and deletes device records whose token FCM reports as invalid. |
+| `push_to_users(repo, notifier, uids, title, body, data)` | Push to specific people without storing a farm notification (approval and rejection messages). |
+| `notify_farm(repo, notifier, farm, *, title, body, type_, animal_id, reminder_id, roles=None)` | Writes a `notifications` record (`read: false`) and pushes it to the active members' devices; `roles` limits the push (not the stored record), e.g. `{"owner", "manager"}` for join requests. |
 | `run_due_reminders(repo, notifier, as_of=None) -> {"farms", "notified"}` | For every farm and every pending reminder: computes the bucket and skips it if already notified. Otherwise it builds a body like `Bella (CR-0412): Vaccination due: … is due tomorrow`, calls `notify_farm` and appends the bucket to `notified_buckets`. |
+
+### 10.1a services/membership.py
+
+Who belongs to which farm, with which role, and the join workflow. Storage: `farms/<farm_id>/members/<uid>` (collection `members`), `users/<uid>` (`farm_id`, `status`), `farms.owner_uid` and `farms.invite_code`.
+
+| Name | Description |
+|---|---|
+| `CODE_ALPHABET` | Characters used in invite codes, without look-alikes (no 0/O, 1/I/L). |
+| `Identity` | dataclass: `uid`, `email`, `name` (from the token). |
+| `Membership` | dataclass: `status` (none, pending, active, rejected), `farm`, `member`; property `role` (only when active). |
+| `members_path(farm_id)` | `farms/<farm_id>/members`. |
+| `code_prefix(farm_name)` | Three letters: initials for 3+ words ("Green Valley Farm" → GVF), else the first letters ("My Farm" → MYF), `FRM` without Latin letters. |
+| `normalize_code(text)` | Upper-case, strip spaces and dashes, re-insert the dash: `" gvf 7k3p "` → `GVF-7K3P`. |
+| `find_farm_by_code(repo, code)` | The farm with that (normalised) code, or `None`. |
+| `new_invite_code(repo, farm_name)` | `PREFIX-XXXX` with 4 random characters (`SystemRandom`), unique among farms. |
+| `ensure_invite_code(repo, farm)` | Adds a code to a farm that has none (farms created before codes existed). |
+| `resolve(repo, identity) -> Membership` | Reads `users/<uid>`, the farm and the member record. A legacy account (user points at a farm it owns or is listed in, but no member record) becomes an **active owner** (or manager if only listed in `member_uids`). Fills a missing email/name from the token. |
+| `me_payload(identity, membership)` | The `GET /me` body. |
+| `list_members(repo, farm_id)` | Pending (oldest first), then active (owner, managers, workers, viewers, then by name). Rejected are left out. |
+| `label(member)` | Name, else email, else "Someone". |
+| `create_farm(repo, identity, data)` | 409 if active or pending. Creates the farm (`owner_uid`, `invite_code`, currency default USD), an active owner member and `users/<uid>`. |
+| `request_to_join(repo, notifier, identity, code)` | 409 if active. 404 "No farm with this code". Replaces a pending request elsewhere, writes a pending member (role worker) and `users/<uid>` status pending, and calls `notify_farm(..., type_="join_request", roles={"owner","manager"})`. |
+| `leave(repo, identity)` | Deletes the member record and `users/<uid>`; 409 "Transfer ownership first" for the owner. |
+| `_get_member(repo, farm_id, uid)` | The member or 404 "Member not found" (rejected records count as not found). |
+| `_decide(repo, farm_id, uid, decided_by, **fields)` | Updates a member with `decided_at` / `decided_by`. |
+| `approve(repo, notifier, farm, uid, role, decided_by)` | Pending only (409 otherwise). Sets active + role, `users/<uid>` active, pushes "Welcome to <farm>". |
+| `reject(repo, notifier, farm, uid, decided_by)` | Pending only. Sets rejected, `users/<uid>` rejected, pushes "Request not accepted". |
+| `change_role(repo, farm_id, uid, role, decided_by)` | Active non-owner members only (409 otherwise). |
+| `remove(repo, farm_id, uid)` | Deletes the member record and `users/<uid>`; 409 for the owner. |
+| `rotate_invite_code(repo, farm)` | New unique code; the old one stops matching immediately. |
+| `transfer_ownership(repo, farm, from_uid, to_uid)` | Target must be another active member (409). Old owner → manager, target → owner, `farms.owner_uid` updated. |
 
 ### 10.2 services/notifier.py
 
@@ -292,10 +356,32 @@ Routes generated for each collection (prefix shown in later sections):
 
 | Route | Function | Request | Response | Notes |
 |---|---|---|---|---|
-| `GET /v1/farm` | `get_farm` | none | `FarmOut` 200 | The farm is created on the first call (see `get_ctx`). |
-| `PATCH /v1/farm` | `update_farm` | `FarmUpdate` | `FarmOut` 200 | Fields sent as `null` are ignored. |
-| `POST /v1/devices` | `register_device` | `DeviceIn` | 204 | Upserts `users/<uid>/devices` by token. |
-| `DELETE /v1/devices?token=` | `unregister_device` | query `token` | 204 | 422 if `token` is missing. |
+| `GET /v1/farm` | `get_farm` | none | `FarmOut` 200 | Any role. `role` is the caller's; `invite_code` only for manager and owner. |
+| `PATCH /v1/farm` | `update_farm` | `FarmUpdate` | `FarmOut` 200 | Manager or owner. Fields sent as `null` are ignored. |
+| `POST /v1/devices` | `register_device` | `DeviceIn` | 204 | Upserts `users/<uid>/devices` by token. Uses `get_identity`, so it works before the user has a farm (pending users get the approval push). |
+| `DELETE /v1/devices?token=` | `unregister_device` | query `token` | 204 | 422 if `token` is missing. Works without a farm. |
+
+`render_farm(ctx, farm)` builds the `FarmOut`: creates a missing invite code for managers and the owner (`ensure_invite_code`), hides it from workers and viewers, and adds the caller's role.
+
+### 11.2a routers/members.py
+
+Onboarding (token only, no farm needed) and member management. Rules live in `services/membership.py`.
+
+| Route | Function | Request | Response | Who / errors |
+|---|---|---|---|---|
+| `GET /v1/me` | `me` | none | `MeOut` 200 | Anyone signed in. Also upgrades legacy accounts (see `resolve`). |
+| `POST /v1/farms` | `create_farm` | `FarmCreate` | `MeOut` 201 | Caller becomes owner. 409 if already active or pending. |
+| `POST /v1/farms/join` | `join_farm` | `JoinIn` | `MeOut` 200 (`pending`) | 404 "No farm with this code", 409 if active somewhere. Notifies owner and managers. |
+| `DELETE /v1/me/membership` | `leave_farm` | none | `MeOut` 200 (`none`) | Cancels a request or leaves. 409 "Transfer ownership first" for the owner. |
+| `GET /v1/farm/members` | `list_members` | none | `[MemberOut]` | Manager+. Pending first, then active by role. |
+| `POST /v1/farm/members/<uid>/approve` | `approve_member` | optional `ApproveIn` | `MemberOut` | Manager+. 409 if not pending, 404 unknown. Pushes "Welcome to <farm>". |
+| `POST /v1/farm/members/<uid>/reject` | `reject_member` | none | `MemberOut` | Manager+. 409 if not pending. Pushes "Request not accepted". |
+| `PATCH /v1/farm/members/<uid>` | `change_member_role` | `RoleIn` | `MemberOut` | Manager+. 409 for the owner or a pending request. |
+| `DELETE /v1/farm/members/<uid>` | `remove_member` | none | 204 | Manager+. 409 for the owner. |
+| `POST /v1/farm/invite-code` | `rotate_invite_code` | none | `InviteCodeOut` | Manager+. The old code stops working. |
+| `POST /v1/farm/transfer-ownership` | `transfer_ownership` | `TransferIn` | `MemberOut` (new owner) | Owner only. Previous owner becomes manager. |
+
+`_me(identity, state)` converts a `Membership` into `MeOut` via `membership.me_payload`.
 
 ### 11.3 routers/animals.py
 
@@ -383,7 +469,7 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 - `movements` in the period: births (born on farm, by date of birth), deaths and sales (by `status_date`), purchases (by `date_added`).
 - `health`: upcoming vaccination reminders within `upcoming_days` (first 10, with `animal_label`), their count, the overdue count, sick and quarantined animals, and ongoing illnesses (no recovery date).
 - `breeding`: number of pending or confirmed pregnancies, and births due within `upcoming_days` (first 10).
-- `finance`: currency, income, expenses and net for the period (`compute_finance`).
+- `finance`: currency, income, expenses and net for the period (`compute_finance`); **null** for workers and viewers (`can_see_finance`).
 - `unread_notifications`.
 
 `_count_by(rows, key)` counts per value; a missing value counts as `unknown`. Inside `dashboard`, `in_period(value)` tests whether a date falls in the period and `item(reminder)` builds an `UpcomingItem`-shaped entry.
@@ -415,7 +501,7 @@ Run on the server from the project folder with the project's virtualenv, for exa
 | Script | Functions | What it does |
 |---|---|---|
 | `scripts/check_setup.py` | `ok`, `fail` (prints the fix and exits 1), `check_settings`, `check_mongo`, `check_firebase` | Step by step: `.env` found; MongoDB target; PyMongo version; login (code 18 means wrong user, password or auth DB); index creation and a write and delete in the data database (code 13 means no rights); the Firebase project id is set, the key file exists, and its `project_id` matches. Prints `All checks passed` at the end. Never prints passwords. |
-| `scripts/seed_demo.py` | `day(offset)`, `post(client, path, body)`, `seed(client)`, `main()` | Fills one farm with demo data through the real API code (Flask test client with the `uid` override, so all validation and reminders apply): 4 animals, vaccinations (one overdue), a treatment, a vet visit, a breeding, weights, a week of milk, feeding, an income and an expense. `--uid <Firebase UID>` is required; `--memory` is a dry run. Writes nothing if the farm already has animals. |
+| `scripts/seed_demo.py` | `FARM`, `day(offset)`, `post(client, path, body)`, `seed(client)`, `main()` | A user without a farm first gets one (`POST /v1/farms`, becomes owner); an owner or manager fills their own farm; pending or lower roles stop with a message. Fills one farm with demo data through the real API code (Flask test client with the `uid` override, so all validation and reminders apply): 4 animals, vaccinations (one overdue), a treatment, a vet visit, a breeding, weights, a week of milk, feeding, an income and an expense. `--uid <Firebase UID>` is required; `--memory` is a dry run. Writes nothing if the farm already has animals. |
 | `scripts/migrate_docs.py` | `main()` | One-off move from the first version's single `docs` collection into one collection per type. Already-copied records are skipped; `--drop` removes `docs` once everything has been copied. |
 
 ---
@@ -426,7 +512,8 @@ Run on the server from the project folder with the project's virtualenv, for exa
 
 | File | What it covers |
 |---|---|
-| `tests/conftest.py` | Fixtures: `repo` (`InMemoryRepository`), `notifier` (`NullNotifier`), `client` (app with overrides and uid `user-1`), `cow` (one female animal). |
+| `tests/conftest.py` | Fixtures: `repo` (`InMemoryRepository`), `notifier` (`NullNotifier`), `make_client(uid, email, name)` (a client signed in as anyone, all sharing one database), `client` (user-1, owner of a farm created with `POST /v1/farms`), `cow` (one female animal). |
+| `tests/test_members.py` | Onboarding (no automatic farm, create, validation, join with a normalised code, unknown code, reject and ask again, switch or cancel a pending request), permissions per role (viewer, worker, manager), role change and removal taking effect, invite code rotation, ownership transfer, owner cannot leave, reminder pushes only to active members, legacy accounts becoming owners, the full `required_role` table, code helpers. |
 | `tests/test_api.py` | Health check, 401 without a token, JSON 404, animal CRUD and duplicate tag, future date of birth, vaccination → reminder → dashboard, reminder job pushing once per bucket, breeding and birth (including a second birth giving 409), growth and production summary, sale → income and finance summary, photo upload, sire link cleared on delete, and more. |
 | `tests/test_mongo_repository.py` | `MongoRepository` on `mongomock` (skipped if it isn't installed): CRUD, filters, farm isolation, `set` keeping `created_at`, one collection per type with `farm_id` / `user_id`. |
 
@@ -450,4 +537,4 @@ print(len(names), "top-level classes/functions,", len(missing), "missing:", miss
 EOF
 ```
 
-Result when this document was written: **166 top-level classes and functions (200 including methods and nested route functions), 0 missing**.
+Result when this document was last updated (farm members): **215 top-level classes and functions, 0 missing**.
