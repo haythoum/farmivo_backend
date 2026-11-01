@@ -162,7 +162,7 @@ grep "verification code for" /var/log/farmivo.err.log | tail -1
 ```
 MAILJET_API_KEY=<Mailjet > Account settings > API keys: API key>
 MAILJET_API_SECRET=<secret key>
-FARMIVO_MAIL_FROM_EMAIL=SOSKHEDMA@soskhedma.tn
+FARMIVO_MAIL_FROM_EMAIL=contact@quadralens.tn
 FARMIVO_MAIL_FROM_NAME=Farmivo
 FARMIVO_CODE_SECRET=<openssl rand -hex 24>
 ```

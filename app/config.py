@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     mailjet_api_key: str = Field(default="", validation_alias=AliasChoices("MAILJET_API_KEY", "FARMIVO_MAILJET_API_KEY"))
     mailjet_api_secret: str = Field(default="", validation_alias=AliasChoices("MAILJET_API_SECRET", "FARMIVO_MAILJET_API_SECRET"))
     # Sender: must be a validated sender address (or domain) in the Mailjet account.
-    mail_from_email: str = "SOSKHEDMA@soskhedma.tn"
+    mail_from_email: str = "contact@quadralens.tn"
     mail_from_name: str = "Farmivo"
     mail_timeout: float = 10
     cors_origins: str = ""

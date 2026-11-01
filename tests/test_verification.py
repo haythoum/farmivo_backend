@@ -168,7 +168,7 @@ def test_email_failure_is_502(newbie, mailer):
 def test_email_message_content():
     from app.services.mailer import code_message
 
-    msg = code_message("SOSKHEDMA@soskhedma.tn", "Farmivo", "a@b.c", "482715", 15)["Messages"][0]
+    msg = code_message("contact@quadralens.tn", "Farmivo", "a@b.c", "482715", 15)["Messages"][0]
     assert msg["Subject"] == "Your Farmivo verification code"
     text, html = msg["TextPart"], msg["HTMLPart"]
     assert "482715" in text and "15 minutes" in text and "ignore this email" in text
@@ -197,11 +197,11 @@ def test_mailjet_payload_and_success(monkeypatch):
             sent["data"] = data
             return self.answer
 
-    mj = m.MailjetMailer("key", "secret", "SOSKHEDMA@soskhedma.tn", "Farmivo")
+    mj = m.MailjetMailer("key", "secret", "contact@quadralens.tn", "Farmivo")
     monkeypatch.setattr(mj, "_client", lambda version="v3.1": FakeClient(Result(200, {"Messages": [{"Status": "success"}]})))
     mj.send_code("new@farm.tn", "123456", 15)
     msg = sent["data"]["Messages"][0]
-    assert msg["From"] == {"Email": "SOSKHEDMA@soskhedma.tn", "Name": "Farmivo"}
+    assert msg["From"] == {"Email": "contact@quadralens.tn", "Name": "Farmivo"}
     assert msg["To"] == [{"Email": "new@farm.tn"}]
     assert "123456" in msg["TextPart"] and "1 2 3 4 5 6" in msg["HTMLPart"] and "15 minutes" in msg["HTMLPart"]
 

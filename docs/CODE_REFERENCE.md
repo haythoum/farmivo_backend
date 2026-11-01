@@ -127,7 +127,7 @@ Blueprint registration (all under `/v1`): `farm`, `animals`, `health` (vaccinati
 | `cron_secret` | none | Secret expected in `X-Cron-Secret` by the reminder job. If unset, the job endpoint always answers 403. |
 | `code_secret` | none | Key for hashing email verification codes. |
 | `mailjet_api_key`, `mailjet_api_secret` | `""` | Mailjet credentials, read from `MAILJET_API_KEY` / `MAILJET_API_SECRET` (or the `FARMIVO_`-prefixed names). Empty key: the code is logged instead (`LogMailer`). |
-| `mail_from_email`, `mail_from_name`, `mail_timeout` | `SOSKHEDMA@soskhedma.tn`, `Farmivo`, 10 | Sender of the code email (must be validated in Mailjet) and the request timeout in seconds. |
+| `mail_from_email`, `mail_from_name`, `mail_timeout` | `contact@quadralens.tn`, `Farmivo`, 10 | Sender of the code email (must be validated in Mailjet) and the request timeout in seconds. |
 | `cors_origins` | `""` | Allowed browser origins (the mobile apps need none). |
 | `environment` | `development` | Informational. |
 | `max_photo_bytes` | 5 MB | Upload limit for animal photos. |
