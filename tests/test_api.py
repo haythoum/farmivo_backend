@@ -141,3 +141,11 @@ def test_farm_address_roundtrip(client):
     assert r.status_code == 200 and r.json["address"] == "Route de Mateur, Bizerte"
     assert client.get("/v1/farm").json["address"] == "Route de Mateur, Bizerte"
     assert client.patch("/v1/farm", json={"address": "x" * 201}).status_code == 422
+
+
+def test_delete_sire_keeps_breeding(client, cow):
+    bull = client.post("/v1/animals", json={"ear_tag": "B9", "species": "cattle", "sex": "male"}).json
+    b = client.post("/v1/breedings", json={"dam_id": cow["id"], "sire_id": bull["id"], "mating_date": iso(-5)}).json
+    assert client.delete(f"/v1/animals/{bull['id']}").status_code == 204
+    kept = client.get(f"/v1/breedings/{b['id']}").json
+    assert kept["sire_id"] is None and kept["dam_id"] == cow["id"]

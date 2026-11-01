@@ -2,7 +2,7 @@
 
 ## Storage layout
 MongoDB database `farmivo`:
-- **One collection per record type**, named after it: `farms`, `users`, `animals`, `vaccinations`, `treatments`, `vet-visits`, `illnesses`, `reminders`, `breedings`, `weights`, `production`, `feedings`, `transactions`, `notifications`, `devices`. Photos: GridFS `photos.files` / `photos.chunks`.
+- **One collection per record type**, named after it: `farms`, `users`, `animals`, `vaccinations`, `treatments`, `vet_visits`, `illnesses`, `reminders`, `breedings`, `weights`, `production`, `feedings`, `transactions`, `notifications`, `devices`. Photos: GridFS `photos.files` / `photos.chunks`.
 - `_id` is the record id. Every farm record carries `farm_id` (indexed); devices carry `user_id`.
 - Look at the data in the shell: `use farmivo`, `show collections`, `db.animals.find().pretty()`, `db.vaccinations.find({farm_id: "<id>"})`. Your farm id: `db.users.find()` (one document per Firebase user, `_id` = Firebase UID).
 - Internally the code still addresses records by Firestore-style paths (`farms/<farm_id>/animals`); the Mongo repository turns the last part into the collection name and the parent ids into fields, so the same code also runs on Firestore.

@@ -154,6 +154,9 @@ def delete_animal(animal_id: str):
             ctx.repo.delete(path_of(ctx, collection), rec["id"])
     for rec in ctx.repo.list(path_of(ctx, "breedings"), [("dam_id", "==", animal_id)]):
         ctx.repo.delete(path_of(ctx, "breedings"), rec["id"])
+    # Breedings where it was the sire stay (they belong to the dam) but lose the link.
+    for rec in ctx.repo.list(path_of(ctx, "breedings"), [("sire_id", "==", animal_id)]):
+        ctx.repo.update(path_of(ctx, "breedings"), rec["id"], {"sire_id": None})
     # Children keep existing but lose the dangling parent link.
     for field in ("mother_id", "father_id"):
         for child in ctx.repo.list(path_of(ctx, "animals"), [(field, "==", animal_id)]):
