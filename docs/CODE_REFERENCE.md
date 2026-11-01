@@ -70,7 +70,9 @@ flowchart TD
 | `app/schemas.py` | Pydantic models for every request and response | utils | routers |
 | `app/utils.py` | Dates, ages, gestation table | none | schemas, routers, services |
 | `app/services/reminders.py` | Reminders owned by records, the daily push job | repository, notifier, utils | health, breeding, dashboard, internal |
-| `app/services/membership.py` | Farm members: create, join, approve, reject, roles, invite codes, transfer, legacy upgrade | repository, errors, services.reminders | deps, members router, farm router |
+| `app/services/membership.py` | Farm members: create, join, approve, reject, roles, invite codes, transfer, legacy upgrade | repository, errors, services.reminders | deps, members router, farm router, verification |
+| `app/services/verification.py` | Email verification: 6-digit code, hash, cooldown, attempts, verified flag | repository, errors, services.mailer, services.membership | members router |
+| `app/services/mailer.py` | Sends the code email over SMTP, or writes it to the log | none | deps, verification, scripts.check_setup |
 | `app/services/notifier.py` | Push senders (FCM, test double) | none | deps, reminders |
 | `app/services/photos.py` | Photo stores (GridFS, MinIO, Firebase Storage, memory) | none | deps, animals, photos router |
 | `app/routers/*.py` | One module per feature area | crud, deps, web, schemas, services | main |
@@ -101,6 +103,7 @@ Blueprint registration (all under `/v1`): `farm`, `animals`, `health` (vaccinati
 | `ENV_FILE` | constant | Absolute path of `.env` next to the `app/` folder. Used whatever directory the server starts in. |
 | `Settings` | class (pydantic-settings) | All settings. Field `x` is read from `FARMIVO_X` (environment first, then `.env`; unknown variables are ignored). |
 | `Settings.mongo_url` | property | The MongoDB connection string: `FARMIVO_MONGO_URI` (quotes trimmed) if set; otherwise built as `mongodb://<user>:<password>@<host>:<port>/?authSource=<auth_db or mongo_db>` with user and password URL-encoded, or `mongodb://<host>:<port>` without a user. |
+| `Settings.code_hash_secret` | property | Key for hashing email codes: `code_secret`, else `cron_secret`, else a fixed fallback. |
 | `Settings.cors_origin_list` | property | `cors_origins` split on commas. |
 | `get_settings() -> Settings` | function, cached | One `Settings` per process. A changed `.env` needs a restart. |
 
@@ -122,6 +125,8 @@ Blueprint registration (all under `/v1`): `farm`, `animals`, `health` (vaccinati
 | `photo_store` | `gridfs` | `gridfs` or `minio`. |
 | `minio_endpoint`, `minio_access_key`, `minio_secret_key`, `minio_bucket`, `minio_secure` | `localhost:9000`, none, none, `farmivo-photos`, `false` | MinIO photo store. |
 | `cron_secret` | none | Secret expected in `X-Cron-Secret` by the reminder job. If unset, the job endpoint always answers 403. |
+| `code_secret` | none | Key for hashing email verification codes. |
+| `smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`, `smtp_from`, `smtp_security`, `smtp_timeout` | `""`, 587, none, none, `Farmivo <no-reply@quadralens.tn>`, `starttls`, 10 | Mail server for the sign-up code. Empty host: the code is logged instead (`LogMailer`). |
 | `cors_origins` | `""` | Allowed browser origins (the mobile apps need none). |
 | `environment` | `development` | Informational. |
 | `max_photo_bytes` | 5 MB | Upload limit for animal photos. |
@@ -140,8 +145,9 @@ Request dependencies: authentication (identity), farm membership and role contex
 | `_repo()` | function, cached | `FirestoreRepository` if `db_backend == "firestore"`, else `MongoRepository(_mongo_db(), mongo_prefix)`. |
 | `_notifier()` | function, cached | Initialises Firebase and returns `FcmNotifier()`. |
 | `_photo_store()` | function, cached | `MinioPhotoStore` if `photo_store == "minio"` (needs both keys, else `RuntimeError`); `FirebasePhotoStore` with Firestore; otherwise `GridFsPhotoStore(_mongo_db(), public_base_url, "<prefix>photos")`. |
-| `get_repo()`, `get_notifier()`, `get_photo_store()` | functions | The test override if present, else the cached service. |
-| `get_identity() -> Identity` | function | Reads `Authorization: Bearer <token>`. Missing or not Bearer: **401 "Missing bearer token"**. Then `_firebase_app()` + `firebase_admin.auth.verify_id_token`. Any failure, such as a wrong project, expiry, clock skew or a missing key, logs `Rejected Firebase token: <reason>` and raises **401 "Invalid or expired token"**. Returns `Identity(uid, email, name)` from the token claims, cached on `flask.g`. Used directly by the onboarding routes (`/me`, `/farms`, `/farms/join`, `/me/membership`, `/devices`), which work without a farm. Tests set the caller with the `uid`, `email` and `name` overrides. |
+| `_mailer()` | function, cached | `SmtpMailer` from the `FARMIVO_SMTP_*` settings, or `LogMailer` when `smtp_host` is empty. |
+| `get_repo()`, `get_notifier()`, `get_photo_store()`, `get_mailer()` | functions | The test override if present, else the cached service. |
+| `get_identity() -> Identity` | function | Reads `Authorization: Bearer <token>`. Missing or not Bearer: **401 "Missing bearer token"**. Then `_firebase_app()` + `firebase_admin.auth.verify_id_token`. Any failure, such as a wrong project, expiry, clock skew or a missing key, logs `Rejected Firebase token: <reason>` and raises **401 "Invalid or expired token"**. Returns `Identity(uid, email, name, email_verified)` from the token claims, cached on `flask.g`. Used directly by the onboarding routes (`/me`, `/farms`, `/farms/join`, `/me/membership`, `/devices`), which work without a farm. Tests set the caller with the `uid`, `email`, `name` and `email_verified` overrides. |
 | `get_current_uid() -> str` | function | `get_identity().uid`. |
 | `Ctx` | dataclass | `uid`, `farm_id`, `repo`, `role` (owner, manager, worker, viewer), `farm` (the farm document). |
 | `Ctx.require(minimum)` | method | Raises **403** `code: forbidden_role` ("Your role (worker) does not allow this") unless `role` is `minimum` or higher. |
@@ -166,9 +172,9 @@ The whole permission policy in one place; `get_ctx` applies it to every farm req
 
 | Name | Kind | Description |
 |---|---|---|
-| `ApiError(status, detail, code=None)` | exception | `status` is the HTTP code; `detail` is a string or a list of field errors; `code` (optional) is a machine-readable reason added to the body, used for `no_farm`, `pending`, `rejected`, `forbidden_role`. |
+| `ApiError(status, detail, code=None, extra=None)` | exception | `status` is the HTTP code; `detail` is a string or a list of field errors; `code` (optional) is a machine-readable reason added to the body (`no_farm`, `pending`, `rejected`, `forbidden_role`, `email_unverified`, and the email-code errors); `extra` adds more fields, e.g. `retry_after`. |
 | `validation_error(exc) -> ApiError` | function | Pydantic `ValidationError` → `ApiError(422, [ {loc, msg, type, …} ])`. |
-| `register_error_handlers(app)` | function | Installs three nested handlers, `_api_error`, `_http_error` and `_unexpected`. `ApiError` → `{"detail": …}` (plus `"code"` if set) with its status. Werkzeug HTTP errors such as an unknown route (404), a wrong method (405) or a too-large body (413) → `{"detail": "<name>"}`. Any other exception is logged with its traceback; a `PyMongoError` becomes **503 "Database unavailable"**, anything else **500 "Internal server error"**. |
+| `register_error_handlers(app)` | function | Installs three nested handlers, `_api_error`, `_http_error` and `_unexpected`. `ApiError` → `{"detail": …}` (plus `"code"` and `extra` fields if set) with its status. Werkzeug HTTP errors such as an unknown route (404), a wrong method (405) or a too-large body (413) → `{"detail": "<name>"}`. Any other exception is logged with its traceback; a `PyMongoError` becomes **503 "Database unavailable"**, anything else **500 "Internal server error"**. |
 
 ## 6. app/web.py
 
@@ -215,7 +221,9 @@ Enums: `Species` (cattle, sheep, goat, pig, horse, chicken, duck, rabbit, other)
 | `FarmUpdate` / `FarmOut` | PATCH / GET `/farm` | name 1–80 characters, currency 3 letters (upper-cased by `_upper`), country ≤ 60, address ≤ 200. Out adds `owner_uid`, `invite_code` (null below manager) and `role` (the caller's). |
 | `FarmCreate` | POST `/farms` | name 2–80, address 5–200 (both required), country ≤ 60, currency 3 letters (upper-cased). |
 | `JoinIn` | POST `/farms/join` | `invite_code` 4–20 characters (normalised by the service). |
-| `MeFarm`, `MeOut` | GET `/me` and the onboarding calls | `uid`, `email`, `status` (none, pending, active, rejected), `role` (only when active), `farm` `{id, name}` or null. |
+| `MeFarm`, `MeOut` | GET `/me` and the onboarding calls | `uid`, `email`, `status` (none, pending, active, rejected), `role` (only when active), `farm` `{id, name}` or null, `email_verified`. |
+| `VerifyIn` | POST `/me/verification/verify` | `code` (1–20 characters; spaces are removed by the service). |
+| `VerificationSentOut` | POST `/me/verification/send` response | `sent_to`, `resend_after_seconds`, `expires_in_seconds`. |
 | `AssignableRole`, `ApproveIn`, `RoleIn` | approve / change role | Role must be `manager`, `worker` or `viewer` (`owner` only by transfer); approve defaults to `worker`. |
 | `TransferIn` | POST `/farm/transfer-ownership` | `uid` of the new owner. |
 | `MemberOut` | members list and actions | `uid`, `email`, `name`, `role`, `status`, `requested_at`, `decided_at`, `decided_by`. |
@@ -283,7 +291,8 @@ Who belongs to which farm, with which role, and the join workflow. Storage: `far
 | Name | Description |
 |---|---|
 | `CODE_ALPHABET` | Characters used in invite codes, without look-alikes (no 0/O, 1/I/L). |
-| `Identity` | dataclass: `uid`, `email`, `name` (from the token). |
+| `Identity` | dataclass: `uid`, `email`, `name`, `email_verified` (the token's claim). |
+| `set_user(repo, uid, farm_id, status)` | Writes `users/<uid>` (`farm_id`, `status`) keeping `email_verified` / `email_verified_at`. `farm_id=None` keeps only the verified flag (the document is deleted if there is none). Used by every membership change. |
 | `Membership` | dataclass: `status` (none, pending, active, rejected), `farm`, `member`; property `role` (only when active). |
 | `members_path(farm_id)` | `farms/<farm_id>/members`. |
 | `code_prefix(farm_name)` | Three letters: initials for 3+ words ("Green Valley Farm" → GVF), else the first letters ("My Farm" → MYF), `FRM` without Latin letters. |
@@ -292,20 +301,45 @@ Who belongs to which farm, with which role, and the join workflow. Storage: `far
 | `new_invite_code(repo, farm_name)` | `PREFIX-XXXX` with 4 random characters (`SystemRandom`), unique among farms. |
 | `ensure_invite_code(repo, farm)` | Adds a code to a farm that has none (farms created before codes existed). |
 | `resolve(repo, identity) -> Membership` | Reads `users/<uid>`, the farm and the member record. A legacy account (user points at a farm it owns or is listed in, but no member record) becomes an **active owner** (or manager if only listed in `member_uids`). Fills a missing email/name from the token. |
-| `me_payload(identity, membership)` | The `GET /me` body. |
+| `me_payload(identity, membership, email_verified=False)` | The `GET /me` body, including `email_verified`. |
 | `list_members(repo, farm_id)` | Pending (oldest first), then active (owner, managers, workers, viewers, then by name). Rejected are left out. |
 | `label(member)` | Name, else email, else "Someone". |
 | `create_farm(repo, identity, data)` | 409 if active or pending. Creates the farm (`owner_uid`, `invite_code`, currency default USD), an active owner member and `users/<uid>`. |
 | `request_to_join(repo, notifier, identity, code)` | 409 if active. 404 "No farm with this code". Replaces a pending request elsewhere, writes a pending member (role worker) and `users/<uid>` status pending, and calls `notify_farm(..., type_="join_request", roles={"owner","manager"})`. |
-| `leave(repo, identity)` | Deletes the member record and `users/<uid>`; 409 "Transfer ownership first" for the owner. |
+| `leave(repo, identity)` | Deletes the member record and clears the farm from `users/<uid>` (the verified flag stays); 409 "Transfer ownership first" for the owner. |
 | `_get_member(repo, farm_id, uid)` | The member or 404 "Member not found" (rejected records count as not found). |
 | `_decide(repo, farm_id, uid, decided_by, **fields)` | Updates a member with `decided_at` / `decided_by`. |
 | `approve(repo, notifier, farm, uid, role, decided_by)` | Pending only (409 otherwise). Sets active + role, `users/<uid>` active, pushes "Welcome to <farm>". |
 | `reject(repo, notifier, farm, uid, decided_by)` | Pending only. Sets rejected, `users/<uid>` rejected, pushes "Request not accepted". |
 | `change_role(repo, farm_id, uid, role, decided_by)` | Active non-owner members only (409 otherwise). |
-| `remove(repo, farm_id, uid)` | Deletes the member record and `users/<uid>`; 409 for the owner. |
+| `remove(repo, farm_id, uid)` | Deletes the member record and clears the farm from `users/<uid>`; 409 for the owner. |
 | `rotate_invite_code(repo, farm)` | New unique code; the old one stops matching immediately. |
 | `transfer_ownership(repo, farm, from_uid, to_uid)` | Target must be another active member (409). Old owner → manager, target → owner, `farms.owner_uid` updated. |
+
+### 10.1b services/verification.py
+
+The 6-digit email code required before creating or joining a farm. Storage: `email_codes/<uid>` (hash only) and `users/<uid>.email_verified`.
+
+| Name | Description |
+|---|---|
+| `CODE_LENGTH`, `CODE_TTL`, `RESEND_AFTER`, `MAX_SENDS_PER_HOUR`, `MAX_ATTEMPTS` | 6 digits, 15 minutes, 60 seconds, 5 codes per hour, 5 wrong tries. |
+| `now()` | Current UTC time; a function so tests can move the clock. |
+| `_iso(moment)`, `_parse(text)` | ISO-8601 strings to and from `datetime`. |
+| `hash_code(uid, code, secret)` | HMAC-SHA256 keyed with `secret:uid`; only this is stored. |
+| `is_verified(repo, identity, membership=None)` | True if `users/<uid>.email_verified`, or the token claim `email_verified`, or an active membership (older accounts). The last two are saved with `mark_verified`. |
+| `mark_verified(repo, uid)` | Sets `email_verified` and `email_verified_at` on `users/<uid>`, keeping its other fields. |
+| `send_code(repo, mailer, identity, secret) -> dict` | **409 already_verified**, **400 no_email**, **429 too_soon** (`retry_after`) within 60 s, **429 too_many_codes** after 5 in an hour. Creates a random code (`secrets`), emails it (**502 email_failed** on `MailError`, no cooldown started), then stores the hash, `expires_at`, `attempts=0`, `last_sent_at`, `sent_at`. Returns `{sent_to, resend_after_seconds, expires_in_seconds}`. |
+| `verify_code(repo, identity, code, secret)` | Spaces are ignored. Already verified: no-op. No code or expired: **410 code_expired**. Right: deletes the code, `mark_verified`. Wrong: **400 wrong_code** "Wrong code. N attempts left"; the 5th wrong try burns the code (**429 too_many_attempts**). |
+
+### 10.1c services/mailer.py
+
+| Name | Description |
+|---|---|
+| `MailError` | The email could not be sent (connection, login, refusal). |
+| `Mailer` | Protocol: `send_code(to, code, minutes)`. |
+| `code_message(sender, to, code, minutes) -> EmailMessage` | Subject "482715 is your Farmivo code"; plain-text part and branded HTML part (teal header, spaced code, 15-minute note, "ignore this email", "Powered by Quadralens"). |
+| `SmtpMailer(host, port, user, password, sender, security, timeout)` | `connect()` opens a logged-in connection (`ssl` → `SMTP_SSL`, `starttls` → `STARTTLS`, `none` → plain) or raises `MailError`; `send_code` sends `code_message` and always quits. |
+| `LogMailer` | Used when `FARMIVO_SMTP_HOST` is empty: logs "Email not configured; verification code for <email>: <code>" at WARNING (the Flask app log inside a request). |
 
 ### 10.2 services/notifier.py
 
@@ -369,9 +403,11 @@ Onboarding (token only, no farm needed) and member management. Rules live in `se
 
 | Route | Function | Request | Response | Who / errors |
 |---|---|---|---|---|
-| `GET /v1/me` | `me` | none | `MeOut` 200 | Anyone signed in. Also upgrades legacy accounts (see `resolve`). |
-| `POST /v1/farms` | `create_farm` | `FarmCreate` | `MeOut` 201 | Caller becomes owner. 409 if already active or pending. |
-| `POST /v1/farms/join` | `join_farm` | `JoinIn` | `MeOut` 200 (`pending`) | 404 "No farm with this code", 409 if active somewhere. Notifies owner and managers. |
+| `GET /v1/me` | `me` | none | `MeOut` 200 | Anyone signed in. Also upgrades legacy accounts (see `resolve`) and reports `email_verified`. |
+| `POST /v1/me/verification/send` | `send_verification_code` | none | `VerificationSentOut` 200 | See `verification.send_code`: 409 already_verified, 400 no_email, 429 too_soon / too_many_codes, 502 email_failed. |
+| `POST /v1/me/verification/verify` | `verify_email` | `VerifyIn` | `MeOut` 200 (`email_verified: true`) | See `verification.verify_code`: 400 wrong_code, 429 too_many_attempts, 410 code_expired. Then `_mark_firebase_verified`. |
+| `POST /v1/farms` | `create_farm` | `FarmCreate` | `MeOut` 201 | 403 email_unverified first. Caller becomes owner. 409 if already active or pending. |
+| `POST /v1/farms/join` | `join_farm` | `JoinIn` | `MeOut` 200 (`pending`) | 403 email_unverified first. 404 "No farm with this code", 409 if active somewhere. Notifies owner and managers. |
 | `DELETE /v1/me/membership` | `leave_farm` | none | `MeOut` 200 (`none`) | Cancels a request or leaves. 409 "Transfer ownership first" for the owner. |
 | `GET /v1/farm/members` | `list_members` | none | `[MemberOut]` | Manager+. Pending first, then active by role. |
 | `POST /v1/farm/members/<uid>/approve` | `approve_member` | optional `ApproveIn` | `MemberOut` | Manager+. 409 if not pending, 404 unknown. Pushes "Welcome to <farm>". |
@@ -381,7 +417,7 @@ Onboarding (token only, no farm needed) and member management. Rules live in `se
 | `POST /v1/farm/invite-code` | `rotate_invite_code` | none | `InviteCodeOut` | Manager+. The old code stops working. |
 | `POST /v1/farm/transfer-ownership` | `transfer_ownership` | `TransferIn` | `MemberOut` (new owner) | Owner only. Previous owner becomes manager. |
 
-`_me(identity, state)` converts a `Membership` into `MeOut` via `membership.me_payload`.
+`_me(identity, state)` converts a `Membership` into `MeOut` via `membership.me_payload`, with `email_verified` from `verification.is_verified`. `_require_verified(identity)` raises **403 email_unverified** ("Verify your email first"). `_mark_firebase_verified(uid)` sets `emailVerified` in Firebase Auth (`auth.update_user`); failures are only logged, and it is skipped in tests.
 
 ### 11.3 routers/animals.py
 
@@ -500,8 +536,8 @@ Run on the server from the project folder with the project's virtualenv, for exa
 
 | Script | Functions | What it does |
 |---|---|---|
-| `scripts/check_setup.py` | `ok`, `fail` (prints the fix and exits 1), `check_settings`, `check_mongo`, `check_firebase` | Step by step: `.env` found; MongoDB target; PyMongo version; login (code 18 means wrong user, password or auth DB); index creation and a write and delete in the data database (code 13 means no rights); the Firebase project id is set, the key file exists, and its `project_id` matches. Prints `All checks passed` at the end. Never prints passwords. |
-| `scripts/seed_demo.py` | `FARM`, `day(offset)`, `post(client, path, body)`, `seed(client)`, `main()` | A user without a farm first gets one (`POST /v1/farms`, becomes owner); an owner or manager fills their own farm; pending or lower roles stop with a message. Fills one farm with demo data through the real API code (Flask test client with the `uid` override, so all validation and reminders apply): 4 animals, vaccinations (one overdue), a treatment, a vet visit, a breeding, weights, a week of milk, feeding, an income and an expense. `--uid <Firebase UID>` is required; `--memory` is a dry run. Writes nothing if the farm already has animals. |
+| `scripts/check_setup.py` | `ok`, `fail` (prints the fix and exits 1), `check_settings`, `check_mongo`, `check_firebase`, `check_email` | Step by step: `.env` found; MongoDB target; PyMongo version; login (code 18 means wrong user, password or auth DB); index creation and a write and delete in the data database (code 13 means no rights); the Firebase project id is set, the key file exists, and its `project_id` matches; the SMTP login works (nothing is sent), or "Email: not configured (codes are written to the log)". Prints `All checks passed` at the end. Never prints passwords. |
+| `scripts/seed_demo.py` | `FARM`, `day(offset)`, `post(client, path, body)`, `seed(client)`, `main()` | A user without a farm first gets one (`POST /v1/farms`, becomes owner); an owner or manager fills their own farm; pending or lower roles stop with a message. Fills one farm with demo data through the real API code (Flask test client with the `uid` override and `email_verified` set, so all validation and reminders apply): 4 animals, vaccinations (one overdue), a treatment, a vet visit, a breeding, weights, a week of milk, feeding, an income and an expense. `--uid <Firebase UID>` is required; `--memory` is a dry run. Writes nothing if the farm already has animals. |
 | `scripts/migrate_docs.py` | `main()` | One-off move from the first version's single `docs` collection into one collection per type. Already-copied records are skipped; `--drop` removes `docs` once everything has been copied. |
 
 ---
@@ -512,9 +548,10 @@ Run on the server from the project folder with the project's virtualenv, for exa
 
 | File | What it covers |
 |---|---|
-| `tests/conftest.py` | Fixtures: `repo` (`InMemoryRepository`), `notifier` (`NullNotifier`), `make_client(uid, email, name)` (a client signed in as anyone, all sharing one database), `client` (user-1, owner of a farm created with `POST /v1/farms`), `cow` (one female animal). |
+| `tests/conftest.py` | Fixtures: `repo` (`InMemoryRepository`), `notifier` (`NullNotifier`), `mailer` (`FakeMailer`: records `(to, code)`, `fail` switch, `last_code`), `make_client(uid, email, name, verified=True)` (a client signed in as anyone, all sharing one database; `verified` is the token's email claim), `client` (user-1, owner of a farm created with `POST /v1/farms`), `cow` (one female animal). |
 | `tests/test_members.py` | Onboarding (no automatic farm, create, validation, join with a normalised code, unknown code, reject and ask again, switch or cancel a pending request), permissions per role (viewer, worker, manager), role change and removal taking effect, invite code rotation, ownership transfer, owner cannot leave, reminder pushes only to active members, legacy accounts becoming owners, the full `required_role` table, code helpers. |
 | `tests/test_api.py` | Health check, 401 without a token, JSON 404, animal CRUD and duplicate tag, future date of birth, vaccination → reminder → dashboard, reminder job pushing once per bucket, breeding and birth (including a second birth giving 409), growth and production summary, sale → income and finance summary, photo upload, sire link cleared on delete, and more. |
+| `tests/test_verification.py` | Email code: `/me` flag and farm creation/join blocked until verified, send and verify (spaces ignored), only the hash stored, 60 s cooldown and `retry_after`, a new code replacing the old, 5 per hour, wrong-code countdown and burnt code, expiry, no code, already verified, token claim saved, active members grandfathered, flag kept after leaving a farm, no email, SMTP failure (502, no cooldown), the email's content. |
 | `tests/test_mongo_repository.py` | `MongoRepository` on `mongomock` (skipped if it isn't installed): CRUD, filters, farm isolation, `set` keeping `created_at`, one collection per type with `farm_id` / `user_id`. |
 
 ---
@@ -537,4 +574,4 @@ print(len(names), "top-level classes/functions,", len(missing), "missing:", miss
 EOF
 ```
 
-Result when this document was last updated (farm members): **215 top-level classes and functions, 0 missing**.
+Result when this document was last updated (email verification): **238 top-level classes and functions, 0 missing**.

@@ -17,6 +17,36 @@ Code: `app/services/membership.py` (rules), `app/routers/members.py` (endpoints)
 
 A user belongs to **one farm at a time**. Asking to join another farm replaces a pending request; to switch farms an active member leaves first.
 
+## Email verification code
+
+Before creating or joining a farm, a new account confirms its email with a **6-digit code** that the server emails to it (`app/services/verification.py`, `app/services/mailer.py`).
+
+1. After `createUserWithEmailAndPassword` the app calls `GET /me`: `email_verified: false`, so it shows "Enter the 6-digit code" and calls `POST /me/verification/send`.
+2. The server creates a random code, keeps only its hash in `email_codes/<uid>` and emails it ("482715 is your Farmivo code"). The code expires after **15 minutes**. A new code can be asked for after **60 seconds** (`429 too_soon` with `retry_after` before that), at most **5 per hour** (`429 too_many_codes`).
+3. The user types it: `POST /me/verification/verify {code}`. Right: `email_verified: true` (also set in Firebase), the app moves on to "Create or join a farm". Wrong: `400 wrong_code` with the attempts left; after **5** wrong tries the code is burnt (`429 too_many_attempts`) and a new one must be sent. Expired: `410 code_expired`.
+4. `POST /farms` and `POST /farms/join` answer `403 email_unverified` until then.
+
+Accounts that were already active farm members, and accounts whose Firebase email is already verified, count as verified without a code. Without email settings (`FARMIVO_SMTP_HOST` empty) the code is written to the server log instead of being sent, for testing.
+
+```mermaid
+sequenceDiagram
+  actor U as New user
+  participant App
+  participant API as Farmivo API
+  participant Mail as Mail server
+  App->>API: GET /v1/me
+  API-->>App: email_verified false, status none
+  App->>API: POST /v1/me/verification/send
+  API->>API: random 6 digits, store hash, expires in 15 min
+  API->>Mail: email with the code
+  API-->>App: sent_to, resend_after_seconds 60
+  Mail-->>U: 482715 is your Farmivo code
+  U->>App: types 482715
+  App->>API: POST /v1/me/verification/verify {code}
+  API-->>App: Me with email_verified true
+  App->>App: Create or join a farm
+```
+
 ## Permission matrix
 
 | Action | viewer | worker | manager | owner |
@@ -122,6 +152,8 @@ All `403` membership and role errors carry a `code`:
 | `409` | Conflicts: already in a farm, owner leaving, changing the owner, approving a non-pending request | Show `detail` |
 
 ## What the apps do with `GET /me`
+
+First `email_verified`: while it is false the app shows the email-code screen, whatever the status. Then:
 
 Call it after sign-in, on app start, when the app returns to the foreground, and when a `membership_approved` / `membership_rejected` push arrives.
 

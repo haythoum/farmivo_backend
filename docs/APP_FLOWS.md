@@ -54,7 +54,9 @@ Screen fields: email, password, confirm password. Rules (checked in the app befo
 | Step | Call | Who answers |
 |---|---|---|
 | 1. Create the login | Firebase `createUserWithEmailAndPassword(email, password)` | Firebase |
-| 2. Where do I stand? | `GET /v1/me` gives `status: "none"` | Farmivo API |
+| 2. Where do I stand? | `GET /v1/me` gives `email_verified: false`, `status: "none"` | Farmivo API |
+| 2a. Email the code | `POST /v1/me/verification/send` gives `{sent_to, resend_after_seconds: 60, expires_in_seconds: 900}` | Farmivo API, then your mail server |
+| 2b. Type the 6 digits | `POST /v1/me/verification/verify {code}` gives `Me` with `email_verified: true`; wrong code `400 wrong_code`, expired `410 code_expired` | Farmivo API |
 | 3a. **Create a new farm** (name 2-80, address 5-200) | `POST /v1/farms`: the user becomes the **owner** | Farmivo API |
 | 3b. **Join a farm** (invite code from the farm's owner or manager) | `POST /v1/farms/join`: the request waits for approval | Farmivo API |
 | 4. Open the Dashboard (3a) or the waiting screen (3b) | | |

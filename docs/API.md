@@ -33,16 +33,22 @@ Suggested finance categories (free text, but offer these in the UI): income: `an
 
 ## Members & roles
 
-These four work **without** a farm (token only):
+These work **without** a farm (token only):
 
 | Method & path | Body | Response |
 |---|---|---|
 | `GET /me` | | `200 Me` |
-| `POST /farms` | `{name (2-80), address (5-200), country?, currency? (3 letters, default USD)}` | `201 Me` (caller becomes **owner**). `409` if already active in or waiting for a farm |
-| `POST /farms/join` | `{invite_code}` (e.g. `GVF-7K3P`; case, spaces and dash optional) | `200 Me` with `status: "pending"`. `404 "No farm with this code"`, `409` if already active in a farm. A pending request to another farm is replaced; a rejected one may be repeated |
+| `POST /me/verification/send` | | `200 {sent_to, resend_after_seconds: 60, expires_in_seconds: 900}`: emails a new 6-digit code (the previous one stops working). `429 too_soon` with `retry_after` (seconds) within 60 s of the last code, `429 too_many_codes` after 5 codes in an hour, `409 already_verified`, `400 no_email`, `502 email_failed` |
+| `POST /me/verification/verify` | `{code}` (`"482715"`, spaces ignored) | `200 Me` with `email_verified: true`. `400 wrong_code` ("Wrong code. 4 attempts left"), `429 too_many_attempts` after 5 wrong tries (the code is burnt), `410 code_expired` (expired, burnt or never sent) |
+| `POST /farms` | `{name (2-80), address (5-200), country?, currency? (3 letters, default USD)}` | `201 Me` (caller becomes **owner**). `403 email_unverified` before the code was confirmed. `409` if already active in or waiting for a farm |
+| `POST /farms/join` | `{invite_code}` (e.g. `GVF-7K3P`; case, spaces and dash optional) | `200 Me` with `status: "pending"`. `403 email_unverified` before the code was confirmed. `404 "No farm with this code"`, `409` if already active in a farm. A pending request to another farm is replaced; a rejected one may be repeated |
 | `DELETE /me/membership` | | `200 Me` (`status: "none"`): cancels a pending request or leaves the farm. `409 "Transfer ownership first"` for the owner |
 
-`Me`: `{uid, email, status: "none" | "pending" | "active" | "rejected", role: "owner" | "manager" | "worker" | "viewer" | null (null unless active), farm: {id, name} | null}`.
+`Me`: `{uid, email, status: "none" | "pending" | "active" | "rejected", role: "owner" | "manager" | "worker" | "viewer" | null (null unless active), farm: {id, name} | null, email_verified: bool}`.
+
+`email_verified` is true once the emailed code was confirmed, or when Firebase already marks the email verified, or for accounts that are already active farm members (accounts from before verification). Apps show the code screen while it is false; see [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md#email-verification-code).
+
+All the errors above carry a `code` field, e.g. `{"detail": "Please wait 42 seconds before asking for a new code", "code": "too_soon", "retry_after": 42}`.
 
 Member management (manager or owner; transfer: owner only):
 
@@ -83,6 +89,7 @@ The server enforces this on every request (`app/permissions.py`); a refused call
 | `pending` | Join request waiting for approval | Waiting screen with the farm name, "Cancel request" |
 | `rejected` | Join request refused | Message, then create a farm or join another one |
 | `forbidden_role` | The role may not call this route | `detail`, e.g. "Your role (worker) does not allow this" |
+| `email_unverified` | `POST /farms` or `POST /farms/join` before the email code was confirmed | The "Enter the 6-digit code" screen |
 
 ## Farm & devices
 

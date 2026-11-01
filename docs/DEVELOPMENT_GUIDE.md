@@ -39,6 +39,8 @@ Smoke test without an app: sign in through a client to get an ID token, then
 | `PUBLIC_BASE_URL` | Public URL of the API; used to build photo URLs |
 | `FIREBASE_PROJECT_ID` | Firebase project (token verification, FCM) |
 | `CRON_SECRET` | Shared secret for the daily reminder job |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Mail server for the 6-digit sign-up code. Empty `SMTP_HOST`: the code is written to the server log instead (see "Email (sign-up code)" below) |
+| `CODE_SECRET` | Key for hashing the codes (any long random string); empty = `CRON_SECRET` |
 | `CORS_ORIGINS` | Only for browser clients; mobile apps do not need it |
 | `FIREBASE_STORAGE_BUCKET` | Only with `DB_BACKEND=firestore` |
 
@@ -144,3 +146,41 @@ The server logs the real reason every time it rejects a token: `tail -n 30 /var/
 | `Firebase ID token has incorrect "iss"` | Wrong project, same as `aud` | Same fix |
 
 Check what the server loaded: `grep FIREBASE /srv/farmivo/.env` and, for the key's project, `grep project_id /srv/farmivo/serviceAccountKey.json`. A key copied from another project (for example SOS Khedma) is a common cause.
+
+## Email (sign-up code)
+
+New accounts confirm their email with a 6-digit code before they can create or join a farm (flow: [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md#email-verification-code)).
+
+**Testing without email:** leave `FARMIVO_SMTP_HOST` empty. The code is then written to the server log:
+```bash
+grep "verification code for" /var/log/farmivo.err.log | tail -1
+```
+
+**Sending real emails:** add to `.env` (one of):
+```
+# Gmail: needs 2-step verification and an App Password (Google account > Security > App passwords)
+FARMIVO_SMTP_HOST=smtp.gmail.com
+FARMIVO_SMTP_PORT=587
+FARMIVO_SMTP_SECURITY=starttls
+FARMIVO_SMTP_USER=you@gmail.com
+FARMIVO_SMTP_PASSWORD=<16-character app password>
+FARMIVO_SMTP_FROM=Farmivo <you@gmail.com>
+
+# OVH mailbox (e.g. no-reply@quadralens.tn)
+FARMIVO_SMTP_HOST=ssl0.ovh.net
+FARMIVO_SMTP_PORT=587
+FARMIVO_SMTP_SECURITY=starttls
+FARMIVO_SMTP_USER=no-reply@quadralens.tn
+FARMIVO_SMTP_PASSWORD=<mailbox password>
+FARMIVO_SMTP_FROM=Farmivo <no-reply@quadralens.tn>
+```
+Also set `FARMIVO_CODE_SECRET` (`openssl rand -hex 24`). Then `python -m scripts.check_setup` (it logs in to the mail server without sending) and `sudo supervisorctl restart farmivo`.
+
+The sender address should belong to the mailbox you log in with, otherwise many providers refuse the message or it lands in spam. For best delivery from your own domain, add SPF and DKIM records for it at the domain host.
+
+| Error in the app | Cause | Fix |
+|---|---|---|
+| "We could not send the email. Try again later" (`502 email_failed`) | The mail server refused or could not be reached; the log has `MailError` with the reason | Check the SMTP settings with `scripts.check_setup` |
+| "Please wait N seconds" | A code was sent less than 60 s ago | Wait |
+| "Too many codes requested" | 5 codes in the last hour | Wait an hour |
+

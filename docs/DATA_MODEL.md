@@ -29,6 +29,20 @@ All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are 
 | `farms/{farmId}/reminders` | source_type, source_id, animal_id, title, due_date, status, notified_buckets[] |
 | `farms/{farmId}/notifications` | title, body, type, animal_id, reminder_id, read |
 
+## Email codes
+
+`email_codes` (`_id` = Firebase uid): the current verification code of a new account, as a hash only.
+
+| Field | Meaning |
+|---|---|
+| `email` | Where the code was sent |
+| `code_hash` | HMAC-SHA256 of the code (key: `FARMIVO_CODE_SECRET` and the uid); `null` once burnt after 5 wrong tries |
+| `expires_at` | 15 minutes after sending |
+| `attempts` | Wrong tries so far |
+| `last_sent_at`, `sent_at` | For the 60 s cooldown and the 5-per-hour limit |
+
+The record is deleted when the code is confirmed; `users/{uid}.email_verified` (and `email_verified_at`) is then set and kept even when the user leaves a farm.
+
 ## Members and users
 
 A person (Firebase uid) belongs to at most one farm. Their record in `members` (Mongo `_id` = uid, `farm_id` = the farm) holds the role and the status of the request; `users/{uid}` points at the farm so the server finds it in one read. Exactly one active member per farm has role `owner`, and `farms.owner_uid` names them. See [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md).
