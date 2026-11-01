@@ -4,8 +4,8 @@ Storage (repository paths, see docs/DATA_MODEL.md):
 
 - ``farms/<farm_id>/members/<uid>`` (Mongo collection ``members``): one record per person and farm with
   ``role`` (owner, manager, worker, viewer) and ``status`` (pending, active, rejected).
-- ``users/<uid>`` (collection ``users``): ``farm_id`` and ``status`` of the user's current farm. No document
-  means the user has no farm yet.
+- ``users/<uid>`` (collection ``users``): ``farm_id`` and ``status`` of the user's current farm, and
+  ``email_verified`` once the email code was confirmed. No ``farm_id`` means the user has no farm yet.
 - ``farms/<farm_id>``: ``owner_uid`` and the ``invite_code`` people use to ask to join.
 
 A person belongs to at most one farm at a time. Accounts created before memberships existed (a ``users``
@@ -29,10 +29,11 @@ CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 @dataclass
 class Identity:
-    """The signed-in person, taken from the Firebase ID token."""
+    """The signed-in person, taken from the Firebase ID token (``email_verified`` is the token's claim)."""
     uid: str
     email: str | None = None
     name: str | None = None
+    email_verified: bool = False
 
 
 @dataclass
@@ -46,6 +47,19 @@ class Membership:
     def role(self) -> str | None:
         """The role, only while the membership is active."""
         return self.member["role"] if self.status == "active" and self.member else None
+
+
+def set_user(repo: Repository, uid: str, farm_id: str | None, status: str | None) -> None:
+    """Write the ``users/<uid>`` record (farm and status), keeping the email-verified flag stored there.
+
+    ``farm_id=None`` means the user no longer has a farm (left, removed).
+    """
+    keep = {k: v for k, v in (repo.get("users", uid) or {}).items() if k in ("email_verified", "email_verified_at")}
+    fields = {**keep, "farm_id": farm_id, "status": status} if farm_id else keep
+    if fields:
+        repo.set("users", uid, fields)
+    else:
+        repo.delete("users", uid)
 
 
 def members_path(farm_id: str) -> str:
@@ -117,7 +131,7 @@ def resolve(repo: Repository, identity: Identity) -> Membership:
             "uid": uid, "email": identity.email, "name": identity.name, "role": role, "status": "active",
             "requested_at": stamp, "decided_at": stamp, "decided_by": uid,
         })
-        repo.set("users", uid, {"farm_id": farm["id"], "status": "active"})
+        set_user(repo, uid, farm["id"], "active")
     elif (identity.email and not member.get("email")) or (identity.name and not member.get("name")):
         member = repo.update(members_path(farm["id"]), uid, {
             "email": member.get("email") or identity.email, "name": member.get("name") or identity.name,
@@ -125,10 +139,11 @@ def resolve(repo: Repository, identity: Identity) -> Membership:
     return Membership(member.get("status", "none"), farm, member)
 
 
-def me_payload(identity: Identity, membership: Membership) -> dict:
+def me_payload(identity: Identity, membership: Membership, email_verified: bool = False) -> dict:
     """The body of GET /v1/me (and of the onboarding calls)."""
     farm = membership.farm
     return {
+        "email_verified": email_verified,
         "uid": identity.uid,
         "email": identity.email,
         "status": membership.status,
@@ -175,7 +190,7 @@ def create_farm(repo: Repository, identity: Identity, data: dict) -> Membership:
         "uid": identity.uid, "email": identity.email, "name": identity.name, "role": "owner", "status": "active",
         "requested_at": stamp, "decided_at": stamp, "decided_by": identity.uid,
     })
-    repo.set("users", identity.uid, {"farm_id": farm["id"], "status": "active"})
+    set_user(repo, identity.uid, farm["id"], "active")
     return Membership("active", farm, member)
 
 
@@ -198,7 +213,7 @@ def request_to_join(repo: Repository, notifier: Notifier, identity: Identity, co
         "uid": identity.uid, "email": identity.email, "name": identity.name, "role": "worker", "status": "pending",
         "requested_at": stamp, "decided_at": None, "decided_by": None,
     })
-    repo.set("users", identity.uid, {"farm_id": farm["id"], "status": "pending"})
+    set_user(repo, identity.uid, farm["id"], "pending")
     who = label(member)
     notify_farm(
         repo, notifier, farm,
@@ -218,7 +233,7 @@ def leave(repo: Repository, identity: Identity) -> Membership:
     if current.role == "owner":
         raise ApiError(409, "Transfer ownership first")
     repo.delete(members_path(current.farm["id"]), identity.uid)
-    repo.delete("users", identity.uid)
+    set_user(repo, identity.uid, None, None)
     return Membership("none")
 
 
@@ -241,7 +256,7 @@ def approve(repo: Repository, notifier: Notifier, farm: dict, uid: str, role: st
     if member["status"] != "pending":
         raise ApiError(409, "This person is not waiting for approval")
     member = _decide(repo, farm["id"], uid, decided_by, status="active", role=role)
-    repo.set("users", uid, {"farm_id": farm["id"], "status": "active"})
+    set_user(repo, uid, farm["id"], "active")
     name = farm.get("name", "the farm")
     push_to_users(repo, notifier, [uid], f"Welcome to {name}", f"You can now use {name} in Farmivo.",
                   {"type": "membership_approved"})
@@ -254,7 +269,7 @@ def reject(repo: Repository, notifier: Notifier, farm: dict, uid: str, decided_b
     if member["status"] != "pending":
         raise ApiError(409, "This person is not waiting for approval")
     member = _decide(repo, farm["id"], uid, decided_by, status="rejected")
-    repo.set("users", uid, {"farm_id": farm["id"], "status": "rejected"})
+    set_user(repo, uid, farm["id"], "rejected")
     push_to_users(repo, notifier, [uid], "Request not accepted",
                   f"Your request to join {farm.get('name', 'the farm')} was not accepted.",
                   {"type": "membership_rejected"})
@@ -277,7 +292,7 @@ def remove(repo: Repository, farm_id: str, uid: str) -> None:
     if member["role"] == "owner" and member["status"] == "active":
         raise ApiError(409, "The owner cannot be removed")
     repo.delete(members_path(farm_id), uid)
-    repo.delete("users", uid)
+    set_user(repo, uid, None, None)
 
 
 def rotate_invite_code(repo: Repository, farm: dict) -> str:

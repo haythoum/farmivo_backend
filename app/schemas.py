@@ -164,6 +164,19 @@ class MeOut(BaseModel):
     status: str  # none | pending | active | rejected
     role: str | None = None  # owner | manager | worker | viewer, only when status is active
     farm: MeFarm | None = None
+    email_verified: bool = False  # false until the 6-digit email code is confirmed (POST /v1/me/verification/verify)
+
+
+class VerifyIn(Strict):
+    """POST /v1/me/verification/verify body: the 6-digit code from the email (spaces are ignored)."""
+    code: str = Field(min_length=1, max_length=20)
+
+
+class VerificationSentOut(BaseModel):
+    """Response of POST /v1/me/verification/send."""
+    sent_to: str
+    resend_after_seconds: int
+    expires_in_seconds: int
 
 
 AssignableRole = Annotated[str, Field(pattern="^(manager|worker|viewer)$")]

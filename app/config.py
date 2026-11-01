@@ -41,6 +41,16 @@ class Settings(BaseSettings):
     minio_bucket: str = "farmivo-photos"
     minio_secure: bool = False
     cron_secret: str | None = None
+    # Key for hashing email verification codes (any long random string). Empty: the cron secret is used.
+    code_secret: str | None = None
+    # Email (verification codes). Empty host: codes are written to the server log instead of being sent.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str = "Farmivo <no-reply@quadralens.tn>"
+    smtp_security: str = "starttls"  # starttls (587) | ssl (465) | none
+    smtp_timeout: float = 10
     cors_origins: str = ""
     environment: str = "development"
 
@@ -60,6 +70,12 @@ class Settings(BaseSettings):
         credentials = f"{quote_plus(self.mongo_user)}:{quote_plus(self.mongo_password or '')}"
         auth_db = self.mongo_auth_db or self.mongo_db
         return f"mongodb://{credentials}@{self.mongo_host}:{self.mongo_port}/?authSource={quote_plus(auth_db)}"
+
+    @property
+    def code_hash_secret(self) -> str:
+        """Secret for hashing verification codes: FARMIVO_CODE_SECRET, else FARMIVO_CRON_SECRET, else a fixed
+        fallback (codes are still salted per user and expire after 15 minutes)."""
+        return self.code_secret or self.cron_secret or "farmivo-email-codes"
 
     @property
     def cors_origin_list(self) -> list[str]:

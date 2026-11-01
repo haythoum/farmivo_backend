@@ -1,7 +1,9 @@
 """Who the user is and which farm they belong to: onboarding (create or join a farm) and member management.
 
 Onboarding endpoints work without a farm (they use :func:`app.deps.get_identity`):
-``GET /v1/me``, ``POST /v1/farms``, ``POST /v1/farms/join``, ``DELETE /v1/me/membership``.
+``GET /v1/me``, ``POST /v1/me/verification/send``, ``POST /v1/me/verification/verify``, ``POST /v1/farms``,
+``POST /v1/farms/join``, ``DELETE /v1/me/membership``. Creating or joining a farm needs a verified email
+(the 6-digit code, see :mod:`app.services.verification`).
 
 Member management needs an active manager or owner (enforced by :func:`app.deps.get_ctx` through
 :func:`app.permissions.required_role`): ``/v1/farm/members...``, ``/v1/farm/invite-code`` and, owner only,
@@ -9,18 +11,29 @@ Member management needs an active manager or owner (enforced by :func:`app.deps.
 """
 from __future__ import annotations
 
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
 
-from app.deps import get_ctx, get_identity, get_notifier, get_repo
-from app.schemas import ApproveIn, FarmCreate, InviteCodeOut, JoinIn, MemberOut, MeOut, RoleIn, TransferIn
-from app.services import membership
+from app.config import get_settings
+from app.deps import get_ctx, get_identity, get_mailer, get_notifier, get_repo
+from app.errors import ApiError
+from app.schemas import (
+    ApproveIn, FarmCreate, InviteCodeOut, JoinIn, MemberOut, MeOut, RoleIn, TransferIn, VerificationSentOut, VerifyIn,
+)
+from app.services import membership, verification
 from app.web import body, no_content, out
 
 bp = Blueprint("members", __name__)
 
 
 def _me(identity, state) -> MeOut:
-    return MeOut.model_validate(membership.me_payload(identity, state))
+    verified = verification.is_verified(get_repo(), identity, state)
+    return MeOut.model_validate(membership.me_payload(identity, state, verified))
+
+
+def _require_verified(identity) -> None:
+    """Creating or joining a farm needs a verified email (403 email_unverified)."""
+    if not verification.is_verified(get_repo(), identity):
+        raise ApiError(403, "Verify your email first", code="email_unverified")
 
 
 @bp.get("/me")
@@ -30,18 +43,54 @@ def me():
     return out(_me(identity, membership.resolve(get_repo(), identity)))
 
 
+@bp.post("/me/verification/send")
+def send_verification_code():
+    """POST /v1/me/verification/send - email a new 6-digit code (60 s between codes, 5 per hour)."""
+    identity = get_identity()
+    sent = verification.send_code(get_repo(), get_mailer(), identity, get_settings().code_hash_secret)
+    return out(VerificationSentOut.model_validate(sent))
+
+
+@bp.post("/me/verification/verify")
+def verify_email():
+    """POST /v1/me/verification/verify {"code"} - confirm the emailed code; returns /me with email_verified true."""
+    identity = get_identity()
+    verification.verify_code(get_repo(), identity, body(VerifyIn).code, get_settings().code_hash_secret)
+    _mark_firebase_verified(identity.uid)
+    return out(_me(identity, membership.resolve(get_repo(), identity)))
+
+
+def _mark_firebase_verified(uid: str) -> None:
+    """Best effort: also set emailVerified in Firebase Auth. Failures are logged, never returned."""
+    if current_app.config.get("FARMIVO_OVERRIDES", {}).get("uid"):
+        return  # tests: no Firebase
+    try:
+        from firebase_admin import auth
+
+        from app.deps import _firebase_app
+
+        _firebase_app()
+        auth.update_user(uid, email_verified=True)
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.warning("Could not mark the email verified in Firebase for %s: %s", uid, exc)
+
+
 @bp.post("/farms")
 def create_farm():
-    """POST /v1/farms - create a farm and become its owner (201). 409 if already in or waiting for a farm."""
+    """POST /v1/farms - create a farm and become its owner (201). 409 if already in or waiting for a farm,
+    403 email_unverified before the email code was confirmed."""
     identity = get_identity()
+    _require_verified(identity)
     data = body(FarmCreate).model_dump(exclude_none=True)
     return out(_me(identity, membership.create_farm(get_repo(), identity, data)), 201)
 
 
 @bp.post("/farms/join")
 def join_farm():
-    """POST /v1/farms/join - ask to join the farm with this invite code; waits for approval (status pending)."""
+    """POST /v1/farms/join - ask to join the farm with this invite code; waits for approval (status pending).
+    403 email_unverified before the email code was confirmed."""
     identity = get_identity()
+    _require_verified(identity)
     code = body(JoinIn).invite_code
     state = membership.request_to_join(get_repo(), get_notifier(), identity, code)
     return out(_me(identity, state))

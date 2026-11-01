@@ -85,7 +85,8 @@ def main() -> None:
     parser.add_argument("--memory", action="store_true", help="use an in-memory database (dry run)")
     args = parser.parse_args()
 
-    overrides: dict = {"uid": args.uid}
+    # The script acts for an existing account chosen by the server admin, so it skips the email code.
+    overrides: dict = {"uid": args.uid, "email_verified": True}
     if args.memory:
         from app.repository import InMemoryRepository
         from app.services.notifier import NullNotifier

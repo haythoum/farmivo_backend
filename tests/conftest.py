@@ -16,14 +16,43 @@ def notifier():
     return NullNotifier()
 
 
+class FakeMailer:
+    """Records the verification emails instead of sending them."""
+
+    def __init__(self):
+        self.sent: list[tuple[str, str]] = []  # (to, code)
+        self.fail = False
+
+    def send_code(self, to, code, minutes):
+        from app.services.mailer import MailError
+
+        if self.fail:
+            raise MailError("smtp down")
+        self.sent.append((to, code))
+
+    @property
+    def last_code(self):
+        return self.sent[-1][1]
+
+
 @pytest.fixture
-def make_client(repo, notifier):
-    """A test client signed in as ``uid``; all clients share one database, so several people can interact."""
+def mailer():
+    return FakeMailer()
+
+
+@pytest.fixture
+def make_client(repo, notifier, mailer):
+    """A test client signed in as ``uid``; all clients share one database, so several people can interact.
+
+    ``verified`` is the Firebase token's email_verified claim: True by default so feature tests skip the
+    email code; the verification tests pass False.
+    """
     photos = MemoryPhotoStore()
 
-    def make(uid: str, email: str | None = None, name: str | None = None):
-        app = create_app(overrides={"repo": repo, "notifier": notifier, "photo_store": photos,
-                                    "uid": uid, "email": email or f"{uid}@example.com", "name": name})
+    def make(uid: str, email: str | None = None, name: str | None = None, verified: bool = True):
+        app = create_app(overrides={"repo": repo, "notifier": notifier, "photo_store": photos, "mailer": mailer,
+                                    "uid": uid, "email": email or f"{uid}@example.com", "name": name,
+                                    "email_verified": verified})
         app.testing = True
         return app.test_client()
 

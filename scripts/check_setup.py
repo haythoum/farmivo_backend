@@ -94,8 +94,28 @@ def check_firebase(settings) -> None:
     ok(f"Firebase key for project {project}")
 
 
+def check_email(settings) -> None:
+    """Connect and log in to the SMTP server (nothing is sent). Without FARMIVO_SMTP_HOST codes go to the log."""
+    if not settings.smtp_host:
+        print("OK    Email: not configured (codes are written to the log)")
+        return
+    from app.services.mailer import MailError, SmtpMailer
+
+    mailer = SmtpMailer(settings.smtp_host, settings.smtp_port, settings.smtp_user, settings.smtp_password,
+                        settings.smtp_from, settings.smtp_security, settings.smtp_timeout)
+    try:
+        mailer.connect().quit()
+    except MailError as exc:
+        fail(f"cannot log in to the mail server: {exc}",
+             "check FARMIVO_SMTP_HOST/PORT/SECURITY (587+starttls or 465+ssl) and FARMIVO_SMTP_USER/PASSWORD "
+             "(Gmail needs an App Password)")
+    ok(f"Email via {settings.smtp_host}:{settings.smtp_port} ({settings.smtp_security}) as {settings.smtp_user or '(no login)'}, "
+       f"from {settings.smtp_from}")
+
+
 if __name__ == "__main__":
     s = check_settings()
     check_mongo(s)
     check_firebase(s)
+    check_email(s)
     print("All checks passed. Restart the API: sudo supervisorctl restart farmivo")

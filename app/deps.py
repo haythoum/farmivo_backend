@@ -15,6 +15,7 @@ from app.config import ENV_FILE, get_settings
 from app.errors import ApiError
 from app.permissions import at_least, required_role
 from app.repository import FirestoreRepository, MongoRepository, Repository
+from app.services.mailer import LogMailer, Mailer, SmtpMailer
 from app.services.notifier import FcmNotifier, Notifier
 from app.services import membership as membership_service
 from app.services.membership import Identity
@@ -122,6 +123,21 @@ def get_notifier() -> Notifier:
     return _override("notifier") or _notifier()
 
 
+@lru_cache
+def _mailer() -> Mailer:
+    """The process-wide mailer: SMTP when FARMIVO_SMTP_HOST is set, otherwise codes go to the log."""
+    s = get_settings()
+    if not s.smtp_host:
+        return LogMailer()
+    return SmtpMailer(s.smtp_host, s.smtp_port, s.smtp_user, s.smtp_password, s.smtp_from, s.smtp_security,
+                      s.smtp_timeout)
+
+
+def get_mailer() -> Mailer:
+    """Mailer for this request (test override or the configured one)."""
+    return _override("mailer") or _mailer()
+
+
 def get_photo_store() -> PhotoStore:
     """Photo store for this request (test override or the configured store)."""
     return _override("photo_store") or _photo_store()
@@ -138,7 +154,8 @@ def get_identity() -> Identity:
         return cached
     forced = _override("uid")
     if forced:
-        identity = Identity(uid=forced, email=_override("email"), name=_override("name"))
+        identity = Identity(uid=forced, email=_override("email"), name=_override("name"),
+                            email_verified=bool(_override("email_verified")))
     else:
         header = request.headers.get("Authorization", "")
         scheme, _, token = header.partition(" ")
@@ -153,7 +170,8 @@ def get_identity() -> Identity:
             # The reason (wrong project, expired, clock skew, ...) goes to the log, never to the client.
             current_app.logger.warning("Rejected Firebase token: %s", exc)
             raise ApiError(401, "Invalid or expired token") from exc
-        identity = Identity(uid=decoded["uid"], email=decoded.get("email"), name=decoded.get("name"))
+        identity = Identity(uid=decoded["uid"], email=decoded.get("email"), name=decoded.get("name"),
+                            email_verified=bool(decoded.get("email_verified")))
     g.farmivo_identity = identity
     return identity
 
