@@ -2,7 +2,10 @@
 
 ## Storage layout
 MongoDB database `farmivo`:
-- Collection **`docs`**: every document, with `_id = "<path>/<docId>"` and a `_path` field (indexed). Paths mirror the Firestore layout, so the same code runs on both databases.
+- **One collection per record type**, named after it: `farms`, `users`, `animals`, `vaccinations`, `treatments`, `vet-visits`, `illnesses`, `reminders`, `breedings`, `weights`, `production`, `feedings`, `transactions`, `notifications`, `devices`. Photos: GridFS `photos.files` / `photos.chunks`.
+- `_id` is the record id. Every farm record carries `farm_id` (indexed); devices carry `user_id`.
+- Look at the data in the shell: `use farmivo`, `show collections`, `db.animals.find().pretty()`, `db.vaccinations.find({farm_id: "<id>"})`. Your farm id: `db.users.find()` (one document per Firebase user, `_id` = Firebase UID).
+- Internally the code still addresses records by Firestore-style paths (`farms/<farm_id>/animals`); the Mongo repository turns the last part into the collection name and the parent ids into fields, so the same code also runs on Firestore.
 - GridFS bucket **`photos`**: animal photos (`photos.files`, `photos.chunks`) when `FARMIVO_PHOTO_STORE=gridfs` (default). With `minio`, photos are objects (random 32-hex names) in the bucket `farmivo-photos` instead, and nothing photo-related is stored in Mongo except `photo_url` on the animal.
 
 All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are `YYYY-MM-DD` strings (sortable as text).

@@ -31,7 +31,7 @@ def check_settings():
     else:
         ok(f"MongoDB {settings.mongo_host}:{settings.mongo_port}, user {settings.mongo_user or '(none)'}, "
            f"auth database {settings.mongo_auth_db or settings.mongo_db}, data database {settings.mongo_db}, "
-           f"collections {settings.mongo_prefix}docs / {settings.mongo_prefix}photos")
+           f"collections named {settings.mongo_prefix}animals, {settings.mongo_prefix}vaccinations, ...")
     return settings
 
 
@@ -56,7 +56,7 @@ def check_mongo(settings) -> None:
 
     db = client[settings.mongo_db]
     try:
-        db[f"{settings.mongo_prefix}docs"].create_index("_path")
+        db[f"{settings.mongo_prefix}animals"].create_index("farm_id")
         db[f"{settings.mongo_prefix}setup_check"].insert_one({"check": True})
         db[f"{settings.mongo_prefix}setup_check"].drop()
     except OperationFailure as exc:

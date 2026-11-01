@@ -73,7 +73,7 @@ def _repo() -> Repository:
         from firebase_admin import firestore
 
         return FirestoreRepository(firestore.client(_firebase_app()))
-    return MongoRepository(_mongo_db(), f"{get_settings().mongo_prefix}docs")
+    return MongoRepository(_mongo_db(), get_settings().mongo_prefix)
 
 
 @lru_cache

@@ -183,65 +183,81 @@ class FirestoreRepository:
 
 
 class MongoRepository:
-    """All documents live in one collection (default ``docs``); the Firestore-style path is stored in ``_path``."""
+    """One MongoDB collection per record type, named after the last part of the path.
 
-    def __init__(self, db: Any, collection: str = "docs") -> None:
-        self._c = db[collection]
-        self._c.create_index("_path")
+    ``farms/<farm_id>/animals`` -> collection ``animals`` with a ``farm_id`` field,
+    ``users/<uid>/devices`` -> collection ``devices`` with a ``user_id`` field,
+    ``farms`` / ``users`` -> collections ``farms`` / ``users``. The record id is the Mongo ``_id``.
+    So in the shell: ``db.animals.find({farm_id: "..."})``.
+    """
+
+    def __init__(self, db: Any, prefix: str = "") -> None:
+        self._db = db
+        self._prefix = prefix
+        self._indexed: set[str] = set()
+
+    def _locate(self, path: str) -> tuple[Any, dict]:
+        """Collection for a path, plus the parent fields every record in it carries (e.g. farm_id)."""
+        parts = path.split("/")
+        parent = {f"{parts[i].rstrip('s')}_id": parts[i + 1] for i in range(0, len(parts) - 1, 2)}
+        name = self._prefix + parts[-1]
+        collection = self._db[name]
+        if parent and name not in self._indexed:
+            collection.create_index([(key, 1) for key in parent])
+            self._indexed.add(name)
+        return collection, parent
 
     @staticmethod
-    def _out(raw: dict) -> dict:
-        doc = {k: v for k, v in raw.items() if k not in ("_id", "_path", "_doc_id")}
-        doc["id"] = raw["_doc_id"]
+    def _out(raw: dict, parent: dict) -> dict:
+        doc = {k: v for k, v in raw.items() if k != "_id" and k not in parent}
+        doc["id"] = raw["_id"]
         return doc
 
-    @staticmethod
-    def _key(path: str, doc_id: str) -> str:
-        return f"{path}/{doc_id}"
-
     def get(self, path: str, doc_id: str) -> dict | None:
-        raw = self._c.find_one({"_id": self._key(path, doc_id)})
-        return self._out(raw) if raw else None
+        collection, parent = self._locate(path)
+        raw = collection.find_one({"_id": doc_id, **parent})
+        return self._out(raw, parent) if raw else None
 
     def list(self, path, filters=None, order_by=None, desc=False, limit=None) -> list[dict]:
-        query: dict[str, Any] = {"_path": path}
+        collection, parent = self._locate(path)
+        query: dict[str, Any] = dict(parent)
         remaining: list[Filter] = []
         for field, op, value in filters or []:
-            if op == "==" and value is not None:
+            if op == "==" and value is not None and field not in parent:
                 query[field] = value
             elif op == "in":
                 query[field] = {"$in": list(value)}
             else:
                 remaining.append((field, op, value))
-        docs = [self._out(r) for r in self._c.find(query)]
+        docs = [self._out(r, parent) for r in collection.find(query)]
         return apply_query(docs, remaining, order_by, desc, limit)
 
     def create(self, path: str, data: dict, doc_id: str | None = None) -> dict:
+        collection, parent = self._locate(path)
         doc_id = doc_id or uuid.uuid4().hex
         stamp = now_iso()
-        self._c.insert_one(
-            {**data, "_id": self._key(path, doc_id), "_path": path, "_doc_id": doc_id,
-             "created_at": stamp, "updated_at": stamp}
-        )
+        collection.insert_one({**data, **parent, "_id": doc_id, "created_at": stamp, "updated_at": stamp})
         return self.get(path, doc_id)  # type: ignore[return-value]
 
     def update(self, path: str, doc_id: str, data: dict) -> dict | None:
-        res = self._c.update_one({"_id": self._key(path, doc_id)}, {"$set": {**data, "updated_at": now_iso()}})
+        collection, parent = self._locate(path)
+        res = collection.update_one({"_id": doc_id, **parent}, {"$set": {**data, "updated_at": now_iso()}})
         return self.get(path, doc_id) if res.matched_count else None
 
     def set(self, path: str, doc_id: str, data: dict) -> dict:
-        existing = self._c.find_one({"_id": self._key(path, doc_id)}, {"created_at": 1})
+        collection, parent = self._locate(path)
+        existing = collection.find_one({"_id": doc_id}, {"created_at": 1})
         created = (existing or {}).get("created_at") or now_iso()
-        self._c.replace_one(
-            {"_id": self._key(path, doc_id)},
-            {**data, "_id": self._key(path, doc_id), "_path": path, "_doc_id": doc_id,
-             "created_at": created, "updated_at": now_iso()},
+        collection.replace_one(
+            {"_id": doc_id},
+            {**data, **parent, "_id": doc_id, "created_at": created, "updated_at": now_iso()},
             upsert=True,
         )
         return self.get(path, doc_id)  # type: ignore[return-value]
 
     def delete(self, path: str, doc_id: str) -> bool:
-        return self._c.delete_one({"_id": self._key(path, doc_id)}).deleted_count > 0
+        collection, parent = self._locate(path)
+        return collection.delete_one({"_id": doc_id, **parent}).deleted_count > 0
 
 
 # Path helpers --------------------------------------------------------------
