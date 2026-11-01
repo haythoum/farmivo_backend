@@ -101,8 +101,8 @@ sequenceDiagram
   App->>FA: createUserWithEmailAndPassword
   FA-->>App: user + ID token (or "email already has an account", ...)
   App->>API: PATCH /v1/farm {name, address}  [Bearer token]
-  API->>FA: verify_id_token -> uid
-  API->>DB: users/<uid> exists? no -> insert farms {name "My Farm", owner_uid}, users {_id uid, farm_id}
+  API->>FA: verify_id_token → uid
+  API->>DB: users/<uid> exists? no → insert farms {name "My Farm", owner_uid}, users {_id uid, farm_id}
   API->>DB: update farms {name, address}
   API-->>App: 200 FarmOut
   alt farm save failed
@@ -146,9 +146,9 @@ sequenceDiagram
   participant DB as MongoDB
   App->>App: form (ear tag, species, sex, ... mother/father pickers from the animal list)
   App->>API: AnimalCreate JSON
-  API->>API: body(AnimalCreate): unknown field / bad value -> 422
-  API->>DB: animals.find(farm_id, ear_tag) -> taken? 409
-  API->>DB: check mother (female) / father (male) -> 404 / 422
+  API->>API: body(AnimalCreate): unknown field / bad value → 422
+  API->>DB: animals.find(farm_id, ear_tag) → taken? 409
+  API->>DB: check mother (female) / father (male) → 404 / 422
   API->>DB: animals.insert({..., farm_id, _id})
   API-->>App: 201 AnimalOut (with age_label)
   App->>App: "Animal added", list refreshed
@@ -189,7 +189,7 @@ sequenceDiagram
   participant API
   participant G as GridFS (photos.files/chunks)
   App->>API: POST /v1/animals/<id>/photo  multipart "file" (JPEG/PNG/WebP, max 5 MB) [Bearer]
-  API->>G: put(bytes, farm_id, animal_id) -> ObjectId
+  API->>G: put(bytes, farm_id, animal_id) → ObjectId
   API->>API: photo_url = FARMIVO_PUBLIC_BASE_URL + /v1/photos/<ObjectId>
   API-->>App: 200 AnimalOut {photo_url}
   App->>API: GET /v1/photos/<ObjectId>  (no token, the long id is the protection)

@@ -14,7 +14,7 @@ flowchart LR
   end
   subgraph SRV["Your server"]
     API[Flask backend<br/>gunicorn + supervisor]
-    M[(MongoDB (data, photos in GridFS)<br/>optional MinIO bucket for photos)]
+    M[("MongoDB: data, photos in GridFS<br/>optional MinIO bucket for photos")]
     CR[Scheduler<br/>daily cron]
   end
   A & I -- sign in --> AU
