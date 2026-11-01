@@ -39,7 +39,7 @@ flowchart LR
   FL -->|verify token, service-account key| AUTH
   FL -->|send push| FCM
   FCM -->|notification| A & I
-  FL -->|SMTP: 6-digit sign-up code| MAIL[Mail server<br/>e.g. Gmail or OVH]
+  FL -->|Mailjet API: 6-digit sign-up code| MAIL[Mailjet]
 ```
 
 | Piece | Responsibility | Talks to |
@@ -49,7 +49,7 @@ flowchart LR
 | Farmivo API | Validates and stores all farm data, keeps reminders, computes dashboards and reports, sends pushes | MongoDB, Firebase Auth (token check), FCM |
 | MongoDB | One collection per record type (`animals`, `vaccinations`, …) plus GridFS photos | API |
 | cron | Calls the reminder job once a day | API |
-| Mail server (SMTP) | Delivers the 6-digit email code after sign-up (`FARMIVO_SMTP_*`; without it the code goes to the server log) | API |
+| Mailjet | Delivers the 6-digit email code after sign-up (`MAILJET_API_KEY` / `_SECRET`; without it the code goes to the server log) | API |
 
 ## 2. Deployment
 
@@ -108,7 +108,7 @@ sequenceDiagram
   API-->>App: status none, email_verified false
   App->>API: POST /v1/me/verification/send
   API->>DB: email_codes (hash, expires in 15 min)
-  API->>Mail: email "482715 is your Farmivo code" (SMTP)
+  API->>Mail: Mailjet send, "Your Farmivo verification code"
   U->>App: types the 6 digits
   App->>API: POST /v1/me/verification/verify {code}
   API->>DB: users.email_verified true
@@ -289,7 +289,7 @@ Supporting app classes:
 | MongoDB | `FARMIVO_MONGO_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_AUTH_DB`, `_DB`, `_PREFIX` (or `FARMIVO_MONGO_URI`) | none | none |
 | Photo storage | `FARMIVO_PHOTO_STORE=gridfs` (or `minio` + `FARMIVO_MINIO_*`) | none | none |
 | Reminder job | `FARMIVO_CRON_SECRET` + a daily crontab line calling `/v1/internal/reminders/run` | none | none |
-| Sign-up email code | `FARMIVO_SMTP_HOST`, `_PORT`, `_SECURITY`, `_USER`, `_PASSWORD`, `_FROM`; `FARMIVO_CODE_SECRET` (empty host: code in the server log) | none | none |
+| Sign-up email code | `MAILJET_API_KEY`, `MAILJET_API_SECRET`, `FARMIVO_MAIL_FROM_EMAIL`, `FARMIVO_MAIL_FROM_NAME`; `FARMIVO_CODE_SECRET` (empty key: code in the server log) | none | none |
 | Process | `/etc/supervisor/conf.d/farmivo.conf` (template `deploy/supervisor/farmivo.conf`) | none | none |
 | App id | none | `applicationId com.quadralens.farmivo` | bundle id `com.quadralens.farmivo` |
 

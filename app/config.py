@@ -3,6 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,14 +44,14 @@ class Settings(BaseSettings):
     cron_secret: str | None = None
     # Key for hashing email verification codes (any long random string). Empty: the cron secret is used.
     code_secret: str | None = None
-    # Email (verification codes). Empty host: codes are written to the server log instead of being sent.
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_user: str | None = None
-    smtp_password: str | None = None
-    smtp_from: str = "Farmivo <no-reply@quadralens.tn>"
-    smtp_security: str = "starttls"  # starttls (587) | ssl (465) | none
-    smtp_timeout: float = 10
+    # Email (verification codes) through Mailjet. Read from MAILJET_API_KEY / MAILJET_API_SECRET
+    # (FARMIVO_MAILJET_API_KEY / _SECRET also work). Empty key: codes are written to the server log instead.
+    mailjet_api_key: str = Field(default="", validation_alias=AliasChoices("MAILJET_API_KEY", "FARMIVO_MAILJET_API_KEY"))
+    mailjet_api_secret: str = Field(default="", validation_alias=AliasChoices("MAILJET_API_SECRET", "FARMIVO_MAILJET_API_SECRET"))
+    # Sender: must be a validated sender address (or domain) in the Mailjet account.
+    mail_from_email: str = "SOSKHEDMA@soskhedma.tn"
+    mail_from_name: str = "Farmivo"
+    mail_timeout: float = 10
     cors_origins: str = ""
     environment: str = "development"
 

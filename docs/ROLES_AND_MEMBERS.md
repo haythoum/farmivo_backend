@@ -26,7 +26,7 @@ Before creating or joining a farm, a new account confirms its email with a **6-d
 3. The user types it: `POST /me/verification/verify {code}`. Right: `email_verified: true` (also set in Firebase), the app moves on to "Create or join a farm". Wrong: `400 wrong_code` with the attempts left; after **5** wrong tries the code is burnt (`429 too_many_attempts`) and a new one must be sent. Expired: `410 code_expired`.
 4. `POST /farms` and `POST /farms/join` answer `403 email_unverified` until then.
 
-Accounts that were already active farm members, and accounts whose Firebase email is already verified, count as verified without a code. Without email settings (`FARMIVO_SMTP_HOST` empty) the code is written to the server log instead of being sent, for testing.
+Accounts that were already active farm members, and accounts whose Firebase email is already verified, count as verified without a code. Without email settings (`MAILJET_API_KEY` empty) the code is written to the server log instead of being sent, for testing.
 
 ```mermaid
 sequenceDiagram

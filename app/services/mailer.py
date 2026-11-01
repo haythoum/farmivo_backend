@@ -1,46 +1,41 @@
-"""Sending email: the 6-digit verification code after sign-up.
+"""Sending email: the 6-digit verification code after sign-up, through Mailjet (Send API v3.1).
 
-Configured with FARMIVO_SMTP_* (see .env.example). Without FARMIVO_SMTP_HOST the code is written to the
-server log instead (WARNING level), so sign-up can be tested before an email account is set up.
+Configured with MAILJET_API_KEY / MAILJET_API_SECRET (see .env.example). Without the key the code is
+written to the server log instead (WARNING level), so sign-up can be tested before Mailjet is set up.
 """
 from __future__ import annotations
 
 import logging
-import smtplib
-import ssl
-from email.message import EmailMessage
-from email.utils import make_msgid
 from typing import Protocol
 
 log = logging.getLogger("farmivo.mailer")
 
 
 class MailError(Exception):
-    """The email could not be sent (connection, login or refusal by the mail server)."""
+    """The email could not be sent (bad API key, unvalidated sender, network error, Mailjet refusal)."""
 
 
 class Mailer(Protocol):
-    """Anything that can deliver a verification code (SMTP in production, a fake in the tests)."""
+    """Anything that can deliver a verification code (Mailjet in production, a fake in the tests)."""
 
     def send_code(self, to: str, code: str, minutes: int) -> None: ...
 
 
-def code_message(sender: str, to: str, code: str, minutes: int) -> EmailMessage:
-    """The verification email: a plain-text part and a branded HTML part (teal header, big code)."""
-    msg = EmailMessage()
-    msg["Subject"] = f"{code} is your Farmivo code"
-    msg["From"] = sender
-    msg["To"] = to
-    msg["Message-ID"] = make_msgid(domain=sender.rpartition("@")[2].strip(">") or None)
-    msg.set_content(
+def code_text(code: str, minutes: int) -> str:
+    """Plain-text body of the verification email."""
+    return (
         f"Welcome to Farmivo!\n\n"
-        f"Your verification code is: {code}\n\n"
+        f"Your Farmivo verification code is: {code}\n\n"
         f"Enter it in the app to activate your account. It expires in {minutes} minutes.\n\n"
         f"If you didn't create a Farmivo account, ignore this email.\n\n"
         f"Farmivo - Smart Farming. Better Living. - Powered by Quadralens\n"
     )
+
+
+def code_html(code: str, minutes: int) -> str:
+    """Branded HTML body of the verification email (teal header, big code)."""
     spaced = " ".join(code)
-    msg.add_alternative(f"""\
+    return f"""\
 <!doctype html>
 <html><body style="margin:0;padding:0;background:#FBF6EE;font-family:Arial,Helvetica,sans-serif;color:#1E2A29">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FBF6EE;padding:24px 0">
@@ -63,50 +58,64 @@ Smart Farming. Better Living. &middot; Powered by Quadralens
 </table>
 </td></tr></table>
 </body></html>
-""", subtype="html")
-    return msg
+"""
 
 
-class SmtpMailer:
-    """Sends through an SMTP server. ``security`` is starttls (port 587), ssl (port 465) or none."""
+def code_message(sender_email: str, sender_name: str, to: str, code: str, minutes: int) -> dict:
+    """The Mailjet Send API v3.1 payload for one verification email."""
+    return {
+        "Messages": [
+            {
+                "From": {"Email": sender_email, "Name": sender_name},
+                "To": [{"Email": to}],
+                "Subject": "Your Farmivo verification code",
+                "TextPart": code_text(code, minutes),
+                "HTMLPart": code_html(code, minutes),
+                "CustomID": "farmivo-verification",
+            }
+        ]
+    }
 
-    def __init__(self, host: str, port: int, user: str | None, password: str | None, sender: str,
-                 security: str = "starttls", timeout: float = 10) -> None:
-        self.host, self.port, self.user, self.password = host, port, user, password
-        self.sender, self.security, self.timeout = sender, security.lower(), timeout
 
-    def connect(self) -> smtplib.SMTP:
-        """Open a logged-in connection (also used by scripts/check_setup.py). Raises MailError."""
-        try:
-            if self.security == "ssl":
-                server: smtplib.SMTP = smtplib.SMTP_SSL(self.host, self.port, timeout=self.timeout,
-                                                        context=ssl.create_default_context())
-            else:
-                server = smtplib.SMTP(self.host, self.port, timeout=self.timeout)
-                if self.security == "starttls":
-                    server.starttls(context=ssl.create_default_context())
-            if self.user:
-                server.login(self.user, self.password or "")
-            return server
-        except (OSError, smtplib.SMTPException) as exc:
-            raise MailError(f"SMTP {self.host}:{self.port} ({self.security}): {exc}") from exc
+class MailjetMailer:
+    """Sends through Mailjet's Send API v3.1 (package ``mailjet_rest``)."""
+
+    def __init__(self, api_key: str, api_secret: str, sender_email: str, sender_name: str = "Farmivo",
+                 timeout: float = 10) -> None:
+        self.api_key, self.api_secret = api_key, api_secret
+        self.sender_email, self.sender_name, self.timeout = sender_email, sender_name, timeout
+
+    def _client(self, version: str = "v3.1"):
+        from mailjet_rest import Client
+
+        return Client(auth=(self.api_key, self.api_secret), version=version)
 
     def send_code(self, to: str, code: str, minutes: int) -> None:
-        """Send the verification email. Raises MailError if the server refuses or cannot be reached."""
-        server = self.connect()
+        """Send the verification email. Raises MailError unless Mailjet reports success."""
+        data = code_message(self.sender_email, self.sender_name, to, code, minutes)
         try:
-            server.send_message(code_message(self.sender, to, code, minutes))
-        except (OSError, smtplib.SMTPException) as exc:
-            raise MailError(f"SMTP send to {to}: {exc}") from exc
-        finally:
-            try:
-                server.quit()
-            except (OSError, smtplib.SMTPException):
-                pass
+            result = self._client().send.create(data=data, timeout=self.timeout)
+            body = result.json()
+        except Exception as exc:  # noqa: BLE001 - network errors, invalid JSON
+            raise MailError(f"Mailjet request failed: {exc}") from exc
+        status = (body.get("Messages") or [{}])[0].get("Status") if isinstance(body, dict) else None
+        if result.status_code != 200 or status != "success":
+            raise MailError(f"Mailjet refused the email to {to}: HTTP {result.status_code} {body}")
+
+    def check(self) -> list[str]:
+        """Validate the API key and return the active sender addresses (used by scripts/check_setup.py)."""
+        try:
+            result = self._client("v3").sender.get(filters={"Limit": 100}, timeout=self.timeout)
+            body = result.json()
+        except Exception as exc:  # noqa: BLE001
+            raise MailError(f"Mailjet request failed: {exc}") from exc
+        if result.status_code != 200:
+            raise MailError(f"Mailjet answered HTTP {result.status_code}: {body}")
+        return [s.get("Email", "") for s in body.get("Data", []) if s.get("Status") == "Active"]
 
 
 class LogMailer:
-    """Used when FARMIVO_SMTP_HOST is empty: writes the code to the server log instead of sending it."""
+    """Used when MAILJET_API_KEY is empty: writes the code to the server log instead of sending it."""
 
     def send_code(self, to: str, code: str, minutes: int) -> None:
         """Log the code at WARNING level (look for 'verification code for' in the log)."""

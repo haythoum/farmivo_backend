@@ -7,3 +7,4 @@ firebase-admin>=6.5
 # PyMongo 4.11+ dropped MongoDB 3.6; the production server runs 3.6 (wire version 6), so stay on 4.10.
 pymongo>=4.8,<4.11
 minio>=7.2
+mailjet-rest>=1.3

@@ -168,9 +168,45 @@ def test_email_failure_is_502(newbie, mailer):
 def test_email_message_content():
     from app.services.mailer import code_message
 
-    msg = code_message("Farmivo <no-reply@quadralens.tn>", "a@b.c", "482715", 15)
-    assert msg["Subject"] == "482715 is your Farmivo code"
-    text = msg.get_body(("plain",)).get_content()
-    html = msg.get_body(("html",)).get_content()
+    msg = code_message("SOSKHEDMA@soskhedma.tn", "Farmivo", "a@b.c", "482715", 15)["Messages"][0]
+    assert msg["Subject"] == "Your Farmivo verification code"
+    text, html = msg["TextPart"], msg["HTMLPart"]
     assert "482715" in text and "15 minutes" in text and "ignore this email" in text
     assert "4 8 2 7 1 5" in html and "#1F6F6B" in html and "Powered by Quadralens" in html
+
+
+def test_mailjet_payload_and_success(monkeypatch):
+    """MailjetMailer sends the v3.1 payload and accepts only a 'success' answer."""
+    from app.services import mailer as m
+
+    sent = {}
+
+    class Result:
+        def __init__(self, status, body):
+            self.status_code, self._body = status, body
+
+        def json(self):
+            return self._body
+
+    class FakeClient:
+        def __init__(self, answer):
+            self.answer = answer
+            self.send = self
+
+        def create(self, data, timeout=None):
+            sent["data"] = data
+            return self.answer
+
+    mj = m.MailjetMailer("key", "secret", "SOSKHEDMA@soskhedma.tn", "Farmivo")
+    monkeypatch.setattr(mj, "_client", lambda version="v3.1": FakeClient(Result(200, {"Messages": [{"Status": "success"}]})))
+    mj.send_code("new@farm.tn", "123456", 15)
+    msg = sent["data"]["Messages"][0]
+    assert msg["From"] == {"Email": "SOSKHEDMA@soskhedma.tn", "Name": "Farmivo"}
+    assert msg["To"] == [{"Email": "new@farm.tn"}]
+    assert "123456" in msg["TextPart"] and "1 2 3 4 5 6" in msg["HTMLPart"] and "15 minutes" in msg["HTMLPart"]
+
+    monkeypatch.setattr(mj, "_client", lambda version="v3.1": FakeClient(Result(401, {"ErrorMessage": "bad key"})))
+    import pytest
+
+    with pytest.raises(m.MailError):
+        mj.send_code("new@farm.tn", "123456", 15)

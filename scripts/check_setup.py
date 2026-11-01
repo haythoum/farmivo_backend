@@ -95,22 +95,32 @@ def check_firebase(settings) -> None:
 
 
 def check_email(settings) -> None:
-    """Connect and log in to the SMTP server (nothing is sent). Without FARMIVO_SMTP_HOST codes go to the log."""
-    if not settings.smtp_host:
+    """Check the Mailjet API key and that the sender address is validated (nothing is sent)."""
+    if not settings.mailjet_api_key:
         print("OK    Email: not configured (codes are written to the log)")
         return
-    from app.services.mailer import MailError, SmtpMailer
-
-    mailer = SmtpMailer(settings.smtp_host, settings.smtp_port, settings.smtp_user, settings.smtp_password,
-                        settings.smtp_from, settings.smtp_security, settings.smtp_timeout)
+    if not settings.mailjet_api_secret:
+        fail("MAILJET_API_SECRET is empty", "set MAILJET_API_SECRET in .env (Mailjet > Account settings > API keys)")
     try:
-        mailer.connect().quit()
+        import mailjet_rest  # noqa: F401
+    except ImportError:
+        fail("the mailjet_rest package is not installed", "pip install -r requirements.txt")
+    from app.services.mailer import MailError, MailjetMailer
+
+    mailer = MailjetMailer(settings.mailjet_api_key, settings.mailjet_api_secret, settings.mail_from_email,
+                           settings.mail_from_name, settings.mail_timeout)
+    try:
+        senders = mailer.check()
     except MailError as exc:
-        fail(f"cannot log in to the mail server: {exc}",
-             "check FARMIVO_SMTP_HOST/PORT/SECURITY (587+starttls or 465+ssl) and FARMIVO_SMTP_USER/PASSWORD "
-             "(Gmail needs an App Password)")
-    ok(f"Email via {settings.smtp_host}:{settings.smtp_port} ({settings.smtp_security}) as {settings.smtp_user or '(no login)'}, "
-       f"from {settings.smtp_from}")
+        fail(f"Mailjet refused the API key: {exc}", "check MAILJET_API_KEY / MAILJET_API_SECRET")
+    sender = settings.mail_from_email.lower()
+    domain = sender.rpartition("@")[2]
+    validated = [s.lower() for s in senders]
+    if sender not in validated and f"*@{domain}" not in validated:
+        fail(f"{settings.mail_from_email} is not a validated sender in this Mailjet account "
+             f"(active senders: {', '.join(senders) or 'none'})",
+             "validate the address or its domain in Mailjet > Senders & Domains, or change FARMIVO_MAIL_FROM_EMAIL")
+    ok(f"Email via Mailjet, from {settings.mail_from_name} <{settings.mail_from_email}>")
 
 
 if __name__ == "__main__":

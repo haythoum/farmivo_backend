@@ -72,7 +72,7 @@ flowchart TD
 | `app/services/reminders.py` | Reminders owned by records, the daily push job | repository, notifier, utils | health, breeding, dashboard, internal |
 | `app/services/membership.py` | Farm members: create, join, approve, reject, roles, invite codes, transfer, legacy upgrade | repository, errors, services.reminders | deps, members router, farm router, verification |
 | `app/services/verification.py` | Email verification: 6-digit code, hash, cooldown, attempts, verified flag | repository, errors, services.mailer, services.membership | members router |
-| `app/services/mailer.py` | Sends the code email over SMTP, or writes it to the log | none | deps, verification, scripts.check_setup |
+| `app/services/mailer.py` | Sends the code email through Mailjet, or writes it to the log | none | deps, verification, scripts.check_setup |
 | `app/services/notifier.py` | Push senders (FCM, test double) | none | deps, reminders |
 | `app/services/photos.py` | Photo stores (GridFS, MinIO, Firebase Storage, memory) | none | deps, animals, photos router |
 | `app/routers/*.py` | One module per feature area | crud, deps, web, schemas, services | main |
@@ -126,7 +126,8 @@ Blueprint registration (all under `/v1`): `farm`, `animals`, `health` (vaccinati
 | `minio_endpoint`, `minio_access_key`, `minio_secret_key`, `minio_bucket`, `minio_secure` | `localhost:9000`, none, none, `farmivo-photos`, `false` | MinIO photo store. |
 | `cron_secret` | none | Secret expected in `X-Cron-Secret` by the reminder job. If unset, the job endpoint always answers 403. |
 | `code_secret` | none | Key for hashing email verification codes. |
-| `smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`, `smtp_from`, `smtp_security`, `smtp_timeout` | `""`, 587, none, none, `Farmivo <no-reply@quadralens.tn>`, `starttls`, 10 | Mail server for the sign-up code. Empty host: the code is logged instead (`LogMailer`). |
+| `mailjet_api_key`, `mailjet_api_secret` | `""` | Mailjet credentials, read from `MAILJET_API_KEY` / `MAILJET_API_SECRET` (or the `FARMIVO_`-prefixed names). Empty key: the code is logged instead (`LogMailer`). |
+| `mail_from_email`, `mail_from_name`, `mail_timeout` | `SOSKHEDMA@soskhedma.tn`, `Farmivo`, 10 | Sender of the code email (must be validated in Mailjet) and the request timeout in seconds. |
 | `cors_origins` | `""` | Allowed browser origins (the mobile apps need none). |
 | `environment` | `development` | Informational. |
 | `max_photo_bytes` | 5 MB | Upload limit for animal photos. |
@@ -145,7 +146,7 @@ Request dependencies: authentication (identity), farm membership and role contex
 | `_repo()` | function, cached | `FirestoreRepository` if `db_backend == "firestore"`, else `MongoRepository(_mongo_db(), mongo_prefix)`. |
 | `_notifier()` | function, cached | Initialises Firebase and returns `FcmNotifier()`. |
 | `_photo_store()` | function, cached | `MinioPhotoStore` if `photo_store == "minio"` (needs both keys, else `RuntimeError`); `FirebasePhotoStore` with Firestore; otherwise `GridFsPhotoStore(_mongo_db(), public_base_url, "<prefix>photos")`. |
-| `_mailer()` | function, cached | `SmtpMailer` from the `FARMIVO_SMTP_*` settings, or `LogMailer` when `smtp_host` is empty. |
+| `_mailer()` | function, cached | `MailjetMailer` from the Mailjet settings, or `LogMailer` when `mailjet_api_key` is empty. |
 | `get_repo()`, `get_notifier()`, `get_photo_store()`, `get_mailer()` | functions | The test override if present, else the cached service. |
 | `get_identity() -> Identity` | function | Reads `Authorization: Bearer <token>`. Missing or not Bearer: **401 "Missing bearer token"**. Then `_firebase_app()` + `firebase_admin.auth.verify_id_token`. Any failure, such as a wrong project, expiry, clock skew or a missing key, logs `Rejected Firebase token: <reason>` and raises **401 "Invalid or expired token"**. Returns `Identity(uid, email, name, email_verified)` from the token claims, cached on `flask.g`. Used directly by the onboarding routes (`/me`, `/farms`, `/farms/join`, `/me/membership`, `/devices`), which work without a farm. Tests set the caller with the `uid`, `email`, `name` and `email_verified` overrides. |
 | `get_current_uid() -> str` | function | `get_identity().uid`. |
@@ -335,11 +336,13 @@ The 6-digit email code required before creating or joining a farm. Storage: `ema
 
 | Name | Description |
 |---|---|
-| `MailError` | The email could not be sent (connection, login, refusal). |
+| `MailError` | The email could not be sent (bad API key, unvalidated sender, network error, Mailjet refusal). |
 | `Mailer` | Protocol: `send_code(to, code, minutes)`. |
-| `code_message(sender, to, code, minutes) -> EmailMessage` | Subject "482715 is your Farmivo code"; plain-text part and branded HTML part (teal header, spaced code, 15-minute note, "ignore this email", "Powered by Quadralens"). |
-| `SmtpMailer(host, port, user, password, sender, security, timeout)` | `connect()` opens a logged-in connection (`ssl` → `SMTP_SSL`, `starttls` → `STARTTLS`, `none` → plain) or raises `MailError`; `send_code` sends `code_message` and always quits. |
-| `LogMailer` | Used when `FARMIVO_SMTP_HOST` is empty: logs "Email not configured; verification code for <email>: <code>" at WARNING (the Flask app log inside a request). |
+| `code_text(code, minutes) -> str` | Plain-text body: the code, the expiry, "ignore this email", "Powered by Quadralens". |
+| `code_html(code, minutes) -> str` | Branded HTML body (teal header, spaced code, 15-minute note, "ignore this email", "Powered by Quadralens"). |
+| `code_message(sender_email, sender_name, to, code, minutes) -> dict` | Mailjet Send API v3.1 payload: From (email, name), To, Subject "Your Farmivo verification code", TextPart, HTMLPart, CustomID `farmivo-verification`. |
+| `MailjetMailer(api_key, api_secret, sender_email, sender_name, timeout)` | `send_code` posts `code_message` with `mailjet_rest.Client(version="v3.1").send.create` and raises `MailError` unless Mailjet answers 200 with `Status: success`. `check()` lists the account's active senders through the v3 `sender` resource (used by `check_setup`); `_client(version)` builds the client. |
+| `LogMailer` | Used when `MAILJET_API_KEY` is empty: logs "Email not configured; verification code for <email>: <code>" at WARNING (the Flask app log inside a request). |
 
 ### 10.2 services/notifier.py
 
@@ -536,7 +539,7 @@ Run on the server from the project folder with the project's virtualenv, for exa
 
 | Script | Functions | What it does |
 |---|---|---|
-| `scripts/check_setup.py` | `ok`, `fail` (prints the fix and exits 1), `check_settings`, `check_mongo`, `check_firebase`, `check_email` | Step by step: `.env` found; MongoDB target; PyMongo version; login (code 18 means wrong user, password or auth DB); index creation and a write and delete in the data database (code 13 means no rights); the Firebase project id is set, the key file exists, and its `project_id` matches; the SMTP login works (nothing is sent), or "Email: not configured (codes are written to the log)". Prints `All checks passed` at the end. Never prints passwords. |
+| `scripts/check_setup.py` | `ok`, `fail` (prints the fix and exits 1), `check_settings`, `check_mongo`, `check_firebase`, `check_email` | Step by step: `.env` found; MongoDB target; PyMongo version; login (code 18 means wrong user, password or auth DB); index creation and a write and delete in the data database (code 13 means no rights); the Firebase project id is set, the key file exists, and its `project_id` matches; the Mailjet API key works and the sender is validated (nothing is sent), or "Email: not configured (codes are written to the log)". Prints `All checks passed` at the end. Never prints passwords. |
 | `scripts/seed_demo.py` | `FARM`, `day(offset)`, `post(client, path, body)`, `seed(client)`, `main()` | A user without a farm first gets one (`POST /v1/farms`, becomes owner); an owner or manager fills their own farm; pending or lower roles stop with a message. Fills one farm with demo data through the real API code (Flask test client with the `uid` override and `email_verified` set, so all validation and reminders apply): 4 animals, vaccinations (one overdue), a treatment, a vet visit, a breeding, weights, a week of milk, feeding, an income and an expense. `--uid <Firebase UID>` is required; `--memory` is a dry run. Writes nothing if the farm already has animals. |
 | `scripts/migrate_docs.py` | `main()` | One-off move from the first version's single `docs` collection into one collection per type. Already-copied records are skipped; `--drop` removes `docs` once everything has been copied. |
 
@@ -551,7 +554,7 @@ Run on the server from the project folder with the project's virtualenv, for exa
 | `tests/conftest.py` | Fixtures: `repo` (`InMemoryRepository`), `notifier` (`NullNotifier`), `mailer` (`FakeMailer`: records `(to, code)`, `fail` switch, `last_code`), `make_client(uid, email, name, verified=True)` (a client signed in as anyone, all sharing one database; `verified` is the token's email claim), `client` (user-1, owner of a farm created with `POST /v1/farms`), `cow` (one female animal). |
 | `tests/test_members.py` | Onboarding (no automatic farm, create, validation, join with a normalised code, unknown code, reject and ask again, switch or cancel a pending request), permissions per role (viewer, worker, manager), role change and removal taking effect, invite code rotation, ownership transfer, owner cannot leave, reminder pushes only to active members, legacy accounts becoming owners, the full `required_role` table, code helpers. |
 | `tests/test_api.py` | Health check, 401 without a token, JSON 404, animal CRUD and duplicate tag, future date of birth, vaccination → reminder → dashboard, reminder job pushing once per bucket, breeding and birth (including a second birth giving 409), growth and production summary, sale → income and finance summary, photo upload, sire link cleared on delete, and more. |
-| `tests/test_verification.py` | Email code: `/me` flag and farm creation/join blocked until verified, send and verify (spaces ignored), only the hash stored, 60 s cooldown and `retry_after`, a new code replacing the old, 5 per hour, wrong-code countdown and burnt code, expiry, no code, already verified, token claim saved, active members grandfathered, flag kept after leaving a farm, no email, SMTP failure (502, no cooldown), the email's content. |
+| `tests/test_verification.py` | Email code: `/me` flag and farm creation/join blocked until verified, send and verify (spaces ignored), only the hash stored, 60 s cooldown and `retry_after`, a new code replacing the old, 5 per hour, wrong-code countdown and burnt code, expiry, no code, already verified, token claim saved, active members grandfathered, flag kept after leaving a farm, no email, mail failure (502, no cooldown), the email's content, the Mailjet payload and refusal handling. |
 | `tests/test_mongo_repository.py` | `MongoRepository` on `mongomock` (skipped if it isn't installed): CRUD, filters, farm isolation, `set` keeping `created_at`, one collection per type with `farm_id` / `user_id`. |
 
 ---

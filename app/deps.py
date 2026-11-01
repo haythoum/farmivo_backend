@@ -15,7 +15,7 @@ from app.config import ENV_FILE, get_settings
 from app.errors import ApiError
 from app.permissions import at_least, required_role
 from app.repository import FirestoreRepository, MongoRepository, Repository
-from app.services.mailer import LogMailer, Mailer, SmtpMailer
+from app.services.mailer import LogMailer, Mailer, MailjetMailer
 from app.services.notifier import FcmNotifier, Notifier
 from app.services import membership as membership_service
 from app.services.membership import Identity
@@ -125,12 +125,11 @@ def get_notifier() -> Notifier:
 
 @lru_cache
 def _mailer() -> Mailer:
-    """The process-wide mailer: SMTP when FARMIVO_SMTP_HOST is set, otherwise codes go to the log."""
+    """The process-wide mailer: Mailjet when MAILJET_API_KEY is set, otherwise codes go to the log."""
     s = get_settings()
-    if not s.smtp_host:
+    if not s.mailjet_api_key:
         return LogMailer()
-    return SmtpMailer(s.smtp_host, s.smtp_port, s.smtp_user, s.smtp_password, s.smtp_from, s.smtp_security,
-                      s.smtp_timeout)
+    return MailjetMailer(s.mailjet_api_key, s.mailjet_api_secret, s.mail_from_email, s.mail_from_name, s.mail_timeout)
 
 
 def get_mailer() -> Mailer:
