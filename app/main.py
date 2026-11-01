@@ -7,13 +7,15 @@ from flask_cors import CORS
 
 from app.config import get_settings
 from app.errors import register_error_handlers
-from app.routers import animals, breeding, dashboard, farm, finance, growth, health, internal, notifications, photos, reports
+from app.routers import (
+    animals, breeding, dashboard, farm, finance, growth, health, internal, members, notifications, photos, reports,
+)
 
 API_PREFIX = "/v1"
 
 
 def create_app(overrides: dict | None = None) -> Flask:
-    """Application factory. ``overrides`` (repo, notifier, photo_store, uid) is used by the tests only."""
+    """Application factory. ``overrides`` (repo, notifier, photo_store, uid, email, name) is used by the tests only."""
     app = Flask(__name__, static_folder=None)
     app.url_map.strict_slashes = False
     app.json.sort_keys = False
@@ -33,6 +35,7 @@ def create_app(overrides: dict | None = None) -> Flask:
         return jsonify({"status": "ok"})
 
     for module in (
+        members,
         farm,
         animals,
         health,

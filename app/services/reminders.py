@@ -86,17 +86,53 @@ def delete_reminder(repo: Repository, farm_id: str, reminder_id: str) -> None:
     repo.delete(farm_path(farm_id, "reminders"), reminder_id)
 
 
-def farm_device_tokens(repo: Repository, farm: dict) -> list[tuple[str, str]]:
-    """Return (uid, token) pairs for every member of the farm."""
-    members = set(farm.get("member_uids") or [])
+def farm_member_uids(repo: Repository, farm: dict, roles: set[str] | None = None) -> list[str]:
+    """Uids of the farm's active members, optionally only those with one of ``roles``.
+
+    Farms whose members were never resolved (accounts from before memberships) fall back to the farm's
+    owner_uid / member_uids.
+    """
+    members = [m for m in repo.list(farm_path(farm["id"], "members")) if m.get("status") == "active"]
+    if members:
+        return [m["id"] for m in members if roles is None or m.get("role") in roles]
+    legacy = set(farm.get("member_uids") or [])
     if farm.get("owner_uid"):
-        members.add(farm["owner_uid"])
+        legacy.add(farm["owner_uid"])
+    if roles is not None and "owner" not in roles:
+        return []
+    return sorted(legacy)
+
+
+def device_tokens(repo: Repository, uids: list[str]) -> list[tuple[str, str]]:
+    """(uid, token) pairs for every registered phone of these users."""
     pairs: list[tuple[str, str]] = []
-    for uid in members:
+    for uid in uids:
         for device in repo.list(f"users/{uid}/devices"):
             if device.get("token"):
                 pairs.append((uid, device["token"]))
     return pairs
+
+
+def farm_device_tokens(repo: Repository, farm: dict, roles: set[str] | None = None) -> list[tuple[str, str]]:
+    """Return (uid, token) pairs for the farm's active members (optionally only some roles)."""
+    return device_tokens(repo, farm_member_uids(repo, farm, roles))
+
+
+def _send(repo: Repository, notifier: Notifier, pairs: list[tuple[str, str]], title: str, body: str,
+          data: dict[str, str]) -> None:
+    """Push to the given devices and forget tokens FCM reports as no longer valid."""
+    invalid = set(notifier.send([t for _, t in pairs], title, body, data))
+    if invalid:
+        for uid, token in pairs:
+            if token in invalid:
+                for device in repo.list(f"users/{uid}/devices", [("token", "==", token)]):
+                    repo.delete(f"users/{uid}/devices", device["id"])
+
+
+def push_to_users(repo: Repository, notifier: Notifier, uids: list[str], title: str, body: str,
+                  data: dict[str, str]) -> None:
+    """Push to specific people (e.g. "your request was approved"); nothing is stored in a farm's list."""
+    _send(repo, notifier, device_tokens(repo, uids), title, body, data)
 
 
 def notify_farm(
@@ -109,8 +145,13 @@ def notify_farm(
     type_: str = "info",
     animal_id: str | None = None,
     reminder_id: str | None = None,
+    roles: set[str] | None = None,
 ) -> None:
-    """Store an in-app notification and push it to the farm's devices."""
+    """Store an in-app notification and push it to the devices of the farm's active members.
+
+    ``roles`` limits the push (not the stored notification) to members with those roles, e.g.
+    {"owner", "manager"} for join requests.
+    """
     farm_id = farm["id"]
     repo.create(
         farm_path(farm_id, "notifications"),
@@ -123,18 +164,12 @@ def notify_farm(
             "read": False,
         },
     )
-    pairs = farm_device_tokens(repo, farm)
     data = {"type": type_}
     if animal_id:
         data["animal_id"] = animal_id
     if reminder_id:
         data["reminder_id"] = reminder_id
-    invalid = set(notifier.send([t for _, t in pairs], title, body, data))
-    if invalid:
-        for uid, token in pairs:
-            if token in invalid:
-                for device in repo.list(f"users/{uid}/devices", [("token", "==", token)]):
-                    repo.delete(f"users/{uid}/devices", device["id"])
+    _send(repo, notifier, farm_device_tokens(repo, farm, roles), title, body, data)
 
 
 def run_due_reminders(repo: Repository, notifier: Notifier, as_of: date | None = None) -> dict[str, int]:

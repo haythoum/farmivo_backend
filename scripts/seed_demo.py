@@ -5,6 +5,7 @@
 
 The Firebase user id is shown in the Firebase console under Authentication > Users ("User UID").
 Everything goes through the normal API code, so the same validation and automatic reminders apply.
+A user without a farm becomes the owner of a new demo farm; an owner or manager fills their own farm.
 Nothing is written if the farm already has animals.
 """
 from __future__ import annotations
@@ -26,12 +27,23 @@ def post(client, path: str, body: dict) -> dict:
     return response.json
 
 
+FARM = {"name": "Green Valley Farm", "country": "Tunisia", "currency": "TND",
+        "address": "Route de Mateur, Bizerte, Tunisia"}
+
+
 def seed(client) -> None:
+    me = client.get("/v1/me").json
+    if me["status"] == "none":
+        post(client, "farms", FARM)  # the user becomes the owner of a new demo farm
+    elif me["status"] != "active":
+        raise SystemExit(f"This user's membership is {me['status']}; approve it or use another --uid.")
+    elif me["role"] not in ("owner", "manager"):
+        raise SystemExit(f"This user is a {me['role']}; demo data needs an owner or manager.")
     if client.get("/v1/animals").json:
         print("This farm already has animals, nothing written.")
         return
-    client.patch("/v1/farm", json={"name": "Green Valley Farm", "country": "Tunisia", "currency": "TND",
-                                   "address": "Route de Mateur, Bizerte, Tunisia"})
+    if me["status"] == "active":
+        client.patch("/v1/farm", json=FARM)
 
     bella = post(client, "animals", {"ear_tag": "CR-0412", "name": "Bella", "species": "cattle", "breed": "Holstein",
                                      "sex": "female", "date_of_birth": day(-1700), "date_added": day(-1200)})

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint
 
 from app.deps import get_ctx
+from app.permissions import can_see_finance
 from app.routers.crud import path_of
 from app.routers.finance import compute_finance
 from app.schemas import ON_FARM_STATUSES, DashboardOut
@@ -70,7 +71,7 @@ def dashboard():
         key=lambda b: b["expected_birth_date"],
     )
 
-    finance = compute_finance(ctx.repo, ctx.farm_id, start, now)
+    finance = compute_finance(ctx.repo, ctx.farm_id, start, now) if can_see_finance(ctx.role) else None
     ongoing_illnesses = ctx.repo.list(path_of(ctx, "illnesses"))
     unread = len(ctx.repo.list(path_of(ctx, "notifications"), [("read", "==", False)]))
 
@@ -107,7 +108,7 @@ def dashboard():
                 for b in due_soon[:10]
             ],
         },
-        finance={
+        finance=None if finance is None else {
             "currency": finance.currency,
             "income": finance.income,
             "expenses": finance.expenses,

@@ -1,11 +1,11 @@
-"""Request dependencies: authentication, farm context and the lazily created database, push and photo services."""
+"""Request dependencies: authentication (identity), farm membership and role context, and the lazily created
+database, push and photo services."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -13,8 +13,11 @@ from flask import current_app, g, request
 
 from app.config import ENV_FILE, get_settings
 from app.errors import ApiError
+from app.permissions import at_least, required_role
 from app.repository import FirestoreRepository, MongoRepository, Repository
 from app.services.notifier import FcmNotifier, Notifier
+from app.services import membership as membership_service
+from app.services.membership import Identity
 from app.services.photos import FirebasePhotoStore, GridFsPhotoStore, MinioPhotoStore, PhotoStore
 
 
@@ -124,53 +127,79 @@ def get_photo_store() -> PhotoStore:
     return _override("photo_store") or _photo_store()
 
 
-def get_current_uid() -> str:
-    """Verify the Firebase ID token (Authorization: Bearer ...) sent by the mobile app and return the uid."""
+def get_identity() -> Identity:
+    """Verify the Firebase ID token (Authorization: Bearer ...) and return who is calling (uid, email, name).
+
+    Used directly by the onboarding endpoints (/me, /farms, /farms/join, /devices), which work before the
+    user belongs to a farm. Tests set the caller with create_app(overrides={"uid": ..., "email": ...}).
+    """
+    cached = g.get("farmivo_identity")
+    if cached is not None:
+        return cached
     forced = _override("uid")
     if forced:
-        return forced
-    header = request.headers.get("Authorization", "")
-    scheme, _, token = header.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        raise ApiError(401, "Missing bearer token")
-    from firebase_admin import auth
+        identity = Identity(uid=forced, email=_override("email"), name=_override("name"))
+    else:
+        header = request.headers.get("Authorization", "")
+        scheme, _, token = header.partition(" ")
+        if scheme.lower() != "bearer" or not token.strip():
+            raise ApiError(401, "Missing bearer token")
+        from firebase_admin import auth
 
-    try:
-        _firebase_app()
-        decoded = auth.verify_id_token(token.strip())
-    except Exception as exc:  # noqa: BLE001
-        # The reason (wrong project, expired, clock skew, ...) goes to the log, never to the client.
-        current_app.logger.warning("Rejected Firebase token: %s", exc)
-        raise ApiError(401, "Invalid or expired token") from exc
-    return decoded["uid"]
+        try:
+            _firebase_app()
+            decoded = auth.verify_id_token(token.strip())
+        except Exception as exc:  # noqa: BLE001
+            # The reason (wrong project, expired, clock skew, ...) goes to the log, never to the client.
+            current_app.logger.warning("Rejected Firebase token: %s", exc)
+            raise ApiError(401, "Invalid or expired token") from exc
+        identity = Identity(uid=decoded["uid"], email=decoded.get("email"), name=decoded.get("name"))
+    g.farmivo_identity = identity
+    return identity
+
+
+def get_current_uid() -> str:
+    """The signed-in user's Firebase uid (see :func:`get_identity`)."""
+    return get_identity().uid
 
 
 @dataclass
 class Ctx:
-    """Per-request context: signed-in user id, that user's farm id and the repository."""
+    """Per-request context of an active farm member: who, which farm, which role, and the repository."""
     uid: str
     farm_id: str
     repo: Repository
+    role: str = "owner"
+    farm: dict | None = None
+
+    def require(self, minimum: str) -> None:
+        """Raise 403 (code forbidden_role) unless the caller's role is ``minimum`` or more powerful."""
+        if not at_least(self.role, minimum):
+            raise ApiError(403, f"Your role ({self.role}) does not allow this", code="forbidden_role")
 
 
 def get_ctx() -> Ctx:
-    """Authenticate the request and resolve (creating on first use) the farm of the signed-in user."""
+    """Authenticate the request, require an ACTIVE farm membership and check the role for this route.
+
+    403 codes the apps route on: ``no_farm`` (create or join a farm), ``pending`` (waiting for approval),
+    ``rejected`` (request refused) and ``forbidden_role`` (the role may not call this route; the policy is
+    :func:`app.permissions.required_role`).
+    """
     cached = g.get("farmivo_ctx")
     if cached is not None:
         return cached
-    uid = get_current_uid()
+    identity = get_identity()
     repo = get_repo()
-    user = repo.get("users", uid)
-    if user and user.get("farm_id"):
-        ctx = Ctx(uid=uid, farm_id=user["farm_id"], repo=repo)
-    else:
-        farm_id = uuid.uuid4().hex
-        repo.create(
-            "farms",
-            {"name": "My Farm", "currency": "USD", "owner_uid": uid, "member_uids": [uid]},
-            doc_id=farm_id,
-        )
-        repo.set("users", uid, {"farm_id": farm_id})
-        ctx = Ctx(uid=uid, farm_id=farm_id, repo=repo)
+    membership = membership_service.resolve(repo, identity)
+    farm_name = (membership.farm or {}).get("name") or "the farm"
+    if membership.status == "pending":
+        raise ApiError(403, f"Your request to join {farm_name} is waiting for approval", code="pending")
+    if membership.status == "rejected":
+        raise ApiError(403, f"Your request to join {farm_name} was rejected", code="rejected")
+    if membership.status != "active" or not membership.farm:
+        raise ApiError(403, "You are not a member of a farm yet", code="no_farm")
+    ctx = Ctx(uid=identity.uid, farm_id=membership.farm["id"], repo=repo, role=membership.role or "viewer",
+              farm=membership.farm)
+    ctx.require(required_role(request.method, request.path))
     g.farmivo_ctx = ctx
     return ctx

@@ -1,4 +1,8 @@
-"""API error type and JSON error handlers. Every error body has the shape {"detail": ...}."""
+"""API error type and JSON error handlers.
+
+Every error body has the shape {"detail": ...}. Errors the apps must react to in a specific way
+(membership and role checks) also carry a machine-readable "code", e.g. {"detail": "...", "code": "pending"}.
+"""
 from __future__ import annotations
 
 import json
@@ -9,11 +13,12 @@ from werkzeug.exceptions import HTTPException
 
 
 class ApiError(Exception):
-    """An error returned to the client as JSON {"detail": ...} with the given HTTP status."""
-    def __init__(self, status: int, detail) -> None:
+    """An error returned to the client as JSON {"detail": ...} (plus "code" when given) with the HTTP status."""
+    def __init__(self, status: int, detail, code: str | None = None) -> None:
         super().__init__(str(detail))
         self.status = status
         self.detail = detail
+        self.code = code
 
 
 def validation_error(exc: ValidationError) -> ApiError:
@@ -25,7 +30,10 @@ def register_error_handlers(app: Flask) -> None:
     """Make every error (ApiError, HTTP errors, unexpected exceptions) answer JSON {"detail": ...}."""
     @app.errorhandler(ApiError)
     def _api_error(exc: ApiError):
-        return jsonify({"detail": exc.detail}), exc.status
+        payload = {"detail": exc.detail}
+        if exc.code:
+            payload["code"] = exc.code
+        return jsonify(payload), exc.status
 
     @app.errorhandler(HTTPException)
     def _http_error(exc: HTTPException):

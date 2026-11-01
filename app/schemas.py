@@ -122,12 +122,85 @@ class FarmUpdate(Strict):
 
 
 class FarmOut(Record):
-    """Farm as returned by the API."""
+    """Farm as returned by the API. ``invite_code`` is only filled for managers and the owner;
+    ``role`` is the caller's role on this farm."""
     name: str
     currency: str = "USD"
     country: str | None = None
     address: str | None = None
     owner_uid: str | None = None
+    invite_code: str | None = None
+    role: str | None = None
+
+
+class FarmCreate(Strict):
+    """POST /v1/farms body: create a farm and become its owner."""
+    name: str = Field(min_length=2, max_length=80)
+    address: str = Field(min_length=5, max_length=200)
+    country: str | None = Field(default=None, max_length=60)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+
+    @field_validator("currency")
+    @classmethod
+    def _upper(cls, v: str | None) -> str | None:
+        return v.upper() if v else v
+
+
+class JoinIn(Strict):
+    """POST /v1/farms/join body: the farm's invite code, e.g. "GVF-7K3P" (case and dash optional)."""
+    invite_code: str = Field(min_length=4, max_length=20)
+
+
+class MeFarm(BaseModel):
+    """The farm summary inside GET /v1/me."""
+    id: str
+    name: str | None = None
+
+
+class MeOut(BaseModel):
+    """Response of GET /v1/me and of the onboarding calls: where the signed-in user stands."""
+    uid: str
+    email: str | None = None
+    status: str  # none | pending | active | rejected
+    role: str | None = None  # owner | manager | worker | viewer, only when status is active
+    farm: MeFarm | None = None
+
+
+AssignableRole = Annotated[str, Field(pattern="^(manager|worker|viewer)$")]
+
+
+class ApproveIn(Strict):
+    """POST /v1/farm/members/<uid>/approve body (optional): the role to give, default worker."""
+    role: AssignableRole = "worker"
+
+
+class RoleIn(Strict):
+    """PATCH /v1/farm/members/<uid> body."""
+    role: AssignableRole
+
+
+class TransferIn(Strict):
+    """POST /v1/farm/transfer-ownership body: the uid of the active member who becomes owner."""
+    uid: str = Field(min_length=1, max_length=128)
+
+
+class MemberOut(BaseModel):
+    """A member or a pending request, as listed in GET /v1/farm/members."""
+    model_config = ConfigDict(extra="ignore")
+
+    uid: str
+    email: str | None = None
+    name: str | None = None
+    role: str
+    status: str  # pending | active
+    requested_at: str | None = None
+    decided_at: str | None = None
+    decided_by: str | None = None
+
+
+class InviteCodeOut(BaseModel):
+    """Response of POST /v1/farm/invite-code."""
+    invite_code: str
 
 
 # ------------------------------------------------------------------- animals
@@ -517,5 +590,5 @@ class DashboardOut(BaseModel):
     movements: dict[str, int]
     health: dict[str, Any]
     breeding: dict[str, Any]
-    finance: dict[str, Any]
+    finance: dict[str, Any] | None = None  # null for workers and viewers
     unread_notifications: int

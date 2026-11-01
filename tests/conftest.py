@@ -17,12 +17,26 @@ def notifier():
 
 
 @pytest.fixture
-def client(repo, notifier):
-    app = create_app(
-        overrides={"repo": repo, "notifier": notifier, "photo_store": MemoryPhotoStore(), "uid": "user-1"}
-    )
-    app.testing = True
-    return app.test_client()
+def make_client(repo, notifier):
+    """A test client signed in as ``uid``; all clients share one database, so several people can interact."""
+    photos = MemoryPhotoStore()
+
+    def make(uid: str, email: str | None = None, name: str | None = None):
+        app = create_app(overrides={"repo": repo, "notifier": notifier, "photo_store": photos,
+                                    "uid": uid, "email": email or f"{uid}@example.com", "name": name})
+        app.testing = True
+        return app.test_client()
+
+    return make
+
+
+@pytest.fixture
+def client(make_client):
+    """The farm owner: user-1 with a farm created through POST /v1/farms."""
+    c = make_client("user-1", name="Owner One")
+    r = c.post("/v1/farms", json={"name": "Green Valley Farm", "address": "Route de Mateur, Bizerte"})
+    assert r.status_code == 201, r.text
+    return c
 
 
 @pytest.fixture
