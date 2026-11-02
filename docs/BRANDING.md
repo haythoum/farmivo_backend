@@ -11,6 +11,8 @@ Original drawing (not derived from any existing mark). Cream face, sunflower hor
 | `docs/brand/farmivo-logo.svg` / `.png` | Full logo (tile + head), 512 px PNG |
 | `docs/brand/farmivo-mark.svg` | Head only, transparent background |
 | `docs/brand/farmivo-icon-square.svg` | Square app-icon source (1024 px PNG is in the iOS asset catalog) |
+| `docs/brand/farmivo-mark-1024.png` | Head only, 1024 px, transparent background (print, presentations) |
+| `docs/brand/farmivo-wordmark-light.png` / `-dark.png` | Logo tile + "Farmivo" + tagline, 1600 × 480, on cream or on teal |
 
 Where it lives in the apps:
 - Android: `res/drawable/ic_logo.xml` (login), `ic_launcher_foreground.xml` + `ic_launcher_background` colour (adaptive icon).
@@ -43,3 +45,6 @@ Change the wording in one place per platform (string resource / `PoweredByView`)
 - Keep the head on the teal tile or on cream; don't recolour the horns.
 - Minimum size 24 px for the mark.
 - Tagline: "Smart Farming. Better Living."
+
+## Store assets
+Store icons, feature graphic, screenshots (en / fr / ar) and listing texts live in each app repo under `fastlane/`; the checklists are `docs/STORE_RELEASE.md` in farmivo_android and farmivo_ios.
