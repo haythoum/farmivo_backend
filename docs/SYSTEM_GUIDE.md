@@ -233,6 +233,29 @@ sequenceDiagram
   App->>App: clear animal cache, show sign-in screen
 ```
 
+### 3.7 Delete account
+
+```mermaid
+sequenceDiagram
+  participant App
+  participant API
+  participant DB as MongoDB
+  participant FA as Firebase Auth
+  App->>App: More, Delete account, type the confirmation word
+  App->>API: DELETE /v1/me
+  alt owner of a farm with other active members
+    API-->>App: 409 owner_must_transfer
+    App->>App: show the message, offer Members (transfer ownership)
+  else member, pending, no farm, or owner alone
+    API->>DB: delete membership (lone owner: the whole farm and its photos), devices, users record, email code
+    API->>FA: delete_user(uid) (best effort)
+    API-->>App: 204
+    App->>App: sign out locally, show sign-in with "Your account was deleted"
+  end
+```
+
+Public pages for the stores (no sign-in): `/privacy`, `/terms`, `/support`, `/delete-account` on the API server (not under `/v1`). The apps open them from More and from the Create account screen; their address is the API base URL without `/v1`.
+
 ---
 
 ## 4. Screens, endpoints, code and collections

@@ -25,6 +25,11 @@ class MemoryPhotoStore:
         self.files[key] = content
         return f"https://storage.test/{key}"
 
+    def delete_farm(self, farm_id: str, urls: list[str]) -> None:
+        """Delete every photo of a farm."""
+        for key in [k for k in self.files if k.startswith(f"farms/{farm_id}/")]:
+            del self.files[key]
+
 
 class FirebasePhotoStore:
     """Uploads photos to Firebase Storage and returns their public URL (Firestore setup only)."""
@@ -40,6 +45,13 @@ class FirebasePhotoStore:
         blob.make_public()
         return blob.public_url
 
+    def delete_farm(self, farm_id: str, urls: list[str]) -> None:
+        """Delete every photo of a farm (all blobs under farms/<farm_id>/)."""
+        from firebase_admin import storage
+
+        for blob in storage.bucket(self._bucket_name).list_blobs(prefix=f"farms/{farm_id}/"):
+            blob.delete()
+
 
 class GridFsPhotoStore:
     """Stores photos in MongoDB (GridFS) and serves them through GET /v1/photos/{id}."""
@@ -53,6 +65,11 @@ class GridFsPhotoStore:
     def save(self, farm_id: str, animal_id: str, content: bytes, content_type: str) -> str:
         file_id = self._fs.put(content, content_type=content_type, farm_id=farm_id, animal_id=animal_id)
         return f"{self._base}/v1/photos/{file_id}"
+
+    def delete_farm(self, farm_id: str, urls: list[str]) -> None:
+        """Delete every photo of a farm, including replaced ones (each file carries its farm_id)."""
+        for stored in self._fs.find({"farm_id": farm_id}):
+            self._fs.delete(stored._id)
 
     def read(self, file_id: str) -> tuple[bytes, str] | None:
         """Return (bytes, content type) of a stored photo, or None if the id is unknown or malformed."""
@@ -95,6 +112,15 @@ class MinioPhotoStore:
             metadata={"farm-id": farm_id, "animal-id": animal_id},
         )
         return f"{self._base}/v1/photos/{file_id}"
+
+    def delete_farm(self, farm_id: str, urls: list[str]) -> None:
+        """Delete the farm's current animal photos (the object id is the last part of each photo URL)."""
+        import re
+
+        for url in urls:
+            file_id = url.rstrip("/").rsplit("/", 1)[-1]
+            if re.fullmatch(r"[0-9a-f]{32}", file_id):
+                self._client.remove_object(self._bucket, file_id)
 
     def read(self, file_id: str) -> tuple[bytes, str] | None:
         """Return (bytes, content type) of a stored photo, or None if the id is unknown or malformed."""

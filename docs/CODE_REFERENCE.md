@@ -34,13 +34,16 @@ flowchart TD
   main --> errors[app.errors]
   main --> config[app.config]
   subgraph routers[app.routers]
-    members & farm & animals & health & breeding & growth & finance & dashboard & notifications & photos & reports & internal
+    members & farm & animals & health & breeding & growth & finance & dashboard & notifications & photos & reports & internal & legal
     crud[crud<br/>build_crud_blueprint]
   end
   routers --> deps[app.deps<br/>get_identity / get_ctx]
   deps --> perms[app.permissions<br/>required_role]
   deps --> membership[services.membership]
   members --> membership
+  members --> account[services.account]
+  account --> membership
+  legal --> legaltexts[app.legal]
   membership --> reminders
   routers --> web[app.web<br/>body / out / q_*]
   routers --> schemas[app.schemas]
@@ -71,6 +74,8 @@ flowchart TD
 | `app/utils.py` | Dates, ages, gestation table | none | schemas, routers, services |
 | `app/services/reminders.py` | Reminders owned by records, the daily push job | repository, notifier, utils | health, breeding, dashboard, internal |
 | `app/services/membership.py` | Farm members: create, join, approve, reject, roles, invite codes, transfer, legacy upgrade | repository, errors, services.reminders | deps, members router, farm router, verification |
+| `app/services/account.py` | Account deletion (`DELETE /v1/me`): membership, devices, user record, and the whole farm for a lone owner | repository, errors, services.membership | members router |
+| `app/legal.py` | Texts of the public pages (privacy, terms, support, delete account) in en/fr/ar | none | legal router |
 | `app/services/verification.py` | Email verification: 6-digit code, hash, cooldown, attempts, verified flag | repository, errors, services.mailer, services.membership | members router |
 | `app/services/mailer.py` | Sends the code email through Mailjet, or writes it to the log | none | deps, verification, scripts.check_setup |
 | `app/services/notifier.py` | Push senders (FCM, test double) | none | deps, reminders |
@@ -392,6 +397,22 @@ The 6-digit email code required before creating or joining a farm. Storage: `ema
 | `FirebasePhotoStore(bucket)` | Firestore setup only: uploads to Firebase Storage, makes the blob public and returns its URL. |
 | `MemoryPhotoStore` | Tests: keeps bytes in a dict and returns `https://storage.test/...`. |
 
+Every store also has `delete_farm(farm_id, urls)`, used when a lone owner deletes the account: GridFS deletes every file whose metadata `farm_id` matches (replaced photos too), MinIO removes the objects named in the farm's current photo URLs, Firebase Storage deletes the blobs under `farms/<farm_id>/`, and the memory store drops the matching keys.
+
+### 10.3a services/account.py
+
+| Name | Description |
+|---|---|
+| `FARM_COLLECTIONS` | Every collection under `farms/<farm_id>/`: animals, vaccinations, treatments, vet_visits, illnesses, reminders, breedings, weights, production, feedings, transactions, notifications, members. |
+| `delete_account(repo, photo_store, identity) -> {"farm_deleted": bool}` | Raises **409 owner_must_transfer** before touching anything when the user owns a farm with other active members. A lone owner: `delete_farm`. Otherwise removes the user's member record (active or pending). Always deletes `users/<uid>/devices/*`, `email_codes/<uid>` and `users/<uid>`. |
+| `delete_farm(repo, photo_store, farm)` | Detaches pending or rejected requesters (their `users` record no longer points at the farm), collects the animals' photo URLs, deletes every record of every farm collection and the farm document, then calls `photo_store.delete_farm` (failures logged). |
+
+### 10.3b app/legal.py and routers/legal.py
+
+`app/legal.py` holds `UPDATED`, `CONTACT_EMAIL`, `NAV` (menu labels, tagline, footer per language) and `PAGES[page][lang]` = `{title, intro, sections: [{h, ul?, p?}]}` for `privacy`, `terms`, `support` and `delete-account`. **Template texts to be reviewed by the owner or a lawyer.**
+
+`app/routers/legal.py` (blueprint `legal`, registered without prefix): `privacy`, `terms`, `support`, `delete_account` call `render(page_key)`, which picks the language (`?lang=`, else `g.lang` from Accept-Language, else en) and renders `templates/legal/page.html` (`lang` and `dir="rtl"` for Arabic, teal header with the logo, menu, language switch). `contact_filter` / `_with_contact` escape a text and turn `{email}` into a mailto link.
+
 ---
 
 ## 11. app/routers
@@ -441,6 +462,7 @@ Onboarding (token only, no farm needed) and member management. Rules live in `se
 | `POST /v1/farms` | `create_farm` | `FarmCreate` | `MeOut` 201 | 403 email_unverified first. Caller becomes owner. 409 if already active or pending. |
 | `POST /v1/farms/join` | `join_farm` | `JoinIn` | `MeOut` 200 (`pending`) | 403 email_unverified first. 404 "No farm with this code", 409 if active somewhere. Notifies owner and managers. |
 | `DELETE /v1/me/membership` | `leave_farm` | none | `MeOut` 200 (`none`) | Cancels a request or leaves. 409 "Transfer ownership first" for the owner. |
+| `DELETE /v1/me` | `delete_me` | none | 204 | Anyone signed in. `account.delete_account`, then `_delete_firebase_user`. 409 owner_must_transfer when the owner's farm has other active members. |
 | `GET /v1/farm/members` | `list_members` | none | `[MemberOut]` | Manager+. Pending first, then active by role. |
 | `POST /v1/farm/members/<uid>/approve` | `approve_member` | optional `ApproveIn` | `MemberOut` | Manager+. 409 if not pending, 404 unknown. Pushes "Welcome to <farm>". |
 | `POST /v1/farm/members/<uid>/reject` | `reject_member` | none | `MemberOut` | Manager+. 409 if not pending. Pushes "Request not accepted". |
@@ -448,6 +470,8 @@ Onboarding (token only, no farm needed) and member management. Rules live in `se
 | `DELETE /v1/farm/members/<uid>` | `remove_member` | none | 204 | Manager+. 409 for the owner. |
 | `POST /v1/farm/invite-code` | `rotate_invite_code` | none | `InviteCodeOut` | Manager+. The old code stops working. |
 | `POST /v1/farm/transfer-ownership` | `transfer_ownership` | `TransferIn` | `MemberOut` (new owner) | Owner only. Previous owner becomes manager. |
+
+`_delete_firebase_user(uid)` deletes the Firebase Auth user with `firebase_admin.auth.delete_user` (the tests inject a fake `auth_admin` override); failures are logged, never returned, because the data is already gone and the app signs out anyway.
 
 `_me(identity, state)` converts a `Membership` into `MeOut` via `membership.me_payload`, with `email_verified` from `verification.is_verified`. `_require_verified(identity)` raises **403 email_unverified** ("Verify your email first"). `_mark_firebase_verified(uid)` sets `emailVerified` in Firebase Auth (`auth.update_user`); failures are only logged, and it is skipped in tests.
 
@@ -585,6 +609,7 @@ Run on the server from the project folder with the project's virtualenv, for exa
 | `tests/test_api.py` | Health check, 401 without a token, JSON 404, animal CRUD and duplicate tag, future date of birth, vaccination → reminder → dashboard, reminder job pushing once per bucket, breeding and birth (including a second birth giving 409), growth and production summary, sale → income and finance summary, photo upload, sire link cleared on delete, and more. |
 | `tests/test_verification.py` | Email code: `/me` flag and farm creation/join blocked until verified, send and verify (spaces ignored), only the hash stored, 60 s cooldown and `retry_after`, a new code replacing the old, 5 per hour, wrong-code countdown and burnt code, expiry, no code, already verified, token claim saved, active members grandfathered, flag kept after leaving a farm, no email, mail failure (502, no cooldown), the email's content, the Mailjet payload and refusal handling. |
 | `tests/test_i18n.py` | Languages: every catalog entry has en/fr/ar with the same placeholders, Accept-Language negotiation, fallbacks, nested `ref` rendering, translated error details and validation messages, device and user language stored, pushes in each recipient's language (join, approval), stored notifications and reminder titles rendered per reader, reminder push body (animal named once), Arabic RTL email, the FCM payload shape, join requests hidden from workers. |
+| `tests/test_account.py` | `DELETE /v1/me`: member (farm kept), pending requester, user without a farm (email code removed), lone owner (farm records and photos gone, pending requester detached), owner with active members (409 in en/fr/ar, nothing deleted), owner after transfer, Firebase failure still 204, 401 without a token. Public pages: each page in each language (`lang`, `dir="rtl"` for Arabic, contact address, language switch) and the language from Accept-Language. The `auth_admin` fixture records Firebase deletions; `photo_store` is shared by the clients. |
 | `tests/test_mongo_repository.py` | `MongoRepository` on `mongomock` (skipped if it isn't installed): CRUD, filters, farm isolation, `set` keeping `created_at`, one collection per type with `farm_id` / `user_id`. |
 
 ---

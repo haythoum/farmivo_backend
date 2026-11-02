@@ -9,7 +9,8 @@ from app.config import get_settings
 from app.errors import register_error_handlers
 from app.i18n import negotiate, normalize
 from app.routers import (
-    animals, breeding, dashboard, farm, finance, growth, health, internal, members, notifications, photos, reports,
+    animals, breeding, dashboard, farm, finance, growth, health, internal, legal, members, notifications, photos,
+    reports,
 )
 
 API_PREFIX = "/v1"
@@ -59,6 +60,7 @@ def create_app(overrides: dict | None = None) -> Flask:
     app.register_blueprint(breeding.bp, url_prefix=f"{API_PREFIX}/breedings")
     app.register_blueprint(health.reminders_bp, url_prefix=API_PREFIX)
     app.register_blueprint(growth.growth_bp, url_prefix=API_PREFIX)
+    app.register_blueprint(legal.bp)  # public pages: /privacy, /terms, /support, /delete-account
     return app
 
 

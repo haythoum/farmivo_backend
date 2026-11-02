@@ -44,6 +44,7 @@ These work **without** a farm (token only):
 | `POST /farms` | `{name (2-80), address (5-200), country?, currency? (3 letters, default USD)}` | `201 Me` (caller becomes **owner**). `403 email_unverified` before the code was confirmed. `409` if already active in or waiting for a farm |
 | `POST /farms/join` | `{invite_code}` (e.g. `GVF-7K3P`; case, spaces and dash optional) | `200 Me` with `status: "pending"`. `403 email_unverified` before the code was confirmed. `404 "No farm with this code"`, `409` if already active in a farm. A pending request to another farm is replaced; a rejected one may be repeated |
 | `DELETE /me/membership` | | `200 Me` (`status: "none"`): cancels a pending request or leaves the farm. `409 "Transfer ownership first"` for the owner |
+| `DELETE /me` | | `204`: **deletes the account**. Removes the user's devices, `users/<uid>`, email code and membership or join request. An owner who is the only active member also deletes the whole farm (every record and the photos). Then the Firebase sign-in account is deleted (best effort, logged on failure). `409 owner_must_transfer` ("Transfer ownership before deleting your account") when the owner's farm has other active members: nothing is deleted |
 
 `Me`: `{uid, email, status: "none" | "pending" | "active" | "rejected", role: "owner" | "manager" | "worker" | "viewer" | null (null unless active), farm: {id, name} | null, email_verified: bool}`.
 
@@ -228,3 +229,16 @@ JSON: `{kind, date_from, date_to, columns: [...], rows: [{...}]}`. CSV: `text/cs
 ## Health check
 
 `GET /healthz` (no auth, not under `/v1`) → `{"status":"ok"}`.
+
+## Public pages (no auth, not under `/v1`)
+
+HTML pages for the stores and the apps' More screen, in English, French and Arabic (Arabic right to left). Language: `?lang=en|fr|ar`, else `Accept-Language`, else English.
+
+| Path | Content |
+|---|---|
+| `GET /privacy` | Privacy policy (store "Privacy policy URL") |
+| `GET /terms` | Terms of use |
+| `GET /support` | Contact and FAQ (join a farm, email code, forgot password, delete account) |
+| `GET /delete-account` | How to delete the account in the app or by email, and what is deleted (Google Play "Delete account URL") |
+
+**The texts are templates written for QuadraLens: the owner (ideally with a lawyer) must review them before release.** They live in `app/legal.py`; the layout is `app/templates/legal/page.html`.

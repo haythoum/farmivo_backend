@@ -14,12 +14,12 @@ from __future__ import annotations
 from flask import Blueprint, current_app, request
 
 from app.config import get_settings
-from app.deps import get_ctx, get_identity, get_mailer, get_notifier, get_repo
+from app.deps import get_ctx, get_identity, get_mailer, get_notifier, get_photo_store, get_repo
 from app.errors import ApiError
 from app.schemas import (
     ApproveIn, FarmCreate, InviteCodeOut, JoinIn, MemberOut, MeOut, RoleIn, TransferIn, VerificationSentOut, VerifyIn,
 )
-from app.services import membership, verification
+from app.services import account, membership, verification
 from app.web import body, no_content, out
 
 bp = Blueprint("members", __name__)
@@ -73,6 +73,38 @@ def _mark_firebase_verified(uid: str) -> None:
         auth.update_user(uid, email_verified=True)
     except Exception as exc:  # noqa: BLE001
         current_app.logger.warning("Could not mark the email verified in Firebase for %s: %s", uid, exc)
+
+
+@bp.delete("/me")
+def delete_me():
+    """DELETE /v1/me - delete the account: membership or the farm the user owns alone, devices, then the
+    Firebase sign-in account (204). 409 owner_must_transfer if the user owns a farm with other active members."""
+    identity = get_identity()
+    result = account.delete_account(get_repo(), get_photo_store(), identity)
+    current_app.logger.warning("Account %s deleted (farm deleted: %s)", identity.uid, result["farm_deleted"])
+    _delete_firebase_user(identity.uid)
+    return no_content()
+
+
+def _delete_firebase_user(uid: str) -> None:
+    """Delete the Firebase Auth user (tests inject a fake ``auth_admin``). Failures are logged, not returned:
+    the farm data is already gone and the app signs out anyway."""
+    overrides = current_app.config.get("FARMIVO_OVERRIDES", {})
+    fake = overrides.get("auth_admin")
+    try:
+        if fake is not None:
+            fake.delete_user(uid)
+            return
+        if overrides.get("uid"):
+            return  # tests without a fake: no Firebase
+        from firebase_admin import auth
+
+        from app.deps import _firebase_app
+
+        _firebase_app()
+        auth.delete_user(uid)
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.error("Could not delete the Firebase user %s: %s", uid, exc)
 
 
 @bp.post("/farms")

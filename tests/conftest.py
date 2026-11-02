@@ -42,17 +42,37 @@ def mailer():
     return FakeMailer()
 
 
+class FakeAuthAdmin:
+    """Records Firebase users deleted by DELETE /v1/me."""
+
+    def __init__(self):
+        self.deleted: list[str] = []
+
+    def delete_user(self, uid):
+        self.deleted.append(uid)
+
+
 @pytest.fixture
-def make_client(repo, notifier, mailer):
+def auth_admin():
+    return FakeAuthAdmin()
+
+
+@pytest.fixture
+def photo_store():
+    return MemoryPhotoStore()
+
+
+@pytest.fixture
+def make_client(repo, notifier, mailer, auth_admin, photo_store):
     """A test client signed in as ``uid``; all clients share one database, so several people can interact.
 
     ``verified`` is the Firebase token's email_verified claim: True by default so feature tests skip the
     email code; the verification tests pass False.
     """
-    photos = MemoryPhotoStore()
+    photos = photo_store
 
     def make(uid: str, email: str | None = None, name: str | None = None, verified: bool = True):
-        app = create_app(overrides={"repo": repo, "notifier": notifier, "photo_store": photos, "mailer": mailer,
+        app = create_app(overrides={"repo": repo, "notifier": notifier, "photo_store": photos, "mailer": mailer, "auth_admin": auth_admin,
                                     "uid": uid, "email": email or f"{uid}@example.com", "name": name,
                                     "email_verified": verified})
         app.testing = True

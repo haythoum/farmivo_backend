@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ page.title }} · Farmivo</title>
+<style>
+  :root { --teal:#1F6F6B; --deep:#134A47; --sun:#F2B544; --cream:#FBF6EE; --ink:#1E2A29; --muted:#5B6B69; --line:#DCE5E3; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--cream); color:var(--ink); font:16px/1.6 -apple-system, "Segoe UI", Roboto, "Noto Sans Arabic", Tahoma, Arial, sans-serif; }
+  header { background:var(--teal); color:#fff; padding:22px 16px 30px; }
+  .wrap { max-width:760px; margin:0 auto; }
+  .brand { display:flex; align-items:center; gap:12px; }
+  .brand b { font-size:24px; }
+  .brand small { display:block; color:#F7EBDD; font-size:13px; }
+  nav { margin-top:14px; display:flex; flex-wrap:wrap; gap:6px 14px; font-size:14px; }
+  nav a { color:#fff; text-decoration:none; opacity:.85; }
+  nav a.on { opacity:1; font-weight:700; border-bottom:2px solid var(--sun); }
+  .langs { margin-inline-start:auto; }
+  .langs a { margin-inline-start:8px; }
+  main { background:#fff; border:1px solid var(--line); border-radius:18px; margin:-14px auto 24px; padding:22px 20px; }
+  h1 { font-size:26px; margin:0 0 6px; color:var(--deep); }
+  .updated { color:var(--muted); font-size:13px; margin:0 0 14px; }
+  h2 { font-size:18px; margin:22px 0 6px; color:var(--deep); }
+  ul { padding-inline-start:22px; margin:6px 0; }
+  li { margin:4px 0; }
+  a { color:var(--teal); }
+  footer { text-align:center; color:var(--muted); font-size:13px; padding:0 16px 28px; }
+  @media (max-width:520px) { main { margin:-14px 12px 20px; padding:18px 16px; } h1 { font-size:22px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="brand">
+      <svg width="44" height="44" viewBox="0 0 108 108" role="img" aria-label="Farmivo"><rect width="108" height="108" rx="24" fill="#134A47"/><g transform="translate(54 56) scale(0.8) translate(-54 -54)"><path fill="#F2B544" d="M43 35C40 27 35 22 29 22C30 30 34 37 41 41Z"/><path fill="#F2B544" d="M65 35C68 27 73 22 79 22C78 30 74 37 67 41Z"/><path fill="#F7EBDD" d="M31 46C21 45 15 40 15 34C23 32 33 35 39 42Z"/><path fill="#F7EBDD" d="M77 46C87 45 93 40 93 34C85 32 75 35 69 42Z"/><path fill="#FFF8EE" d="M36 41C36 34 44 31 54 31C64 31 72 34 72 41L70 62C69 71 62 77 54 77C46 77 39 71 38 62Z"/><path fill="#F2B544" d="M54 33C50 37 51 41 54 44C57 41 58 37 54 33Z"/><ellipse cx="54" cy="67" rx="14" ry="10" fill="#F2B544"/><circle cx="49.5" cy="67" r="2" fill="#1F6F6B"/><circle cx="58.5" cy="67" r="2" fill="#1F6F6B"/><circle cx="45.1" cy="52" r="2.6" fill="#1F6F6B"/><circle cx="62.9" cy="52" r="2.6" fill="#1F6F6B"/></g></svg>
+      <div><b>Farmivo</b><small dir="ltr">{{ nav.tagline }}</small></div>
+    </div>
+    <nav>
+      {% for key in ["privacy", "terms", "support", "delete-account"] %}
+        <a href="/{{ key }}?lang={{ lang }}" class="{{ 'on' if key == current else '' }}">{{ nav[key] }}</a>
+      {% endfor %}
+      <span class="langs">
+        <a href="?lang=en" lang="en">English</a><a href="?lang=fr" lang="fr">Français</a><a href="?lang=ar" lang="ar">العربية</a>
+      </span>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+  <h1>{{ page.title }}</h1>
+  <p class="updated">{{ updated }}</p>
+  <p>{{ page.intro | contact }}</p>
+  {% for section in page.sections %}
+    <h2>{{ section.h }}</h2>
+    {% if section.get("ul") %}<ul>{% for item in section.ul %}<li>{{ item | contact }}</li>{% endfor %}</ul>{% endif %}
+    {% for para in section.get("p", []) %}<p>{{ para | contact }}</p>{% endfor %}
+  {% endfor %}
+</main>
+<footer>{{ nav.footer }} · <a href="mailto:{{ email }}" dir="ltr">{{ email }}</a></footer>
+</body>
+</html>
