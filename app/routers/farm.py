@@ -56,6 +56,11 @@ def register_device():
     fields = {"platform": data.platform}
     if language:
         fields["language"] = language
+    # A phone belongs to one user at a time: if another account registered this token before (same phone,
+    # different sign-in), remove it there so that account's notifications stop reaching this phone.
+    for other in repo.group_list("devices", [("token", "==", data.token)]):
+        if other["parent_id"] != uid:
+            repo.delete(f"users/{other['parent_id']}/devices", other["id"])
     path = f"users/{uid}/devices"
     for existing in repo.list(path, [("token", "==", data.token)]):
         repo.update(path, existing["id"], fields)

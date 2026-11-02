@@ -448,7 +448,7 @@ Routes generated for each collection (prefix shown in later sections):
 |---|---|---|---|---|
 | `GET /v1/farm` | `get_farm` | none | `FarmOut` 200 | Any role. `role` is the caller's; `invite_code` only for manager and owner. |
 | `PATCH /v1/farm` | `update_farm` | `FarmUpdate` | `FarmOut` 200 | Manager or owner. Fields sent as `null` are ignored. |
-| `POST /v1/devices` | `register_device` | `DeviceIn` | 204 | Upserts `users/<uid>/devices` by token, with `platform` and `language` (the body's, else the request's Accept-Language). Uses `get_identity`, so it works before the user has a farm (pending users get the approval push). |
+| `POST /v1/devices` | `register_device` | `DeviceIn` | 204 | Removes the same token from any other user (one phone = one account), then upserts `users/<uid>/devices` by token, with `platform` and `language` (the body's, else the request's Accept-Language). Uses `get_identity`, so it works before the user has a farm (pending users get the approval push). |
 | `DELETE /v1/devices?token=` | `unregister_device` | query `token` | 204 | 422 if `token` is missing. Works without a farm. |
 
 `render_farm(ctx, farm)` builds the `FarmOut`: creates a missing invite code for managers and the owner (`ensure_invite_code`), hides it from workers and viewers, and adds the caller's role.

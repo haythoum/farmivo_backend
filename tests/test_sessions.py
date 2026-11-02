@@ -201,3 +201,19 @@ def test_account_deletion_removes_old_member_records(make_client, repo):
     assert me(make_client, "r")["status"] == "active"
     assert make_client("r").delete("/v1/me").status_code == 204
     assert repo.group_list("members", [("uid", "==", "r")]) == []
+
+
+def test_device_token_moves_to_the_new_user(repo):
+    """Same phone, another account: the token is removed from the previous user."""
+    from app.main import create_app
+
+    def client_for(uid):
+        app = create_app(overrides={"repo": repo, "uid": uid, "email": f"{uid}@x.tn", "email_verified": True})
+        return app.test_client()
+
+    token = "t" * 30
+    assert client_for("alice").post("/v1/devices", json={"token": token, "platform": "android"}).status_code == 204
+    assert len(repo.list("users/alice/devices")) == 1
+    assert client_for("bob").post("/v1/devices", json={"token": token, "platform": "android"}).status_code == 204
+    assert repo.list("users/alice/devices") == []
+    assert len(repo.list("users/bob/devices")) == 1
