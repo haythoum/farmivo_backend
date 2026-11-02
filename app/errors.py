@@ -1,6 +1,7 @@
 """API error type and JSON error handlers.
 
-Every error body has the shape {"detail": ...}. Errors the apps must react to in a specific way
+Every error body has the shape {"detail": ...}, in the request's language (Accept-Language: ar, fr, en):
+routers raise English texts and the handlers translate them with app.i18n. Errors the apps must react to in a specific way
 (membership and role checks) also carry a machine-readable "code", e.g. {"detail": "...", "code": "pending"}.
 """
 from __future__ import annotations
@@ -10,6 +11,8 @@ import json
 from flask import Flask, jsonify
 from pydantic import ValidationError
 from werkzeug.exceptions import HTTPException
+
+from app.i18n import request_lang, t, translate_detail, translate_text
 
 
 class ApiError(Exception):
@@ -32,7 +35,7 @@ def register_error_handlers(app: Flask) -> None:
     """Make every error (ApiError, HTTP errors, unexpected exceptions) answer JSON {"detail": ...}."""
     @app.errorhandler(ApiError)
     def _api_error(exc: ApiError):
-        payload = {"detail": exc.detail}
+        payload = {"detail": translate_detail(exc.detail, request_lang())}
         if exc.code:
             payload["code"] = exc.code
         payload.update(exc.extra)
@@ -41,7 +44,7 @@ def register_error_handlers(app: Flask) -> None:
     @app.errorhandler(HTTPException)
     def _http_error(exc: HTTPException):
         # e.g. 404 unknown route, 405, 413 body too large
-        return jsonify({"detail": exc.name}), exc.code or 500
+        return jsonify({"detail": translate_text(exc.name, request_lang())}), exc.code or 500
 
     @app.errorhandler(Exception)
     def _unexpected(exc: Exception):
@@ -49,5 +52,5 @@ def register_error_handlers(app: Flask) -> None:
 
         app.logger.exception("Unhandled error")
         if isinstance(exc, PyMongoError):
-            return jsonify({"detail": "Database unavailable"}), 503
-        return jsonify({"detail": "Internal server error"}), 500
+            return jsonify({"detail": t("err.db", request_lang())}), 503
+        return jsonify({"detail": t("err.internal", request_lang())}), 500

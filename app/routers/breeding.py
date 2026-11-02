@@ -13,7 +13,7 @@ from app.schemas import (
     BreedingOut,
     BreedingUpdate,
 )
-from app.services.reminders import animal_label, delete_reminder, sync_reminder
+from app.services.reminders import animal_label, delete_reminder, source_title, sync_reminder
 from app.utils import expected_birth, parse_date, today
 from app.web import body, out
 
@@ -54,6 +54,7 @@ def _sync(ctx: Ctx, record: dict) -> None:
     """CRUD hook: keep the birth_<id> reminder on expected_birth_date while the pregnancy is pending/confirmed."""
     active = record.get("pregnancy_status") in ACTIVE_PREGNANCY
     label = animal_label(ctx.repo, ctx.farm_id, record["dam_id"])
+    title, key, params = source_title("birth", label)
     sync_reminder(
         ctx.repo,
         ctx.farm_id,
@@ -61,7 +62,9 @@ def _sync(ctx: Ctx, record: dict) -> None:
         source_type="birth",
         source_id=record["id"],
         animal_id=record["dam_id"],
-        title="Expected birth" + (f": {label}" if label else ""),
+        title=title,
+        title_key=key,
+        title_params=params,
         due_date=record.get("expected_birth_date") if active else None,
     )
 

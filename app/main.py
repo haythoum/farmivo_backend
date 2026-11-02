@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from flask import Flask, jsonify
+from flask import Flask, g, jsonify, request
 from flask_cors import CORS
 
 from app.config import get_settings
 from app.errors import register_error_handlers
+from app.i18n import negotiate, normalize
 from app.routers import (
     animals, breeding, dashboard, farm, finance, growth, health, internal, members, notifications, photos, reports,
 )
@@ -27,6 +28,13 @@ def create_app(overrides: dict | None = None) -> Flask:
         CORS(app, origins=settings.cors_origin_list)
 
     register_error_handlers(app)
+
+    @app.before_request
+    def _language():
+        """Pick the response language from Accept-Language (ar, fr or en; default en)."""
+        header = request.headers.get("Accept-Language")
+        g.lang = negotiate(header)
+        g.lang_given = any(normalize(part.split(";")[0]) for part in (header or "").split(","))
     if "repo" not in app.config["FARMIVO_OVERRIDES"] and settings.db_backend == "mongo":
         log_mongo_target(app, settings)
 

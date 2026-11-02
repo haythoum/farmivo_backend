@@ -7,11 +7,12 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint
 
 from app.deps import get_ctx
+from app.i18n import request_lang
 from app.permissions import can_see_finance
 from app.routers.crud import path_of
 from app.routers.finance import compute_finance
 from app.schemas import ON_FARM_STATUSES, DashboardOut
-from app.services.reminders import animal_label
+from app.services.reminders import animal_label, reminder_title, visible_notifications
 from app.utils import parse_date, today
 from app.web import out, q_int
 
@@ -59,7 +60,7 @@ def dashboard():
             "reminder_id": r["id"],
             "animal_id": r.get("animal_id"),
             "animal_label": animal_label(ctx.repo, ctx.farm_id, r.get("animal_id")),
-            "title": r["title"],
+            "title": reminder_title(r, request_lang()),
             "due_date": r["due_date"],
             "days_until": (due - now).days,  # type: ignore[operator]
         }
@@ -73,7 +74,7 @@ def dashboard():
 
     finance = compute_finance(ctx.repo, ctx.farm_id, start, now) if can_see_finance(ctx.role) else None
     ongoing_illnesses = ctx.repo.list(path_of(ctx, "illnesses"))
-    unread = len(ctx.repo.list(path_of(ctx, "notifications"), [("read", "==", False)]))
+    unread = len(visible_notifications(ctx.repo.list(path_of(ctx, "notifications"), [("read", "==", False)]), ctx.role))
 
     return out(DashboardOut(
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),

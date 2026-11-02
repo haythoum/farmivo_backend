@@ -12,8 +12,9 @@ from __future__ import annotations
 import logging
 from datetime import date
 
+from app.i18n import DEFAULT, recipient_lang, ref, render
 from app.repository import Repository, farm_path
-from app.services.notifier import Notifier
+from app.services.notifier import MEMBERS_CHANNEL, REMINDERS_CHANNEL, Notifier
 from app.utils import parse_date, today
 
 logger = logging.getLogger(__name__)
@@ -56,8 +57,14 @@ def sync_reminder(
     animal_id: str | None,
     title: str,
     due_date: str | date | None,
+    title_key: str | None = None,
+    title_params: dict | None = None,
 ) -> None:
-    """Create/update the reminder owned by a source record, or remove it if there is no date."""
+    """Create/update the reminder owned by a source record, or remove it if there is no date.
+
+    ``title`` is the English text (fallback); ``title_key`` / ``title_params`` let readers get it in their
+    own language (see ``reminder_title``).
+    """
     path = farm_path(farm_id, "reminders")
     due = parse_date(due_date)
     existing = repo.get(path, reminder_id)
@@ -74,11 +81,28 @@ def sync_reminder(
             "source_id": source_id,
             "animal_id": animal_id,
             "title": title,
+            "title_key": title_key,
+            "title_params": title_params or {},
             "due_date": due.isoformat(),
             "status": existing.get("status", "pending") if same_date else "pending",
             "notified_buckets": existing.get("notified_buckets", []) if same_date else [],
         },
     )
+
+
+def reminder_title(record: dict, lang: str | None) -> str:
+    """A reminder's title in ``lang`` (server-made reminders), or the stored text (custom reminders)."""
+    if record.get("title_key"):
+        return render(record["title_key"], lang, record.get("title_params"))
+    return record.get("title", "")
+
+
+def source_title(kind: str, animal: str | None, **params) -> tuple[str, str, dict]:
+    """(English title, key, params) for a server-made reminder: kind is vaccination, vet or birth."""
+    key = f"reminder.{kind}_animal" if animal else f"reminder.{kind}"
+    if animal:
+        params["animal"] = animal
+    return render(key, DEFAULT, params), key, params
 
 
 def delete_reminder(repo: Repository, farm_id: str, reminder_id: str) -> None:
@@ -103,36 +127,44 @@ def farm_member_uids(repo: Repository, farm: dict, roles: set[str] | None = None
     return sorted(legacy)
 
 
-def device_tokens(repo: Repository, uids: list[str]) -> list[tuple[str, str]]:
-    """(uid, token) pairs for every registered phone of these users."""
-    pairs: list[tuple[str, str]] = []
+def device_tokens(repo: Repository, uids: list[str]) -> list[tuple[str, str, str]]:
+    """(uid, token, language) for every registered phone of these users. The language is the phone's,
+    else the user's last request language, else English."""
+    triples: list[tuple[str, str, str]] = []
     for uid in uids:
+        user = repo.get("users", uid)
         for device in repo.list(f"users/{uid}/devices"):
             if device.get("token"):
-                pairs.append((uid, device["token"]))
-    return pairs
+                triples.append((uid, device["token"], recipient_lang(device, user)))
+    return triples
 
 
-def farm_device_tokens(repo: Repository, farm: dict, roles: set[str] | None = None) -> list[tuple[str, str]]:
-    """Return (uid, token) pairs for the farm's active members (optionally only some roles)."""
+def farm_device_tokens(repo: Repository, farm: dict, roles: set[str] | None = None) -> list[tuple[str, str, str]]:
+    """(uid, token, language) for the farm's active members (optionally only some roles)."""
     return device_tokens(repo, farm_member_uids(repo, farm, roles))
 
 
-def _send(repo: Repository, notifier: Notifier, pairs: list[tuple[str, str]], title: str, body: str,
-          data: dict[str, str]) -> None:
-    """Push to the given devices and forget tokens FCM reports as no longer valid."""
-    invalid = set(notifier.send([t for _, t in pairs], title, body, data))
-    if invalid:
-        for uid, token in pairs:
-            if token in invalid:
-                for device in repo.list(f"users/{uid}/devices", [("token", "==", token)]):
-                    repo.delete(f"users/{uid}/devices", device["id"])
+def _send(repo: Repository, notifier: Notifier, devices: list[tuple[str, str, str]], title_key: str,
+          body_key: str, params: dict, data: dict[str, str], channel: str) -> None:
+    """Push to the given devices, each in its own language, and forget tokens FCM reports as invalid."""
+    by_lang: dict[str, list[str]] = {}
+    for _, token, lang in devices:
+        by_lang.setdefault(lang, []).append(token)
+    invalid: set[str] = set()
+    for lang, tokens in by_lang.items():
+        invalid |= set(notifier.send(tokens, render(title_key, lang, params), render(body_key, lang, params),
+                                     data, channel))
+    for uid, token, _ in devices:
+        if token in invalid:
+            for device in repo.list(f"users/{uid}/devices", [("token", "==", token)]):
+                repo.delete(f"users/{uid}/devices", device["id"])
 
 
-def push_to_users(repo: Repository, notifier: Notifier, uids: list[str], title: str, body: str,
-                  data: dict[str, str]) -> None:
-    """Push to specific people (e.g. "your request was approved"); nothing is stored in a farm's list."""
-    _send(repo, notifier, device_tokens(repo, uids), title, body, data)
+def push_to_users(repo: Repository, notifier: Notifier, uids: list[str], title_key: str, body_key: str,
+                  params: dict, data: dict[str, str], channel: str = MEMBERS_CHANNEL) -> None:
+    """Push to specific people (e.g. "your request was approved"), in each one's language; nothing is stored
+    in a farm's notification list."""
+    _send(repo, notifier, device_tokens(repo, uids), title_key, body_key, params, data, channel)
 
 
 def notify_farm(
@@ -140,36 +172,77 @@ def notify_farm(
     notifier: Notifier,
     farm: dict,
     *,
-    title: str,
-    body: str,
+    title_key: str,
+    body_key: str,
+    params: dict | None = None,
     type_: str = "info",
     animal_id: str | None = None,
     reminder_id: str | None = None,
     roles: set[str] | None = None,
+    channel: str = REMINDERS_CHANNEL,
 ) -> None:
     """Store an in-app notification and push it to the devices of the farm's active members.
 
-    ``roles`` limits the push (not the stored notification) to members with those roles, e.g.
-    {"owner", "manager"} for join requests.
+    The stored record keeps the English text plus the keys and params, so GET /v1/notifications shows it in
+    the reader's language; each phone gets the push in its own language. ``roles`` limits the push (not the
+    stored notification) to members with those roles, e.g. {"owner", "manager"} for join requests.
     """
+    params = params or {}
     farm_id = farm["id"]
     repo.create(
         farm_path(farm_id, "notifications"),
         {
-            "title": title,
-            "body": body,
+            "title": render(title_key, DEFAULT, params),
+            "body": render(body_key, DEFAULT, params),
+            "title_key": title_key,
+            "body_key": body_key,
+            "params": params,
             "type": type_,
             "animal_id": animal_id,
             "reminder_id": reminder_id,
             "read": False,
         },
     )
-    data = {"type": type_}
+    data = {"type": type_, "farm_id": farm_id}
     if animal_id:
         data["animal_id"] = animal_id
     if reminder_id:
         data["reminder_id"] = reminder_id
-    _send(repo, notifier, farm_device_tokens(repo, farm, roles), title, body, data)
+    _send(repo, notifier, farm_device_tokens(repo, farm, roles), title_key, body_key, params, data, channel)
+
+
+MANAGER_ONLY_TYPES = {"join_request"}
+
+
+def visible_notifications(rows: list[dict], role: str | None) -> list[dict]:
+    """Drop notifications meant for managers (join requests) when the reader is a worker or viewer."""
+    from app.permissions import at_least
+
+    if at_least(role, "manager"):
+        return rows
+    return [r for r in rows if r.get("type") not in MANAGER_ONLY_TYPES]
+
+
+def notification_text(record: dict, lang: str | None) -> dict:
+    """A stored notification with title and body in ``lang`` (records from before translations keep theirs)."""
+    if record.get("title_key"):
+        record = {**record,
+                  "title": render(record["title_key"], lang, record.get("params")),
+                  "body": render(record.get("body_key", ""), lang, record.get("params"))}
+    return record
+
+
+def when_ref(days: int) -> dict:
+    """The translatable "due in N days / tomorrow / today / overdue" part of a reminder push."""
+    if days < -1:
+        return ref("when.overdue", days=-days)
+    if days == -1:
+        return ref("when.overdue_one")
+    if days == 0:
+        return ref("when.today")
+    if days == 1:
+        return ref("when.tomorrow")
+    return ref("when.in_days", days=days)
 
 
 def run_due_reminders(repo: Repository, notifier: Notifier, as_of: date | None = None) -> dict[str, int]:
@@ -188,23 +261,18 @@ def run_due_reminders(repo: Repository, notifier: Notifier, as_of: date | None =
             notified = list(reminder.get("notified_buckets") or [])
             if bucket is None or bucket in notified:
                 continue
-            label = animal_label(repo, farm["id"], reminder.get("animal_id"))
-            if days < 0:
-                when = f"overdue by {-days} day(s)"
-            elif days == 0:
-                when = "due today"
-            elif days == 1:
-                when = "due tomorrow"
+            # The reminder title already names the animal, so the body is just "<title> - <when>".
+            if reminder.get("title_key"):
+                title = ref(reminder["title_key"], **(reminder.get("title_params") or {}))
             else:
-                when = f"due in {days} days"
-            title = reminder["title"]
-            body = f"{label}: {title} is {when}" if label else f"{title} is {when}"
+                title = reminder.get("title", "")
             notify_farm(
                 repo,
                 notifier,
                 farm,
-                title="Farmivo reminder",
-                body=body,
+                title_key="push.reminder.title",
+                body_key="push.reminder.body",
+                params={"title": title, "when": when_ref(days)},
                 type_=reminder.get("source_type", "reminder"),
                 animal_id=reminder.get("animal_id"),
                 reminder_id=reminder["id"],

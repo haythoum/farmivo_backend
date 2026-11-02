@@ -9,6 +9,7 @@ from flask import Blueprint
 
 from app.deps import Ctx, get_ctx
 from app.errors import ApiError
+from app.i18n import request_lang
 from app.routers.crud import build_crud_blueprint, get_animal_or_404, path_of
 from app.schemas import (
     IllnessBase,
@@ -26,7 +27,7 @@ from app.schemas import (
     VetVisitOut,
     VetVisitUpdate,
 )
-from app.services.reminders import animal_label, delete_reminder, sync_reminder
+from app.services.reminders import animal_label, delete_reminder, reminder_title, source_title, sync_reminder
 from app.utils import parse_date, today
 from app.web import body, no_content, out, q_int, q_str
 
@@ -37,6 +38,7 @@ bp = Blueprint("health", __name__)
 def _sync_vaccination(ctx: Ctx, record: dict) -> None:
     """CRUD hook: keep the vacc_<id> reminder on the vaccination's next_due_date."""
     label = animal_label(ctx.repo, ctx.farm_id, record["animal_id"])
+    title, key, params = source_title("vaccination", label, name=record["vaccine_name"])
     sync_reminder(
         ctx.repo,
         ctx.farm_id,
@@ -44,7 +46,9 @@ def _sync_vaccination(ctx: Ctx, record: dict) -> None:
         source_type="vaccination",
         source_id=record["id"],
         animal_id=record["animal_id"],
-        title=f"Vaccination due: {record['vaccine_name']}" + (f" ({label})" if label else ""),
+        title=title,
+        title_key=key,
+        title_params=params,
         due_date=record.get("next_due_date"),
     )
 
@@ -77,6 +81,7 @@ bp.register_blueprint(treatments, url_prefix="/treatments")
 def _sync_vet_visit(ctx: Ctx, record: dict) -> None:
     """CRUD hook: keep the vet_<id> reminder on the vet visit's follow_up_date."""
     label = animal_label(ctx.repo, ctx.farm_id, record["animal_id"])
+    title, key, params = source_title("vet", label, reason=record["reason"])
     sync_reminder(
         ctx.repo,
         ctx.farm_id,
@@ -84,7 +89,9 @@ def _sync_vet_visit(ctx: Ctx, record: dict) -> None:
         source_type="vet_visit",
         source_id=record["id"],
         animal_id=record["animal_id"],
-        title=f"Vet follow-up: {record['reason']}" + (f" ({label})" if label else ""),
+        title=title,
+        title_key=key,
+        title_params=params,
         due_date=record.get("follow_up_date"),
     )
 
@@ -127,7 +134,8 @@ reminders_bp = Blueprint("reminders", __name__)
 def _render_reminder(record: dict, as_of: date) -> ReminderOut:
     """Convert a stored reminder into ReminderOut with days_until counted from as_of."""
     due = parse_date(record["due_date"])
-    return ReminderOut.model_validate({**record, "days_until": (due - as_of).days if due else None})
+    return ReminderOut.model_validate({**record, "title": reminder_title(record, request_lang()),
+                                       "days_until": (due - as_of).days if due else None})
 
 
 @reminders_bp.get("/reminders")

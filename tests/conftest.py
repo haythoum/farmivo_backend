@@ -21,14 +21,16 @@ class FakeMailer:
 
     def __init__(self):
         self.sent: list[tuple[str, str]] = []  # (to, code)
+        self.langs: list[str] = []  # language of each email
         self.fail = False
 
-    def send_code(self, to, code, minutes):
+    def send_code(self, to, code, minutes, lang="en"):
         from app.services.mailer import MailError
 
         if self.fail:
             raise MailError("smtp down")
         self.sent.append((to, code))
+        self.langs.append(lang)
 
     @property
     def last_code(self):

@@ -580,6 +580,8 @@ class DeviceIn(Strict):
     """POST /v1/devices body (FCM token)."""
     token: str = Field(min_length=10, max_length=4096)
     platform: str = Field(pattern="^(android|ios)$")
+    # Language the phone shows the app in; pushes to this phone use it. Default: the request's Accept-Language.
+    language: str | None = Field(default=None, pattern="^(ar|fr|en)$")
 
 
 # ---------------------------------------------------------------- dashboard

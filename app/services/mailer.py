@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from typing import Protocol
 
+from app.i18n import t
+
 log = logging.getLogger("farmivo.mailer")
 
 
@@ -18,42 +20,44 @@ class MailError(Exception):
 class Mailer(Protocol):
     """Anything that can deliver a verification code (Mailjet in production, a fake in the tests)."""
 
-    def send_code(self, to: str, code: str, minutes: int) -> None: ...
+    def send_code(self, to: str, code: str, minutes: int, lang: str = "en") -> None: ...
 
 
-def code_text(code: str, minutes: int) -> str:
-    """Plain-text body of the verification email."""
+def code_text(code: str, minutes: int, lang: str = "en") -> str:
+    """Plain-text body of the verification email in ``lang``."""
     return (
-        f"Welcome to Farmivo!\n\n"
-        f"Your Farmivo verification code is: {code}\n\n"
-        f"Enter it in the app to activate your account. It expires in {minutes} minutes.\n\n"
-        f"If you didn't create a Farmivo account, ignore this email.\n\n"
-        f"Farmivo - Smart Farming. Better Living. - Powered by Quadralens\n"
+        f"{t('email.welcome', lang)}\n\n"
+        f"{t('email.code_is', lang, code=code)}\n\n"
+        f"{t('email.enter', lang)} {t('email.expires', lang, minutes=minutes)}\n\n"
+        f"{t('email.ignore', lang)}\n\n"
+        f"Farmivo - {t('email.slogan', lang)} - Powered by Quadralens\n"
     )
 
 
-def code_html(code: str, minutes: int) -> str:
-    """Branded HTML body of the verification email (teal header, big code)."""
+def code_html(code: str, minutes: int, lang: str = "en") -> str:
+    """Branded HTML body of the verification email (teal header, big code); right-to-left for Arabic."""
+    direction = "rtl" if lang == "ar" else "ltr"
+    align = "right" if lang == "ar" else "left"
     spaced = " ".join(code)
     return f"""\
 <!doctype html>
-<html><body style="margin:0;padding:0;background:#FBF6EE;font-family:Arial,Helvetica,sans-serif;color:#1E2A29">
+<html lang="{lang}" dir="{direction}"><body dir="{direction}" style="margin:0;padding:0;background:#FBF6EE;font-family:Arial,Helvetica,sans-serif;color:#1E2A29">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FBF6EE;padding:24px 0">
 <tr><td align="center">
-<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #DCE5E3">
+<table role="presentation" dir="{direction}" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #DCE5E3;text-align:{align}">
 <tr><td style="background:#1F6F6B;padding:22px 28px;color:#ffffff">
 <div style="font-size:26px;font-weight:bold">Farmivo</div>
-<div style="font-size:14px;color:#F7EBDD;margin-top:4px">Smart Farming. Better Living.</div>
+<div style="font-size:14px;color:#F7EBDD;margin-top:4px">{t('email.slogan', lang)}</div>
 </td></tr>
 <tr><td style="padding:28px">
-<div style="font-size:18px;font-weight:bold">Your verification code</div>
-<div style="font-size:15px;color:#5B6B69;margin-top:8px">Enter this code in the Farmivo app to activate your account.</div>
-<div style="font-size:36px;font-weight:bold;letter-spacing:10px;color:#134A47;background:#DDEEEC;border-radius:12px;padding:16px 0;text-align:center;margin:22px 0">{spaced}</div>
-<div style="font-size:14px;color:#5B6B69">The code expires in {minutes} minutes.</div>
-<div style="font-size:13px;color:#5B6B69;margin-top:18px">If you didn't create a Farmivo account, ignore this email.</div>
+<div style="font-size:18px;font-weight:bold">{t('email.your_code', lang)}</div>
+<div style="font-size:15px;color:#5B6B69;margin-top:8px">{t('email.enter', lang)}</div>
+<div dir="ltr" style="font-size:36px;font-weight:bold;letter-spacing:10px;color:#134A47;background:#DDEEEC;border-radius:12px;padding:16px 0;text-align:center;margin:22px 0">{spaced}</div>
+<div style="font-size:14px;color:#5B6B69">{t('email.expires', lang, minutes=minutes)}</div>
+<div style="font-size:13px;color:#5B6B69;margin-top:18px">{t('email.ignore', lang)}</div>
 </td></tr>
 <tr><td style="padding:16px 28px;border-top:1px solid #E8EFED;font-size:12px;color:#5B6B69;text-align:center">
-Smart Farming. Better Living. &middot; Powered by Quadralens
+{t('email.slogan', lang)} &middot; Powered by Quadralens
 </td></tr>
 </table>
 </td></tr></table>
@@ -61,16 +65,16 @@ Smart Farming. Better Living. &middot; Powered by Quadralens
 """
 
 
-def code_message(sender_email: str, sender_name: str, to: str, code: str, minutes: int) -> dict:
-    """The Mailjet Send API v3.1 payload for one verification email."""
+def code_message(sender_email: str, sender_name: str, to: str, code: str, minutes: int, lang: str = "en") -> dict:
+    """The Mailjet Send API v3.1 payload for one verification email in ``lang``."""
     return {
         "Messages": [
             {
                 "From": {"Email": sender_email, "Name": sender_name},
                 "To": [{"Email": to}],
-                "Subject": "Your Farmivo verification code",
-                "TextPart": code_text(code, minutes),
-                "HTMLPart": code_html(code, minutes),
+                "Subject": t("email.subject", lang),
+                "TextPart": code_text(code, minutes, lang),
+                "HTMLPart": code_html(code, minutes, lang),
                 "CustomID": "farmivo-verification",
             }
         ]
@@ -90,9 +94,9 @@ class MailjetMailer:
 
         return Client(auth=(self.api_key, self.api_secret), version=version)
 
-    def send_code(self, to: str, code: str, minutes: int) -> None:
-        """Send the verification email. Raises MailError unless Mailjet reports success."""
-        data = code_message(self.sender_email, self.sender_name, to, code, minutes)
+    def send_code(self, to: str, code: str, minutes: int, lang: str = "en") -> None:
+        """Send the verification email in ``lang``. Raises MailError unless Mailjet reports success."""
+        data = code_message(self.sender_email, self.sender_name, to, code, minutes, lang)
         try:
             result = self._client().send.create(data=data, timeout=self.timeout)
             body = result.json()
@@ -117,7 +121,7 @@ class MailjetMailer:
 class LogMailer:
     """Used when MAILJET_API_KEY is empty: writes the code to the server log instead of sending it."""
 
-    def send_code(self, to: str, code: str, minutes: int) -> None:
+    def send_code(self, to: str, code: str, minutes: int, lang: str = "en") -> None:
         """Log the code at WARNING level (look for 'verification code for' in the log)."""
         try:
             from flask import current_app

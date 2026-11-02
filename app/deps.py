@@ -18,7 +18,7 @@ from app.repository import FirestoreRepository, MongoRepository, Repository
 from app.services.mailer import LogMailer, Mailer, MailjetMailer
 from app.services.notifier import FcmNotifier, Notifier
 from app.services import membership as membership_service
-from app.services.membership import Identity
+from app.services.membership import Identity, remember_lang
 from app.services.photos import FirebasePhotoStore, GridFsPhotoStore, MinioPhotoStore, PhotoStore
 
 
@@ -172,6 +172,8 @@ def get_identity() -> Identity:
         identity = Identity(uid=decoded["uid"], email=decoded.get("email"), name=decoded.get("name"),
                             email_verified=bool(decoded.get("email_verified")))
     g.farmivo_identity = identity
+    if g.get("lang_given"):
+        remember_lang(get_repo(), identity.uid, g.lang)
     return identity
 
 

@@ -9,6 +9,7 @@ from flask import Blueprint
 
 from app.deps import Ctx, get_ctx, get_identity, get_repo
 from app.errors import ApiError
+from app.i18n import request_lang, request_lang_given
 from app.permissions import at_least
 from app.services.membership import ensure_invite_code
 from app.schemas import DeviceIn, FarmOut, FarmUpdate
@@ -51,11 +52,15 @@ def register_device():
     """
     uid, repo = get_identity().uid, get_repo()
     data = body(DeviceIn)
+    language = data.language or (request_lang() if request_lang_given() else None)
+    fields = {"platform": data.platform}
+    if language:
+        fields["language"] = language
     path = f"users/{uid}/devices"
     for existing in repo.list(path, [("token", "==", data.token)]):
-        repo.update(path, existing["id"], {"platform": data.platform})
+        repo.update(path, existing["id"], fields)
         return no_content()
-    repo.create(path, {"token": data.token, "platform": data.platform})
+    repo.create(path, {"token": data.token, **fields})
     return no_content()
 
 

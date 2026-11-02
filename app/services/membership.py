@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from app.errors import ApiError
 from app.repository import Repository, farm_path, now_iso
 from app.services.notifier import Notifier
+from app.services.notifier import MEMBERS_CHANNEL
 from app.services.reminders import notify_farm, push_to_users
 
 # Letters and digits that cannot be confused when read aloud or typed (no 0/O, 1/I/L).
@@ -54,7 +55,7 @@ def set_user(repo: Repository, uid: str, farm_id: str | None, status: str | None
 
     ``farm_id=None`` means the user no longer has a farm (left, removed).
     """
-    keep = {k: v for k, v in (repo.get("users", uid) or {}).items() if k in ("email_verified", "email_verified_at")}
+    keep = {k: v for k, v in (repo.get("users", uid) or {}).items() if k in ("email_verified", "email_verified_at", "lang")}
     fields = {**keep, "farm_id": farm_id, "status": status} if farm_id else keep
     if fields:
         repo.set("users", uid, fields)
@@ -110,6 +111,15 @@ def ensure_invite_code(repo: Repository, farm: dict) -> dict:
 
 
 # ------------------------------------------------------------------ reading
+
+def remember_lang(repo: Repository, uid: str, lang: str) -> None:
+    """Store the language of the user's last request on ``users/<uid>`` (used for their pushes and emails)."""
+    user = repo.get("users", uid)
+    if user is None:
+        repo.set("users", uid, {"lang": lang})
+    elif user.get("lang") != lang:
+        repo.update("users", uid, {"lang": lang})
+
 
 def resolve(repo: Repository, identity: Identity) -> Membership:
     """Find the user's farm and membership. Also upgrades legacy accounts and fills in a missing email/name."""
@@ -217,10 +227,12 @@ def request_to_join(repo: Repository, notifier: Notifier, identity: Identity, co
     who = label(member)
     notify_farm(
         repo, notifier, farm,
-        title=f"{who} wants to join",
-        body=f"{who} asked to join {farm.get('name', 'your farm')}. Open Members to approve or reject.",
+        title_key="push.join.title",
+        body_key="push.join.body",
+        params={"who": who, "farm": farm.get("name", "")},
         type_="join_request",
         roles={"owner", "manager"},
+        channel=MEMBERS_CHANNEL,
     )
     return Membership("pending", farm, member)
 
@@ -257,9 +269,8 @@ def approve(repo: Repository, notifier: Notifier, farm: dict, uid: str, role: st
         raise ApiError(409, "This person is not waiting for approval")
     member = _decide(repo, farm["id"], uid, decided_by, status="active", role=role)
     set_user(repo, uid, farm["id"], "active")
-    name = farm.get("name", "the farm")
-    push_to_users(repo, notifier, [uid], f"Welcome to {name}", f"You can now use {name} in Farmivo.",
-                  {"type": "membership_approved"})
+    push_to_users(repo, notifier, [uid], "push.approved.title", "push.approved.body", {"farm": farm.get("name", "")},
+                  {"type": "membership_approved", "farm_id": farm["id"]})
     return member
 
 
@@ -270,9 +281,8 @@ def reject(repo: Repository, notifier: Notifier, farm: dict, uid: str, decided_b
         raise ApiError(409, "This person is not waiting for approval")
     member = _decide(repo, farm["id"], uid, decided_by, status="rejected")
     set_user(repo, uid, farm["id"], "rejected")
-    push_to_users(repo, notifier, [uid], "Request not accepted",
-                  f"Your request to join {farm.get('name', 'the farm')} was not accepted.",
-                  {"type": "membership_rejected"})
+    push_to_users(repo, notifier, [uid], "push.rejected.title", "push.rejected.body", {"farm": farm.get("name", "")},
+                  {"type": "membership_rejected", "farm_id": farm["id"]})
     return member
 
 

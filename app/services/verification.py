@@ -15,6 +15,7 @@ import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 
+from app.i18n import normalize, request_lang
 from app.errors import ApiError
 from app.repository import Repository
 from app.services.mailer import MailError, Mailer
@@ -88,7 +89,9 @@ def send_code(repo: Repository, mailer: Mailer, identity: Identity, secret: str)
     code = "".join(secrets.choice("0123456789") for _ in range(CODE_LENGTH))
     minutes = int(CODE_TTL.total_seconds() // 60)
     try:
-        mailer.send_code(identity.email, code, minutes)
+        user = repo.get("users", identity.uid)
+        lang = normalize((user or {}).get("lang")) or request_lang()
+        mailer.send_code(identity.email, code, minutes, lang)
     except MailError as exc:
         raise ApiError(502, "We could not send the email. Try again later", code="email_failed") from exc
     repo.set("email_codes", identity.uid, {
