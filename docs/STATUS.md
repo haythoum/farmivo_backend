@@ -21,6 +21,20 @@ The code was written in a sandbox with **no access to PyPI, the Android SDK/Mave
 - Email verification code: tested with a fake mailer (16 tests); real Mailjet delivery was never tried (tested with a fake Mailjet client).
 Plan for the first session: run `pytest`, build both apps, fix compile errors, then do the manual end-to-end checklist in DEVELOPMENT_GUIDE.md.
 
+## Backend bug review (membership after sign-in, notifications)
+
+Every real flow (create farm, join, approve, reject, remove, leave, transfer, legacy accounts, sign-out then sign-in) already returned the right `/me` status; scenario tests now prove it (`tests/test_sessions.py`). The backend was not the cause of "the app shows Create/Join farm again after signing in". Weak points found and fixed:
+
+| Problem | Effect | Fix |
+|---|---|---|
+| `/me` trusted only `users/<uid>`; the member record was not consulted if that pointer was missing or stale | A lost or stale pointer (e.g. data restored from an old backup, a manual edit, an interrupted write) shows "no farm" although the person is a member | The member record is the source of truth: found across farms when needed, and the pointer is repaired |
+| `set_user` and `mark_verified` replaced the whole `users` document | Two requests at the same moment (verify email + language update, approve + `/me`) could wipe each other's fields, e.g. the farm | Both now merge only their own fields |
+| Push data had no notification id | Tapping a push could not mark its notification read | `data.notification_id` on join requests, approvals and reminders |
+| Join-request notifications stayed unread after a decision | Managers kept seeing an unread "X wants to join" | Resolved (read) on approve, reject, cancel or remove, whoever decides |
+| Approval was push-only | Nothing in the new member's list | Stored as a personal notification (`for_uid`) |
+| `POST /notifications/<id>/read` and `DELETE` did not check visibility | A worker could mark or delete a manager-only join request by id | `404` unless the caller may see it |
+| Deleting an account left old rejected/pending member records in other farms | Leftover personal data | All the user's member records are deleted |
+
 ## Known gaps / not built
 - Launch screens, dark-mode polish on Android custom screens. Server texts are translated (ar/fr/en); the apps' own strings are handled in the app repos.
 - Android: no unit/UI tests; notification tap opens the app, not the specific animal; photo EXIF rotation not applied.

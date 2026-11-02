@@ -227,7 +227,7 @@ Server texts in English (default), French and Arabic.
 | `now_iso()` | function | UTC now as ISO text, used for `created_at` / `updated_at`. |
 | `_matches(doc, flt)` | function | Evaluates one filter on one document. A missing field only matches `!=`; type mismatches don't match. An unknown operator raises `ValueError`. |
 | `apply_query(docs, filters, order_by, desc, limit)` | function | Filters, sorts (records without the sort field go last) and limits in Python. |
-| `Repository` | Protocol | `get(path, id)`, `list(path, filters, order_by, desc, limit)`, `create(path, data, id=None)`, `update(path, id, data)` (returns `None` if missing), `set(path, id, data)` (upsert, keeps `created_at`), `delete(path, id) -> bool`. Every returned record has an `"id"` key plus its fields, `created_at` and `updated_at`. |
+| `Repository` | Protocol | `get(path, id)`, `list(path, filters, order_by, desc, limit)`, `create(path, data, id=None)`, `update(path, id, data)` (returns `None` if missing), `set(path, id, data)` (upsert, keeps `created_at`), `delete(path, id) -> bool`, `group_list(name, filters)` (records of every sub-collection called `name`, e.g. all farms' `members`, each with `parent_id`; Mongo queries the one collection, in-memory scans the paths, Firestore uses a collection-group query). Every returned record has an `"id"` key plus its fields, `created_at` and `updated_at`. |
 | `InMemoryRepository` | class | Dict of dicts keyed by path; deep-copies on read and write. Tests and `seed_demo --memory`. `_col(path)` returns or creates one path's dict. |
 | `FirestoreRepository` | class | Uses `client.collection(path)`; `==` filters run in Firestore and the rest in `apply_query`. `_to_dict(snap)` adds the id. |
 | `MongoRepository(db, prefix="")` | class | **One collection per record type.** `_locate(path)` returns the collection named `prefix + <last part>` and the parent fields from the path (`farms/F/animals` → `{farm_id: F}`, `users/U/devices` → `{user_id: U}`). It creates an index on the parent fields the first time a collection is used. Records store `_id = id` plus the parent fields; `_out` removes `_id` and the parent fields and adds `"id"`. `==` filters (not on parent fields) and `in` filters run in MongoDB; the rest in `apply_query`. Every query includes the parent fields, so one farm can never read another farm's records. |
@@ -310,8 +310,10 @@ Reminders are owned by a source record and have a predictable id: `vacc_<vaccina
 | `farm_device_tokens(repo, farm, roles=None)` | `device_tokens` of `farm_member_uids`. |
 | `_send(repo, notifier, devices, title_key, body_key, params, data, channel)` | Groups devices by language, renders title and body per language, pushes each group on `channel`, and deletes device records whose token FCM reports as invalid. |
 | `push_to_users(repo, notifier, uids, title_key, body_key, params, data, channel="farmivo_members")` | Push to specific people, each in their own language, without storing a farm notification (approval and rejection). |
-| `notify_farm(repo, notifier, farm, *, title_key, body_key, params=None, type_, animal_id, reminder_id, roles=None, channel="farmivo_reminders")` | Writes a `notifications` record (English `title`/`body` plus `title_key`, `body_key`, `params`, `read: false`) and pushes it to the active members' devices in their languages with data `{type, farm_id, animal_id?, reminder_id?}`; `roles` limits the push (not the stored record), e.g. `{"owner", "manager"}` for join requests. |
-| `MANAGER_ONLY_TYPES`, `visible_notifications(rows, role)` | `{"join_request"}`; drops those for workers and viewers (list, unread count and read-all). |
+| `notify_farm(repo, notifier, farm, *, title_key, body_key, params=None, type_, animal_id, reminder_id, roles=None, channel="farmivo_reminders", subject_uid=None, for_uid=None) -> dict` | Writes a `notifications` record (English `title`/`body` plus `title_key`, `body_key`, `params`, `subject_uid`, `for_uid`, `read: false`) and pushes it in each recipient's language with data `{type, farm_id, notification_id, animal_id?, reminder_id?}`. `roles` limits the push (not the record), e.g. `{"owner", "manager"}` for join requests; `for_uid` makes it personal (only that member sees it, only their phones get it); `subject_uid` is the person a join request is about. Returns the record. |
+| `MANAGER_ONLY_TYPES`, `visible_notifications(rows, role, uid=None)` | `{"join_request"}`; drops those for workers and viewers, and personal notifications (`for_uid`) of other people (list, unread count, read-all). |
+| `is_visible(record, role, uid) -> bool` | True if this reader may see the notification; `mark_read` and `delete_notification` answer 404 otherwise. |
+| `resolve_join_requests(repo, farm_id, uid)` | Marks the `join_request` notifications about `uid` (`subject_uid`) read and `resolved` once the request is approved, rejected, cancelled or removed. |
 | `notification_text(record, lang)` | A stored notification with `title`/`body` rendered in `lang` (old records without keys are returned unchanged). |
 | `when_ref(days)` | The translatable "in N days / tomorrow / today / overdue by N days" part of a reminder push. |
 | `run_due_reminders(repo, notifier, as_of=None) -> {"farms", "notified"}` | For every farm and every pending reminder: computes the bucket and skips it if already notified. Otherwise it calls `notify_farm` with title "Farmivo reminder" and body "<reminder title> - <when>" (the title already names the animal), then appends the bucket to `notified_buckets`. |
@@ -324,7 +326,7 @@ Who belongs to which farm, with which role, and the join workflow. Storage: `far
 |---|---|
 | `CODE_ALPHABET` | Characters used in invite codes, without look-alikes (no 0/O, 1/I/L). |
 | `Identity` | dataclass: `uid`, `email`, `name`, `email_verified` (the token's claim). |
-| `set_user(repo, uid, farm_id, status)` | Writes `users/<uid>` (`farm_id`, `status`) keeping `email_verified` / `email_verified_at` and `lang`. `farm_id=None` keeps only those (the document is deleted if there are none). Used by every membership change. |
+| `set_user(repo, uid, farm_id, status)` | Points `users/<uid>` at the farm and status by merging only those two fields (never replacing the document, so `email_verified`, `lang` survive concurrent requests). `farm_id=None` clears them. Used by every membership change and by `resolve` to repair the pointer. |
 | `remember_lang(repo, uid, lang)` | Stores the language of the user's last request in `users/<uid>.lang` (written only when it changes). Called by `get_identity` when the request has a supported Accept-Language. |
 | `Membership` | dataclass: `status` (none, pending, active, rejected), `farm`, `member`; property `role` (only when active). |
 | `members_path(farm_id)` | `farms/<farm_id>/members`. |
@@ -333,19 +335,20 @@ Who belongs to which farm, with which role, and the join workflow. Storage: `far
 | `find_farm_by_code(repo, code)` | The farm with that (normalised) code, or `None`. |
 | `new_invite_code(repo, farm_name)` | `PREFIX-XXXX` with 4 random characters (`SystemRandom`), unique among farms. |
 | `ensure_invite_code(repo, farm)` | Adds a code to a farm that has none (farms created before codes existed). |
-| `resolve(repo, identity) -> Membership` | Reads `users/<uid>`, the farm and the member record. A legacy account (user points at a farm it owns or is listed in, but no member record) becomes an **active owner** (or manager if only listed in `member_uids`). Fills a missing email/name from the token. |
+| `STATUS_ORDER`, `_find_member(repo, uid) -> (farm, member) or None` | Looks the user's member records up across all farms (`group_list("members")`): active first, then pending, then the newest rejection. |
+| `resolve(repo, identity) -> Membership` | The **member record is the source of truth**. Follows `users/<uid>` to the farm and member record; a legacy account (points at a farm it owns or is listed in, no member record) becomes an **active owner** (or manager if only listed in `member_uids`). If the pointer is missing, stale or leads nowhere, `_find_member` finds the record in any farm. The pointer is repaired whenever it disagrees. Fills a missing email/name from the token. |
 | `me_payload(identity, membership, email_verified=False)` | The `GET /me` body, including `email_verified`. |
 | `list_members(repo, farm_id)` | Pending (oldest first), then active (owner, managers, workers, viewers, then by name). Rejected are left out. |
 | `label(member)` | Name, else email, else "Someone". |
 | `create_farm(repo, identity, data)` | 409 if active or pending. Creates the farm (`owner_uid`, `invite_code`, currency default USD), an active owner member and `users/<uid>`. |
 | `request_to_join(repo, notifier, identity, code)` | 409 if active. 404 "No farm with this code". Replaces a pending request elsewhere, writes a pending member (role worker) and `users/<uid>` status pending, and calls `notify_farm(..., type_="join_request", roles={"owner","manager"})`. |
-| `leave(repo, identity)` | Deletes the member record and clears the farm from `users/<uid>` (the verified flag stays); 409 "Transfer ownership first" for the owner. |
+| `leave(repo, identity)` | Deletes the member record, clears the farm from `users/<uid>` (the verified flag stays) and resolves the join-request notification; 409 "Transfer ownership first" for the owner. |
 | `_get_member(repo, farm_id, uid)` | The member or 404 "Member not found" (rejected records count as not found). |
 | `_decide(repo, farm_id, uid, decided_by, **fields)` | Updates a member with `decided_at` / `decided_by`. |
-| `approve(repo, notifier, farm, uid, role, decided_by)` | Pending only (409 otherwise). Sets active + role, `users/<uid>` active, pushes "Welcome to <farm>". |
-| `reject(repo, notifier, farm, uid, decided_by)` | Pending only. Sets rejected, `users/<uid>` rejected, pushes "Request not accepted". |
+| `approve(repo, notifier, farm, uid, role, decided_by)` | Pending only (409 otherwise). Sets active + role, `users/<uid>` active, resolves the join-request notification, stores a personal `membership_approved` notification for the new member and pushes it ("Welcome to <farm>", with `notification_id`). |
+| `reject(repo, notifier, farm, uid, decided_by)` | Pending only. Sets rejected, `users/<uid>` rejected, resolves the join-request notification, pushes "Request not accepted" (push only: the person is not a member). |
 | `change_role(repo, farm_id, uid, role, decided_by)` | Active non-owner members only (409 otherwise). |
-| `remove(repo, farm_id, uid)` | Deletes the member record and clears the farm from `users/<uid>`; 409 for the owner. |
+| `remove(repo, farm_id, uid)` | Deletes the member record, clears the farm from `users/<uid>` and resolves a pending join-request notification; 409 for the owner. |
 | `rotate_invite_code(repo, farm)` | New unique code; the old one stops matching immediately. |
 | `transfer_ownership(repo, farm, from_uid, to_uid)` | Target must be another active member (409). Old owner → manager, target → owner, `farms.owner_uid` updated. |
 
@@ -360,7 +363,7 @@ The 6-digit email code required before creating or joining a farm. Storage: `ema
 | `_iso(moment)`, `_parse(text)` | ISO-8601 strings to and from `datetime`. |
 | `hash_code(uid, code, secret)` | HMAC-SHA256 keyed with `secret:uid`; only this is stored. |
 | `is_verified(repo, identity, membership=None)` | True if `users/<uid>.email_verified`, or the token claim `email_verified`, or an active membership (older accounts). The last two are saved with `mark_verified`. |
-| `mark_verified(repo, uid)` | Sets `email_verified` and `email_verified_at` on `users/<uid>`, keeping its other fields. |
+| `mark_verified(repo, uid)` | Merges `email_verified` and `email_verified_at` into `users/<uid>` (creates it if missing; never replaces the farm fields). |
 | `send_code(repo, mailer, identity, secret) -> dict` | **409 already_verified**, **400 no_email**, **429 too_soon** (`retry_after`) within 60 s, **429 too_many_codes** after 5 in an hour. Creates a random code (`secrets`), emails it (**502 email_failed** on `MailError`, no cooldown started), then stores the hash, `expires_at`, `attempts=0`, `last_sent_at`, `sent_at`. Returns `{sent_to, resend_after_seconds, expires_in_seconds}`. |
 | `verify_code(repo, identity, code, secret)` | Spaces are ignored. Already verified: no-op. No code or expired: **410 code_expired**. Right: deletes the code, `mark_verified`. Wrong: **400 wrong_code** "Wrong code. N attempts left"; the 5th wrong try burns the code (**429 too_many_attempts**). |
 
@@ -404,7 +407,7 @@ Every store also has `delete_farm(farm_id, urls)`, used when a lone owner delete
 | Name | Description |
 |---|---|
 | `FARM_COLLECTIONS` | Every collection under `farms/<farm_id>/`: animals, vaccinations, treatments, vet_visits, illnesses, reminders, breedings, weights, production, feedings, transactions, notifications, members. |
-| `delete_account(repo, photo_store, identity) -> {"farm_deleted": bool}` | Raises **409 owner_must_transfer** before touching anything when the user owns a farm with other active members. A lone owner: `delete_farm`. Otherwise removes the user's member record (active or pending). Always deletes `users/<uid>/devices/*`, `email_codes/<uid>` and `users/<uid>`. |
+| `delete_account(repo, photo_store, identity) -> {"farm_deleted": bool}` | Raises **409 owner_must_transfer** before touching anything when the user owns a farm with other active members. A lone owner: `delete_farm`. Otherwise removes the user's member record (active or pending), plus any older member records in other farms (`group_list`). Always deletes `users/<uid>/devices/*`, `email_codes/<uid>` and `users/<uid>`. |
 | `delete_farm(repo, photo_store, farm)` | Detaches pending or rejected requesters (their `users` record no longer points at the farm), collects the animals' photo URLs, deletes every record of every farm collection and the farm document, then calls `photo_store.delete_farm` (failures logged). |
 
 ### 10.3b app/legal.py and routers/legal.py
@@ -551,7 +554,7 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 |---|---|---|
 | `GET /v1/notifications` | `list_notifications` | `unread_only`, `limit` 1–200 (default 50); newest first; texts in the request language; join requests hidden from workers and viewers. |
 | `POST /v1/notifications/read-all` | `mark_all_read` | 204; only the notifications the caller can see. |
-| `POST /v1/notifications/<id>/read` | `mark_read` | 200 with the notification (request language); 404. |
+| `POST /v1/notifications/<id>/read` | `mark_read` | 200 with the notification (request language); 404 if missing or not visible to the caller (manager-only or someone else's personal notification). The apps call it with `data.notification_id` when a push is tapped. |
 | `DELETE /v1/notifications/<id>` | `delete_notification` | 204; 404. |
 
 ### 11.9 routers/dashboard.py
@@ -604,6 +607,7 @@ Run on the server from the project folder with the project's virtualenv, for exa
 
 | File | What it covers |
 |---|---|
+| `tests/test_sessions.py` | Membership across sign-out/sign-in (new client, same uid): owner, approved member, reject/remove/leave, transfer, legacy account, the member record as source of truth with pointer repair, email verification and language updates not dropping the farm, devices never touching membership; push `notification_id` for join requests, approvals and reminders, tap marks read, join requests resolved by any decision, visibility checks on mark/delete, account deletion removing old member records. |
 | `tests/conftest.py` | Fixtures: `repo` (`InMemoryRepository`), `notifier` (`NullNotifier`), `mailer` (`FakeMailer`: records `(to, code)`, `fail` switch, `last_code`), `make_client(uid, email, name, verified=True)` (a client signed in as anyone, all sharing one database; `verified` is the token's email claim), `client` (user-1, owner of a farm created with `POST /v1/farms`), `cow` (one female animal). |
 | `tests/test_members.py` | Onboarding (no automatic farm, create, validation, join with a normalised code, unknown code, reject and ask again, switch or cancel a pending request), permissions per role (viewer, worker, manager), role change and removal taking effect, invite code rotation, ownership transfer, owner cannot leave, reminder pushes only to active members, legacy accounts becoming owners, the full `required_role` table, code helpers. |
 | `tests/test_api.py` | Health check, 401 without a token, JSON 404, animal CRUD and duplicate tag, future date of birth, vaccination → reminder → dashboard, reminder job pushing once per bucket, breeding and birth (including a second birth giving 409), growth and production summary, sale → income and finance summary, photo upload, sire link cleared on delete, and more. |

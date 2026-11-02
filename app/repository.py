@@ -106,6 +106,11 @@ class Repository(Protocol):
         """Delete a record; True if it existed."""
         ...
 
+    def group_list(self, name: str, filters: list[Filter] | None = None) -> list[dict]:
+        """Records of every sub-collection called ``name`` (e.g. all farms' ``members``) matching the filters.
+        Each record also carries ``parent_id``: the id of the record the collection belongs to (the farm)."""
+        ...
+
 
 class InMemoryRepository:
     """Dictionary-backed repository for tests and the demo seeder's dry run."""
@@ -145,6 +150,14 @@ class InMemoryRepository:
 
     def delete(self, path: str, doc_id: str) -> bool:
         return self._col(path).pop(doc_id, None) is not None
+
+    def group_list(self, name: str, filters: list[Filter] | None = None) -> list[dict]:
+        docs = []
+        for path, col in self._data.items():
+            parts = path.split("/")
+            if len(parts) >= 3 and parts[-1] == name:
+                docs += [{**copy.deepcopy(d), "id": i, "parent_id": parts[-2]} for i, d in col.items()]
+        return apply_query(docs, filters)
 
 
 class FirestoreRepository:
@@ -199,6 +212,11 @@ class FirestoreRepository:
             return False
         ref.delete()
         return True
+
+    def group_list(self, name: str, filters: list[Filter] | None = None) -> list[dict]:
+        docs = [{**self._to_dict(s), "parent_id": s.reference.parent.parent.id}
+                for s in self._db.collection_group(name).stream()]
+        return apply_query(docs, filters)
 
 
 class MongoRepository:
@@ -277,6 +295,18 @@ class MongoRepository:
     def delete(self, path: str, doc_id: str) -> bool:
         collection, parent = self._locate(path)
         return collection.delete_one({"_id": doc_id, **parent}).deleted_count > 0
+
+    def group_list(self, name: str, filters: list[Filter] | None = None) -> list[dict]:
+        query = {f: v for f, op, v in filters or [] if op == "=="}
+        rest = [flt for flt in filters or [] if flt[1] != "=="]
+        docs = []
+        for raw in self._db[self._prefix + name].find(query):
+            # farm sub-collections carry farm_id, user sub-collections user_id (see _locate)
+            parent_key = "farm_id" if "farm_id" in raw else ("user_id" if "user_id" in raw else None)
+            doc = {k: v for k, v in raw.items() if k not in ("_id", parent_key)}
+            doc["id"], doc["parent_id"] = raw["_id"], raw.get(parent_key) if parent_key else None
+            docs.append(doc)
+        return apply_query(docs, rest)
 
 
 # Path helpers --------------------------------------------------------------

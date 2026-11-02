@@ -180,16 +180,22 @@ def notify_farm(
     reminder_id: str | None = None,
     roles: set[str] | None = None,
     channel: str = REMINDERS_CHANNEL,
-) -> None:
+    subject_uid: str | None = None,
+    for_uid: str | None = None,
+) -> dict:
     """Store an in-app notification and push it to the devices of the farm's active members.
 
     The stored record keeps the English text plus the keys and params, so GET /v1/notifications shows it in
     the reader's language; each phone gets the push in its own language. ``roles`` limits the push (not the
     stored notification) to members with those roles, e.g. {"owner", "manager"} for join requests.
+    ``subject_uid`` is the person a join request is about (so approving/rejecting can resolve it);
+    ``for_uid`` makes the notification personal: only that member sees it and only their phones get the push.
+    The push data carries ``notification_id`` so the app can mark the record read when the push is tapped.
+    Returns the stored record.
     """
     params = params or {}
     farm_id = farm["id"]
-    repo.create(
+    record = repo.create(
         farm_path(farm_id, "notifications"),
         {
             "title": render(title_key, DEFAULT, params),
@@ -200,27 +206,47 @@ def notify_farm(
             "type": type_,
             "animal_id": animal_id,
             "reminder_id": reminder_id,
+            "subject_uid": subject_uid,
+            "for_uid": for_uid,
             "read": False,
         },
     )
-    data = {"type": type_, "farm_id": farm_id}
+    data = {"type": type_, "farm_id": farm_id, "notification_id": record["id"]}
     if animal_id:
         data["animal_id"] = animal_id
     if reminder_id:
         data["reminder_id"] = reminder_id
-    _send(repo, notifier, farm_device_tokens(repo, farm, roles), title_key, body_key, params, data, channel)
+    devices = device_tokens(repo, [for_uid]) if for_uid else farm_device_tokens(repo, farm, roles)
+    _send(repo, notifier, devices, title_key, body_key, params, data, channel)
+    return record
 
 
 MANAGER_ONLY_TYPES = {"join_request"}
 
 
-def visible_notifications(rows: list[dict], role: str | None) -> list[dict]:
-    """Drop notifications meant for managers (join requests) when the reader is a worker or viewer."""
+def visible_notifications(rows: list[dict], role: str | None, uid: str | None = None) -> list[dict]:
+    """The notifications this reader may see: join requests only for managers and the owner, personal ones
+    (``for_uid``) only for that person."""
     from app.permissions import at_least
 
-    if at_least(role, "manager"):
-        return rows
-    return [r for r in rows if r.get("type") not in MANAGER_ONLY_TYPES]
+    manager = at_least(role, "manager")
+    return [r for r in rows
+            if (manager or r.get("type") not in MANAGER_ONLY_TYPES)
+            and (not r.get("for_uid") or r.get("for_uid") == uid)]
+
+
+def is_visible(record: dict | None, role: str | None, uid: str | None) -> bool:
+    """True if this reader may see (and mark or delete) the notification."""
+    return bool(record) and bool(visible_notifications([record], role, uid))
+
+
+def resolve_join_requests(repo: Repository, farm_id: str, uid: str) -> None:
+    """Mark the "X wants to join" notifications about ``uid`` read once the request is decided (approved,
+    rejected, cancelled or removed), so they don't stay unread for the other managers."""
+    path = farm_path(farm_id, "notifications")
+    for n in repo.list(path, [("type", "==", "join_request"), ("subject_uid", "==", uid)]):
+        if not n.get("read") or not n.get("resolved"):
+            repo.update(path, n["id"], {"read": True, "resolved": True})
 
 
 def notification_text(record: dict, lang: str | None) -> dict:

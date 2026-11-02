@@ -164,12 +164,32 @@ Call it after sign-in, on app start, when the app returns to the foreground, and
 | `rejected` | "Your request to join {farm.name} was not accepted" with **Create a farm** / **Join another farm** |
 | `active` | The app; show or hide actions by `role` using the matrix above. More > **Members** for managers and the owner, invite code in Farm settings |
 
+## State machine (the member record is the source of truth)
+
+`GET /v1/me` reads the member record. `users/<uid>` is only a pointer (`farm_id`, `status`) used to find it quickly; when they disagree the member record wins and the pointer is repaired on the spot. If the pointer is missing or points to the wrong farm, the member record is looked up across all farms (active first, then pending, then the latest rejection). **Signing out changes nothing on the server** except removing the phone's push token (`DELETE /v1/devices`).
+
+| From | Action | Member record | `users/<uid>` | `GET /me` status |
+|---|---|---|---|---|
+| none | `POST /farms` | created: owner, active | farm, active | active (owner) |
+| none / rejected | `POST /farms/join` | created: worker, pending (a pending request elsewhere is deleted) | farm, pending | pending |
+| pending | approve (manager/owner) | active, chosen role | farm, active | active |
+| pending | reject (manager/owner) | rejected | farm, rejected | rejected |
+| pending | `DELETE /me/membership` | deleted | cleared | none |
+| active (not owner) | `DELETE /me/membership` | deleted | cleared | none |
+| active (not owner) | removed by manager/owner | deleted | cleared | none |
+| active owner | transfer ownership | old owner -> manager, new owner -> owner | unchanged | active (new roles) |
+| any | `DELETE /me` (delete account) | all of the user's member records deleted (owner alone: whole farm) | deleted | none (account gone) |
+| legacy account (users.farm_id = a farm it owns, no member record) | any request | created: owner, active | farm, active | active (owner) |
+| any | sign out / sign in | unchanged | unchanged (repaired if stale) | unchanged |
+
+Join-request notifications are marked read when the request is decided (approve, reject, cancel, remove).
+
 ## Data
 
 See [DATA_MODEL.md](DATA_MODEL.md#members-and-users).
 
 - `members` (`farms/<farm_id>/members/<uid>`): `_id` = Firebase uid, `farm_id`, `uid`, `email`, `name`, `role`, `status` (`pending`, `active`, `rejected`), `requested_at`, `decided_at`, `decided_by`.
-- `users` (`users/<uid>`): `_id` = uid, `farm_id`, `status`. No document means no farm.
+- `users` (`users/<uid>`): `_id` = uid, `farm_id`, `status` (a pointer to the member record, repaired automatically), plus `email_verified`, `lang`.
 - `farms`: `owner_uid`, `invite_code` (uppercase, unique).
 
 Accounts created before memberships existed (a `users` document and a farm whose `owner_uid` is the user, no member record) become **active owners** on their first request, and their farm gets an invite code the first time a manager or owner opens it. Nothing has to be run on the server.

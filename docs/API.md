@@ -199,15 +199,17 @@ Create requires `dam_id` (female) and `mating_date`; `sire_id` (male) optional, 
 
 ## Notifications
 
-- `GET /notifications?unread_only=false&limit=50` → `[{id, title, body, type, animal_id, reminder_id, read, created_at}]` newest first. `title`/`body` are in the request's language. Workers and viewers don't see `join_request` notifications (and `read-all` doesn't touch them).
-- `POST /notifications/{id}/read` → Notification; `POST /notifications/read-all` → `204`; `DELETE /notifications/{id}` → `204`
+- `GET /notifications?unread_only=false&limit=50` → `[{id, title, body, type, animal_id, reminder_id, read, created_at}]` newest first. `title`/`body` are in the request's language. Workers and viewers don't see `join_request` notifications (and `read-all` doesn't touch them). Personal notifications (`membership_approved`, stored with `for_uid`) are seen only by that member. The `read` flag is shared by the farm.
+- `POST /notifications/{id}/read` → Notification; `POST /notifications/read-all` → `204`; `DELETE /notifications/{id}` → `204`. A notification the caller may not see answers `404`.
+- `join_request` notifications are marked read automatically once the request is approved, rejected, cancelled or removed (by anyone), so they don't stay unread for other managers.
+- **When a push is tapped**, the app calls `POST /notifications/{data.notification_id}/read` (when the id is present), then opens the screen for `data.type`.
 
 Push payload (FCM), in the recipient's language (phone `language`, else the user's last `Accept-Language`, else English):
 
 ```json
 {
   "notification": {"title": "...", "body": "..."},
-  "data": {"type": "join_request", "farm_id": "...", "animal_id": "...", "reminder_id": "..."},
+  "data": {"type": "join_request", "farm_id": "...", "notification_id": "...", "animal_id": "...", "reminder_id": "..."},
   "android": {"priority": "high", "notification": {"channel_id": "farmivo_members", "icon": "ic_notification", "color": "#1F6F6B"}},
   "apns": {"headers": {"apns-priority": "10"}, "payload": {"aps": {"sound": "default", "mutable-content": 1}}}
 }
@@ -216,10 +218,11 @@ Push payload (FCM), in the recipient's language (phone `language`, else the user
 | `data.type` | Sent to | Android channel | Open when tapped |
 |---|---|---|---|
 | `join_request` | active owner and managers | `farmivo_members` | Members |
-| `membership_approved` / `membership_rejected` | the requester (also while pending) | `farmivo_members` | reload `GET /me` and route |
+| `membership_approved` | the new member (stored as their personal notification, with `notification_id`) | `farmivo_members` | reload `GET /me` and route |
+| `membership_rejected` | the requester (not a member: push only, **no** `notification_id`) | `farmivo_members` | reload `GET /me` and route |
 | `vaccination` / `vet_visit` / `birth` / `custom` | all active members | `farmivo_reminders` | the animal (`animal_id`) or Reminders |
 
-`data` values are strings; keys without a value are left out. The app must create both channels and ship the `ic_notification` drawable; otherwise Android falls back to the app icon.
+`data.notification_id` is the id of the stored notification for `join_request`, `membership_approved` and every reminder type. `data` values are strings; keys without a value are left out. The app must create both channels and ship the `ic_notification` drawable; otherwise Android falls back to the app icon.
 
 ## Reports
 

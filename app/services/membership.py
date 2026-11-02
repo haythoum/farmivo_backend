@@ -22,7 +22,7 @@ from app.errors import ApiError
 from app.repository import Repository, farm_path, now_iso
 from app.services.notifier import Notifier
 from app.services.notifier import MEMBERS_CHANNEL
-from app.services.reminders import notify_farm, push_to_users
+from app.services.reminders import notify_farm, push_to_users, resolve_join_requests
 
 # Letters and digits that cannot be confused when read aloud or typed (no 0/O, 1/I/L).
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -51,16 +51,15 @@ class Membership:
 
 
 def set_user(repo: Repository, uid: str, farm_id: str | None, status: str | None) -> None:
-    """Write the ``users/<uid>`` record (farm and status), keeping the email-verified flag stored there.
+    """Point ``users/<uid>`` at the user's farm and status (``farm_id=None``: no farm any more).
 
-    ``farm_id=None`` means the user no longer has a farm (left, removed).
+    Only these two fields change; everything else stored there (email_verified, lang, ...) is kept.
     """
-    keep = {k: v for k, v in (repo.get("users", uid) or {}).items() if k in ("email_verified", "email_verified_at", "lang")}
-    fields = {**keep, "farm_id": farm_id, "status": status} if farm_id else keep
-    if fields:
-        repo.set("users", uid, fields)
-    else:
-        repo.delete("users", uid)
+    if repo.get("users", uid) is None:
+        if farm_id:
+            repo.set("users", uid, {"farm_id": farm_id, "status": status})
+        return
+    repo.update("users", uid, {"farm_id": farm_id, "status": status if farm_id else None})
 
 
 def members_path(farm_id: str) -> str:
@@ -121,32 +120,56 @@ def remember_lang(repo: Repository, uid: str, lang: str) -> None:
         repo.update("users", uid, {"lang": lang})
 
 
+STATUS_ORDER = {"active": 0, "pending": 1, "rejected": 2}
+
+
+def _find_member(repo: Repository, uid: str) -> tuple[dict, dict] | None:
+    """(farm, member record) of the user's membership in any farm: active first, then pending, then the latest
+    rejection. Used when ``users/<uid>`` does not lead to a member record."""
+    rows = [m for m in repo.group_list("members", [("uid", "==", uid)]) if m.get("status") in STATUS_ORDER]
+    rows.sort(key=lambda m: m.get("decided_at") or m.get("requested_at") or "", reverse=True)  # newest first
+    rows.sort(key=lambda m: STATUS_ORDER[m["status"]])  # stable: active, pending, rejected
+    for member in rows:
+        farm = repo.get("farms", member.get("parent_id") or "")
+        if farm:
+            member = {k: v for k, v in member.items() if k != "parent_id"}
+            return farm, member
+    return None
+
+
 def resolve(repo: Repository, identity: Identity) -> Membership:
-    """Find the user's farm and membership. Also upgrades legacy accounts and fills in a missing email/name."""
+    """Find the user's farm and membership. The member record is the source of truth: ``users/<uid>`` is only
+    a pointer to it and is repaired when it disagrees (missing, wrong farm, stale status). Also upgrades legacy
+    accounts (a farm they own but no member record) and fills in a missing email/name."""
     uid = identity.uid
-    user = repo.get("users", uid)
-    if not user or not user.get("farm_id"):
-        return Membership("none")
-    farm = repo.get("farms", user["farm_id"])
-    if not farm:
-        return Membership("none")
-    member = repo.get(members_path(farm["id"]), uid)
-    if member is None:
+    user = repo.get("users", uid) or {}
+    farm = repo.get("farms", user["farm_id"]) if user.get("farm_id") else None
+    member = repo.get(members_path(farm["id"]), uid) if farm else None
+
+    if member is None and farm and (farm.get("owner_uid") == uid or uid in (farm.get("member_uids") or [])):
         # Account from before memberships: its own farm makes it the owner (another listed member: manager).
-        if farm.get("owner_uid") != uid and uid not in (farm.get("member_uids") or []):
-            return Membership("none")
         role = "owner" if farm.get("owner_uid") == uid else "manager"
         stamp = now_iso()
         member = repo.set(members_path(farm["id"]), uid, {
             "uid": uid, "email": identity.email, "name": identity.name, "role": role, "status": "active",
             "requested_at": stamp, "decided_at": stamp, "decided_by": uid,
         })
-        set_user(repo, uid, farm["id"], "active")
-    elif (identity.email and not member.get("email")) or (identity.name and not member.get("name")):
+    if member is None or member.get("status") not in STATUS_ORDER:
+        found = _find_member(repo, uid)
+        if found is None:
+            if user.get("farm_id"):
+                set_user(repo, uid, None, None)  # pointer to a farm that no longer knows this user
+            return Membership("none")
+        farm, member = found
+
+    status = member["status"]
+    if user.get("farm_id") != farm["id"] or user.get("status") != status:
+        set_user(repo, uid, farm["id"], status)  # self-heal the pointer
+    if (identity.email and not member.get("email")) or (identity.name and not member.get("name")):
         member = repo.update(members_path(farm["id"]), uid, {
             "email": member.get("email") or identity.email, "name": member.get("name") or identity.name,
         }) or member
-    return Membership(member.get("status", "none"), farm, member)
+    return Membership(status, farm, member)
 
 
 def me_payload(identity: Identity, membership: Membership, email_verified: bool = False) -> dict:
@@ -233,6 +256,7 @@ def request_to_join(repo: Repository, notifier: Notifier, identity: Identity, co
         type_="join_request",
         roles={"owner", "manager"},
         channel=MEMBERS_CHANNEL,
+        subject_uid=identity.uid,
     )
     return Membership("pending", farm, member)
 
@@ -246,6 +270,7 @@ def leave(repo: Repository, identity: Identity) -> Membership:
         raise ApiError(409, "Transfer ownership first")
     repo.delete(members_path(current.farm["id"]), identity.uid)
     set_user(repo, identity.uid, None, None)
+    resolve_join_requests(repo, current.farm["id"], identity.uid)  # a cancelled request needs no answer
     return Membership("none")
 
 
@@ -269,8 +294,11 @@ def approve(repo: Repository, notifier: Notifier, farm: dict, uid: str, role: st
         raise ApiError(409, "This person is not waiting for approval")
     member = _decide(repo, farm["id"], uid, decided_by, status="active", role=role)
     set_user(repo, uid, farm["id"], "active")
-    push_to_users(repo, notifier, [uid], "push.approved.title", "push.approved.body", {"farm": farm.get("name", "")},
-                  {"type": "membership_approved", "farm_id": farm["id"]})
+    resolve_join_requests(repo, farm["id"], uid)
+    # Stored as the new member's personal notification (they can now read the farm's list) and pushed with its id.
+    notify_farm(repo, notifier, farm, title_key="push.approved.title", body_key="push.approved.body",
+                params={"farm": farm.get("name", "")}, type_="membership_approved", channel=MEMBERS_CHANNEL,
+                for_uid=uid)
     return member
 
 
@@ -281,6 +309,8 @@ def reject(repo: Repository, notifier: Notifier, farm: dict, uid: str, decided_b
         raise ApiError(409, "This person is not waiting for approval")
     member = _decide(repo, farm["id"], uid, decided_by, status="rejected")
     set_user(repo, uid, farm["id"], "rejected")
+    resolve_join_requests(repo, farm["id"], uid)
+    # The person is not a member, so nothing is stored in the farm's list: push only (no notification_id).
     push_to_users(repo, notifier, [uid], "push.rejected.title", "push.rejected.body", {"farm": farm.get("name", "")},
                   {"type": "membership_rejected", "farm_id": farm["id"]})
     return member
@@ -303,6 +333,7 @@ def remove(repo: Repository, farm_id: str, uid: str) -> None:
         raise ApiError(409, "The owner cannot be removed")
     repo.delete(members_path(farm_id), uid)
     set_user(repo, uid, None, None)
+    resolve_join_requests(repo, farm_id, uid)
 
 
 def rotate_invite_code(repo: Repository, farm: dict) -> str:

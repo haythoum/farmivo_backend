@@ -60,9 +60,9 @@ def is_verified(repo: Repository, identity: Identity, membership: Membership | N
 
 def mark_verified(repo: Repository, uid: str) -> None:
     """Set ``users/<uid>.email_verified`` (keeping the farm fields already stored there)."""
-    user = {k: v for k, v in (repo.get("users", uid) or {}).items()
-            if k not in ("id", "created_at", "updated_at")}
-    repo.set("users", uid, {**user, "email_verified": True, "email_verified_at": _iso(now())})
+    fields = {"email_verified": True, "email_verified_at": _iso(now())}
+    if repo.update("users", uid, fields) is None:  # merge: never replace the farm fields stored there
+        repo.set("users", uid, fields)
 
 
 def send_code(repo: Repository, mailer: Mailer, identity: Identity, secret: str) -> dict:

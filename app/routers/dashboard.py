@@ -74,7 +74,7 @@ def dashboard():
 
     finance = compute_finance(ctx.repo, ctx.farm_id, start, now) if can_see_finance(ctx.role) else None
     ongoing_illnesses = ctx.repo.list(path_of(ctx, "illnesses"))
-    unread = len(visible_notifications(ctx.repo.list(path_of(ctx, "notifications"), [("read", "==", False)]), ctx.role))
+    unread = len(visible_notifications(ctx.repo.list(path_of(ctx, "notifications"), [("read", "==", False)]), ctx.role, ctx.uid))
 
     return out(DashboardOut(
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),

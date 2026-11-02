@@ -47,6 +47,9 @@ def delete_account(repo: Repository, photo_store, identity: Identity) -> dict:
         farm_deleted = True
     elif current.farm:
         repo.delete(members_path(current.farm["id"]), uid)
+    # also older rejected or pending records in other farms
+    for member in repo.group_list("members", [("uid", "==", uid)]):
+        repo.delete(members_path(member["parent_id"]), uid)
 
     for device in repo.list(f"users/{uid}/devices"):
         repo.delete(f"users/{uid}/devices", device["id"])

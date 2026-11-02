@@ -137,7 +137,8 @@ def test_approval_push_uses_requesters_language(make_client, notifier):
     owner.post("/v1/farm/members/ali/approve", headers=FR)  # the owner's language doesn't matter
     sent = notifier.sent[-1]
     assert sent["tokens"] == ["ali-token-123"] and sent["title"] == "مرحبًا بك في Green Valley Farm"
-    assert sent["data"] == {"type": "membership_approved", "farm_id": owner.get("/v1/farm").json["id"]}
+    assert sent["data"]["type"] == "membership_approved"
+    assert sent["data"]["farm_id"] == owner.get("/v1/farm").json["id"] and sent["data"]["notification_id"]
 
 
 def test_stored_notifications_render_in_readers_language(client, make_client):
@@ -226,5 +227,8 @@ def test_join_requests_hidden_from_workers(client, make_client):
     client.post("/v1/farm/members/w1/approve", json={"role": "worker"})
     make_client("ali", name="Ali").post("/v1/farms/join", json={"invite_code": code})
     assert any(n["type"] == "join_request" for n in client.get("/v1/notifications").json)
-    assert not any(n["type"] == "join_request" for n in worker.get("/v1/notifications").json)
-    assert worker.get("/v1/dashboard").json["unread_notifications"] == 0
+    seen = worker.get("/v1/notifications").json
+    assert not any(n["type"] == "join_request" for n in seen)
+    # the only unread item the worker counts is their own "welcome" (membership_approved)
+    assert [n["type"] for n in seen if not n["read"]] == ["membership_approved"]
+    assert worker.get("/v1/dashboard").json["unread_notifications"] == 1
