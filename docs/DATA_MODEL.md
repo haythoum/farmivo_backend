@@ -13,9 +13,9 @@ All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are 
 | Path | Contents |
 |---|---|
 | `farms/{farmId}` | name, currency, country, address, owner_uid, invite_code (uppercase, unique, e.g. `GVF-7K3P`); old farms may still have member_uids[] (only read for legacy accounts) |
-| `users/{uid}` | farm_id, status (`pending` / `active` / `rejected`, mirrors the member record). No document = no farm |
+| `users/{uid}` | farm_id, status (`pending` / `active` / `rejected`, mirrors the member record), email_verified, lang (ar/fr/en of the last request). No `farm_id` = no farm |
 | `farms/{farmId}/members/{uid}` | uid, email, name, role (`owner` / `manager` / `worker` / `viewer`), status (`pending` / `active` / `rejected`), requested_at, decided_at, decided_by |
-| `users/{uid}/devices/{id}` | token (FCM), platform (android/ios) |
+| `users/{uid}/devices/{id}` | token (FCM), platform (android/ios), language (ar/fr/en: the language pushes to this phone use) |
 | `farms/{farmId}/animals` | ear_tag (unique per farm), name, species, breed, sex, date_of_birth, date_added, origin, mother_id, father_id, notes, status, status_date, photo_url |
 | `farms/{farmId}/vaccinations` | animal_id, vaccine_name, date_given, next_due_date, batch_number, administered_by, notes |
 | `farms/{farmId}/treatments` | animal_id, name, medication, dosage, start_date, end_date, withdrawal_end_date, administered_by, notes |
@@ -26,8 +26,8 @@ All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are 
 | `farms/{farmId}/production` | animal_id (optional), date, product, quantity, unit, notes |
 | `farms/{farmId}/feedings` | animal_id or group_name, date, feed_type, quantity_kg, notes |
 | `farms/{farmId}/transactions` | type (income/expense), category, amount, date, description, animal_id |
-| `farms/{farmId}/reminders` | source_type, source_id, animal_id, title, due_date, status, notified_buckets[] |
-| `farms/{farmId}/notifications` | title, body, type, animal_id, reminder_id, read |
+| `farms/{farmId}/reminders` | source_type, source_id, animal_id, title (English), title_key + title_params (server-made reminders, rendered in the reader's language), due_date, status, notified_buckets[] |
+| `farms/{farmId}/notifications` | title, body (English), title_key, body_key, params (rendered in the reader's language), type, animal_id, reminder_id, read |
 
 ## Email codes
 

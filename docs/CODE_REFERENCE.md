@@ -14,7 +14,7 @@ Conventions used below:
 2. [app/main.py](#2-appmainpy): application factory
 3. [app/config.py](#3-appconfigpy): settings
 4. [app/deps.py](#4-appdepspy): auth, farm context, services; [app/permissions.py](#4a-apppermissionspy): roles policy
-5. [app/errors.py](#5-apperrorspy) and [app/web.py](#6-appwebpy): errors and request helpers
+5. [app/errors.py](#5-apperrorspy), [app/i18n.py](#5a-appi18npy) and [app/web.py](#6-appwebpy): errors, languages and request helpers
 6. [app/repository.py](#7-apprepositorypy): storage
 7. [app/schemas.py](#8-appschemaspy): request and response models
 8. [app/utils.py](#9-apputilspy)
@@ -88,6 +88,7 @@ Flask application factory and WSGI entry point (`gunicorn app.main:app`).
 |---|---|---|
 | `API_PREFIX` | constant | `"/v1"`, the prefix of every API route. |
 | `create_app(overrides=None) -> Flask` | function | Builds the app. Turns off trailing-slash redirects, keeps JSON key order, stores `overrides` (tests inject `repo`, `notifier`, `photo_store`, `uid`) in `app.config["FARMIVO_OVERRIDES"]`, and sets `MAX_CONTENT_LENGTH` to the photo limit + 1 MB. Enables CORS only if `FARMIVO_CORS_ORIGINS` is set. Registers the error handlers and, for MongoDB without a test repo, calls `log_mongo_target`. Adds `GET /healthz` and registers all blueprints (section 11). |
+| `_language()` | before-request hook (nested in `create_app`) | Sets `g.lang` from `Accept-Language` (`app.i18n.negotiate`) and `g.lang_given` when the header names a supported language. |
 | `healthz()` | route (nested in `create_app`) | `GET /healthz` → `{"status": "ok"}`. No auth, no database: it only proves the process is up. |
 | `log_mongo_target(app, settings)` | function | At startup, logs which settings file was read (or `NOT FOUND`) and `MongoDB: <host>, database <db>, user <user>`. If the host cannot be read from the connection string it logs an error instead. Never logs the password. |
 | `app` | module variable | `create_app()`; what gunicorn serves. |
@@ -148,7 +149,7 @@ Request dependencies: authentication (identity), farm membership and role contex
 | `_photo_store()` | function, cached | `MinioPhotoStore` if `photo_store == "minio"` (needs both keys, else `RuntimeError`); `FirebasePhotoStore` with Firestore; otherwise `GridFsPhotoStore(_mongo_db(), public_base_url, "<prefix>photos")`. |
 | `_mailer()` | function, cached | `MailjetMailer` from the Mailjet settings, or `LogMailer` when `mailjet_api_key` is empty. |
 | `get_repo()`, `get_notifier()`, `get_photo_store()`, `get_mailer()` | functions | The test override if present, else the cached service. |
-| `get_identity() -> Identity` | function | Reads `Authorization: Bearer <token>`. Missing or not Bearer: **401 "Missing bearer token"**. Then `_firebase_app()` + `firebase_admin.auth.verify_id_token`. Any failure, such as a wrong project, expiry, clock skew or a missing key, logs `Rejected Firebase token: <reason>` and raises **401 "Invalid or expired token"**. Returns `Identity(uid, email, name, email_verified)` from the token claims, cached on `flask.g`. Used directly by the onboarding routes (`/me`, `/farms`, `/farms/join`, `/me/membership`, `/devices`), which work without a farm. Tests set the caller with the `uid`, `email`, `name` and `email_verified` overrides. |
+| `get_identity() -> Identity` | function | Reads `Authorization: Bearer <token>`. Missing or not Bearer: **401 "Missing bearer token"**. Then `_firebase_app()` + `firebase_admin.auth.verify_id_token`. Any failure, such as a wrong project, expiry, clock skew or a missing key, logs `Rejected Firebase token: <reason>` and raises **401 "Invalid or expired token"**. Returns `Identity(uid, email, name, email_verified)` from the token claims, cached on `flask.g`. If the request sent a supported Accept-Language, calls `remember_lang`. Used directly by the onboarding routes (`/me`, `/farms`, `/farms/join`, `/me/membership`, `/devices`), which work without a farm. Tests set the caller with the `uid`, `email`, `name` and `email_verified` overrides. |
 | `get_current_uid() -> str` | function | `get_identity().uid`. |
 | `Ctx` | dataclass | `uid`, `farm_id`, `repo`, `role` (owner, manager, worker, viewer), `farm` (the farm document). |
 | `Ctx.require(minimum)` | method | Raises **403** `code: forbidden_role` ("Your role (worker) does not allow this") unless `role` is `minimum` or higher. |
@@ -175,7 +176,27 @@ The whole permission policy in one place; `get_ctx` applies it to every farm req
 |---|---|---|
 | `ApiError(status, detail, code=None, extra=None)` | exception | `status` is the HTTP code; `detail` is a string or a list of field errors; `code` (optional) is a machine-readable reason added to the body (`no_farm`, `pending`, `rejected`, `forbidden_role`, `email_unverified`, and the email-code errors); `extra` adds more fields, e.g. `retry_after`. |
 | `validation_error(exc) -> ApiError` | function | Pydantic `ValidationError` → `ApiError(422, [ {loc, msg, type, …} ])`. |
-| `register_error_handlers(app)` | function | Installs three nested handlers, `_api_error`, `_http_error` and `_unexpected`. `ApiError` → `{"detail": …}` (plus `"code"` and `extra` fields if set) with its status. Werkzeug HTTP errors such as an unknown route (404), a wrong method (405) or a too-large body (413) → `{"detail": "<name>"}`. Any other exception is logged with its traceback; a `PyMongoError` becomes **503 "Database unavailable"**, anything else **500 "Internal server error"**. |
+| `register_error_handlers(app)` | function | Installs three nested handlers, `_api_error`, `_http_error` and `_unexpected`. `ApiError` → `{"detail": …}` (plus `"code"` and `extra` fields if set) with its status; `detail` is translated into the request language with `translate_detail`. Werkzeug HTTP errors such as an unknown route (404), a wrong method (405) or a too-large body (413) → `{"detail": "<name>"}`, translated. Any other exception is logged with its traceback; a `PyMongoError` becomes **503 "Database unavailable"**, anything else **500 "Internal server error"** (both translated). |
+
+## 5a. app/i18n.py
+
+Server texts in English (default), French and Arabic.
+
+| Name | Description |
+|---|---|
+| `LANGS`, `DEFAULT` | `("en", "fr", "ar")`, `"en"`. |
+| `MESSAGES` | Catalog `key -> {en, fr, ar}`: `err.*` (every error text the API raises), `val.*` (common pydantic messages), `push.*` and `when.*` (push titles and bodies), `reminder.*` (server-made reminder titles), `email.*` (verification email). Placeholders use `{name}`; every language uses the same names (checked by a test). |
+| `normalize(lang)` | `"fr-FR"` → `"fr"`; `None` for unsupported values. |
+| `negotiate(header)` | The supported language with the highest q in an Accept-Language header (header order breaks ties); English by default. |
+| `t(key, lang, **params)` | Catalog text in `lang` (English if missing), formatted. An unknown key returns the key. |
+| `ref(key, **params)` | A translatable value to nest inside another text's params, stored as JSON `{"$t": key, "params": {...}}`. |
+| `render(key, lang, params)` | `t` that also renders `ref` values (used for stored notifications and reminder pushes). |
+| `_patterns()` | Cached regexes built from the English `err.*`/`val.*` texts, placeholders as named groups. |
+| `translate_text(text, lang)` | Finds the catalog entry an English error text came from and returns it in `lang`; unknown texts are returned unchanged. |
+| `translate_detail(detail, lang)` | `translate_text` for a string `detail`, or for each `msg` in a validation error list. |
+| `request_lang()` | `g.lang` inside a request, else English. |
+| `request_lang_given()` | True if the request sent a supported Accept-Language. |
+| `recipient_lang(device, user)` | Language for a push or email: the device's `language`, else the user's `lang`, else English. |
 
 ## 6. app/web.py
 
@@ -246,8 +267,8 @@ Enums: `Species` (cattle, sheep, goat, pig, horse, chicken, duck, rabbit, other)
 | `DailyTotal`, `ProductionSummary` | production summary | `product`, `unit`, period, `total`, `days_with_records`, `average_per_record_day`, `daily[]`. |
 | `TransactionBase`, `TransactionUpdate`, `TransactionOut` | transactions | `type`, `category`, `amount` > 0, `date`, `description`, `animal_id`. |
 | `MonthlyFinance`, `FinanceSummary` | finance summary | Period, currency, income, expenses, net, per-category maps, `monthly[]`. |
-| `NotificationOut` | notifications | `title`, `body`, `type`, `animal_id`, `reminder_id`, `read`. |
-| `DeviceIn` | POST `/devices` | `token` (10–4096 characters), `platform` android/ios. |
+| `NotificationOut` | notifications | `title`, `body` (in the request language), `type`, `animal_id`, `reminder_id`, `read`. |
+| `DeviceIn` | POST `/devices` | `token` (10–4096 characters), `platform` android/ios, optional `language` ar/fr/en. |
 | `UpcomingItem`, `DashboardOut` | dashboard | See section 11.9. `finance` is optional (null for workers and viewers). |
 
 ---
@@ -275,15 +296,20 @@ Reminders are owned by a source record and have a predictable id: `vacc_<vaccina
 | `BUCKET_OVERDUE` | `-1`. |
 | `reminder_bucket(days_until)` | `-1` if overdue, `0` today, `1` tomorrow, `7` within a week, else `None`. A reminder is pushed once per bucket. |
 | `animal_label(repo, farm_id, animal_id)` | `"Name (TAG)"`, the name or tag alone, or `None`. |
-| `sync_reminder(repo, farm_id, reminder_id, *, source_type, source_id, animal_id, title, due_date)` | No date: deletes the reminder. Otherwise upserts `farms/<farm>/reminders/<reminder_id>`. If the due date changed, status resets to `pending` and `notified_buckets` to `[]`; otherwise both are kept. |
+| `sync_reminder(repo, farm_id, reminder_id, *, source_type, source_id, animal_id, title, due_date, title_key=None, title_params=None)` | No date: deletes the reminder. Otherwise upserts `farms/<farm>/reminders/<reminder_id>` with the English `title` plus `title_key`/`title_params` for other languages. If the due date changed, status resets to `pending` and `notified_buckets` to `[]`; otherwise both are kept. |
+| `reminder_title(record, lang)` | The reminder's title in `lang` (from `title_key`), or the stored text for custom reminders. |
+| `source_title(kind, animal, **params) -> (title, key, params)` | English title, key and params for a server-made reminder: `kind` is `vaccination`, `vet` or `birth`; the `_animal` key variant is used when an animal label exists. |
 | `delete_reminder(repo, farm_id, reminder_id)` | Deletes it (no error if missing). |
 | `farm_member_uids(repo, farm, roles=None)` | Uids of the farm's **active** members (only those with one of `roles` if given). Farms without member records yet fall back to `owner_uid` / `member_uids`. Pending and rejected people never receive farm pushes. |
-| `device_tokens(repo, uids)` | `(uid, token)` for every registered phone of these users. |
+| `device_tokens(repo, uids)` | `(uid, token, language)` for every registered phone of these users; the language comes from `recipient_lang` (device, else user, else English). |
 | `farm_device_tokens(repo, farm, roles=None)` | `device_tokens` of `farm_member_uids`. |
-| `_send(repo, notifier, pairs, title, body, data)` | Pushes and deletes device records whose token FCM reports as invalid. |
-| `push_to_users(repo, notifier, uids, title, body, data)` | Push to specific people without storing a farm notification (approval and rejection messages). |
-| `notify_farm(repo, notifier, farm, *, title, body, type_, animal_id, reminder_id, roles=None)` | Writes a `notifications` record (`read: false`) and pushes it to the active members' devices; `roles` limits the push (not the stored record), e.g. `{"owner", "manager"}` for join requests. |
-| `run_due_reminders(repo, notifier, as_of=None) -> {"farms", "notified"}` | For every farm and every pending reminder: computes the bucket and skips it if already notified. Otherwise it builds a body like `Bella (CR-0412): Vaccination due: … is due tomorrow`, calls `notify_farm` and appends the bucket to `notified_buckets`. |
+| `_send(repo, notifier, devices, title_key, body_key, params, data, channel)` | Groups devices by language, renders title and body per language, pushes each group on `channel`, and deletes device records whose token FCM reports as invalid. |
+| `push_to_users(repo, notifier, uids, title_key, body_key, params, data, channel="farmivo_members")` | Push to specific people, each in their own language, without storing a farm notification (approval and rejection). |
+| `notify_farm(repo, notifier, farm, *, title_key, body_key, params=None, type_, animal_id, reminder_id, roles=None, channel="farmivo_reminders")` | Writes a `notifications` record (English `title`/`body` plus `title_key`, `body_key`, `params`, `read: false`) and pushes it to the active members' devices in their languages with data `{type, farm_id, animal_id?, reminder_id?}`; `roles` limits the push (not the stored record), e.g. `{"owner", "manager"}` for join requests. |
+| `MANAGER_ONLY_TYPES`, `visible_notifications(rows, role)` | `{"join_request"}`; drops those for workers and viewers (list, unread count and read-all). |
+| `notification_text(record, lang)` | A stored notification with `title`/`body` rendered in `lang` (old records without keys are returned unchanged). |
+| `when_ref(days)` | The translatable "in N days / tomorrow / today / overdue by N days" part of a reminder push. |
+| `run_due_reminders(repo, notifier, as_of=None) -> {"farms", "notified"}` | For every farm and every pending reminder: computes the bucket and skips it if already notified. Otherwise it calls `notify_farm` with title "Farmivo reminder" and body "<reminder title> - <when>" (the title already names the animal), then appends the bucket to `notified_buckets`. |
 
 ### 10.1a services/membership.py
 
@@ -293,7 +319,8 @@ Who belongs to which farm, with which role, and the join workflow. Storage: `far
 |---|---|
 | `CODE_ALPHABET` | Characters used in invite codes, without look-alikes (no 0/O, 1/I/L). |
 | `Identity` | dataclass: `uid`, `email`, `name`, `email_verified` (the token's claim). |
-| `set_user(repo, uid, farm_id, status)` | Writes `users/<uid>` (`farm_id`, `status`) keeping `email_verified` / `email_verified_at`. `farm_id=None` keeps only the verified flag (the document is deleted if there is none). Used by every membership change. |
+| `set_user(repo, uid, farm_id, status)` | Writes `users/<uid>` (`farm_id`, `status`) keeping `email_verified` / `email_verified_at` and `lang`. `farm_id=None` keeps only those (the document is deleted if there are none). Used by every membership change. |
+| `remember_lang(repo, uid, lang)` | Stores the language of the user's last request in `users/<uid>.lang` (written only when it changes). Called by `get_identity` when the request has a supported Accept-Language. |
 | `Membership` | dataclass: `status` (none, pending, active, rejected), `farm`, `member`; property `role` (only when active). |
 | `members_path(farm_id)` | `farms/<farm_id>/members`. |
 | `code_prefix(farm_name)` | Three letters: initials for 3+ words ("Green Valley Farm" → GVF), else the first letters ("My Farm" → MYF), `FRM` without Latin letters. |
@@ -337,10 +364,10 @@ The 6-digit email code required before creating or joining a farm. Storage: `ema
 | Name | Description |
 |---|---|
 | `MailError` | The email could not be sent (bad API key, unvalidated sender, network error, Mailjet refusal). |
-| `Mailer` | Protocol: `send_code(to, code, minutes)`. |
-| `code_text(code, minutes) -> str` | Plain-text body: the code, the expiry, "ignore this email", "Powered by Quadralens". |
-| `code_html(code, minutes) -> str` | Branded HTML body (teal header, spaced code, 15-minute note, "ignore this email", "Powered by Quadralens"). |
-| `code_message(sender_email, sender_name, to, code, minutes) -> dict` | Mailjet Send API v3.1 payload: From (email, name), To, Subject "Your Farmivo verification code", TextPart, HTMLPart, CustomID `farmivo-verification`. |
+| `Mailer` | Protocol: `send_code(to, code, minutes, lang="en")`. |
+| `code_text(code, minutes, lang="en") -> str` | Plain-text body in `lang`: the code, the expiry, "ignore this email", "Powered by Quadralens". |
+| `code_html(code, minutes, lang="en") -> str` | Branded HTML body in `lang` (teal header, spaced code, 15-minute note, "ignore this email", "Powered by Quadralens"); `dir="rtl"` and right alignment for Arabic, the code itself stays left-to-right. |
+| `code_message(sender_email, sender_name, to, code, minutes, lang="en") -> dict` | Mailjet Send API v3.1 payload: From (email, name), To, translated Subject, TextPart, HTMLPart, CustomID `farmivo-verification`. |
 | `MailjetMailer(api_key, api_secret, sender_email, sender_name, timeout)` | `send_code` posts `code_message` with `mailjet_rest.Client(version="v3.1").send.create` and raises `MailError` unless Mailjet answers 200 with `Status: success`. `check()` lists the account's active senders through the v3 `sender` resource (used by `check_setup`); `_client(version)` builds the client. |
 | `LogMailer` | Used when `MAILJET_API_KEY` is empty: logs "Email not configured; verification code for <email>: <code>" at WARNING (the Flask app log inside a request). |
 
@@ -348,9 +375,11 @@ The 6-digit email code required before creating or joining a farm. Storage: `ema
 
 | Name | Description |
 |---|---|
-| `Notifier` | Protocol: `send(tokens, title, body, data) -> invalid_tokens`. |
-| `NullNotifier` | Stores each send in `self.sent` (tests). |
-| `FcmNotifier.send` | `firebase_admin.messaging.send_each_for_multicast` in batches of 500. Collects tokens failing with `UnregisteredError` or `SenderIdMismatchError`; logs other failures and never raises. |
+| `REMINDERS_CHANNEL`, `MEMBERS_CHANNEL`, `BRAND_COLOR`, `ANDROID_ICON` | `farmivo_reminders`, `farmivo_members`, `#1F6F6B`, `ic_notification`. |
+| `Notifier` | Protocol: `send(tokens, title, body, data, channel="farmivo_reminders") -> invalid_tokens`. |
+| `NullNotifier` | Stores each send (`tokens`, `title`, `body`, `data`, `channel`) in `self.sent` (tests). |
+| `fcm_message(tokens, title, body, data, channel)` | The `MulticastMessage`: `notification{title, body}`, string-only `data` (empty values dropped), Android `priority high` + `channel_id`, icon `ic_notification`, colour `#1F6F6B`; APNs priority 10, `sound default`, `mutable-content`. |
+| `FcmNotifier.send` | `send_each_for_multicast` of `fcm_message` in batches of 500. Collects tokens failing with `UnregisteredError` or `SenderIdMismatchError`; logs other failures and never raises. |
 
 ### 10.3 services/photos.py
 
@@ -395,7 +424,7 @@ Routes generated for each collection (prefix shown in later sections):
 |---|---|---|---|---|
 | `GET /v1/farm` | `get_farm` | none | `FarmOut` 200 | Any role. `role` is the caller's; `invite_code` only for manager and owner. |
 | `PATCH /v1/farm` | `update_farm` | `FarmUpdate` | `FarmOut` 200 | Manager or owner. Fields sent as `null` are ignored. |
-| `POST /v1/devices` | `register_device` | `DeviceIn` | 204 | Upserts `users/<uid>/devices` by token. Uses `get_identity`, so it works before the user has a farm (pending users get the approval push). |
+| `POST /v1/devices` | `register_device` | `DeviceIn` | 204 | Upserts `users/<uid>/devices` by token, with `platform` and `language` (the body's, else the request's Accept-Language). Uses `get_identity`, so it works before the user has a farm (pending users get the approval push). |
 | `DELETE /v1/devices?token=` | `unregister_device` | query `token` | 204 | 422 if `token` is missing. Works without a farm. |
 
 `render_farm(ctx, farm)` builds the `FarmOut`: creates a missing invite code for managers and the owner (`ensure_invite_code`), hides it from workers and viewers, and adds the caller's role.
@@ -496,9 +525,9 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 
 | Route | Function | Behaviour |
 |---|---|---|
-| `GET /v1/notifications` | `list_notifications` | `unread_only`, `limit` 1–200 (default 50); newest first. |
-| `POST /v1/notifications/read-all` | `mark_all_read` | 204. |
-| `POST /v1/notifications/<id>/read` | `mark_read` | 200 with the notification; 404. |
+| `GET /v1/notifications` | `list_notifications` | `unread_only`, `limit` 1–200 (default 50); newest first; texts in the request language; join requests hidden from workers and viewers. |
+| `POST /v1/notifications/read-all` | `mark_all_read` | 204; only the notifications the caller can see. |
+| `POST /v1/notifications/<id>/read` | `mark_read` | 200 with the notification (request language); 404. |
 | `DELETE /v1/notifications/<id>` | `delete_notification` | 204; 404. |
 
 ### 11.9 routers/dashboard.py
@@ -555,6 +584,7 @@ Run on the server from the project folder with the project's virtualenv, for exa
 | `tests/test_members.py` | Onboarding (no automatic farm, create, validation, join with a normalised code, unknown code, reject and ask again, switch or cancel a pending request), permissions per role (viewer, worker, manager), role change and removal taking effect, invite code rotation, ownership transfer, owner cannot leave, reminder pushes only to active members, legacy accounts becoming owners, the full `required_role` table, code helpers. |
 | `tests/test_api.py` | Health check, 401 without a token, JSON 404, animal CRUD and duplicate tag, future date of birth, vaccination → reminder → dashboard, reminder job pushing once per bucket, breeding and birth (including a second birth giving 409), growth and production summary, sale → income and finance summary, photo upload, sire link cleared on delete, and more. |
 | `tests/test_verification.py` | Email code: `/me` flag and farm creation/join blocked until verified, send and verify (spaces ignored), only the hash stored, 60 s cooldown and `retry_after`, a new code replacing the old, 5 per hour, wrong-code countdown and burnt code, expiry, no code, already verified, token claim saved, active members grandfathered, flag kept after leaving a farm, no email, mail failure (502, no cooldown), the email's content, the Mailjet payload and refusal handling. |
+| `tests/test_i18n.py` | Languages: every catalog entry has en/fr/ar with the same placeholders, Accept-Language negotiation, fallbacks, nested `ref` rendering, translated error details and validation messages, device and user language stored, pushes in each recipient's language (join, approval), stored notifications and reminder titles rendered per reader, reminder push body (animal named once), Arabic RTL email, the FCM payload shape, join requests hidden from workers. |
 | `tests/test_mongo_repository.py` | `MongoRepository` on `mongomock` (skipped if it isn't installed): CRUD, filters, farm isolation, `set` keeping `created_at`, one collection per type with `farm_id` / `user_id`. |
 
 ---

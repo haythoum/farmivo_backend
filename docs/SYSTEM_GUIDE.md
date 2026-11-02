@@ -193,12 +193,12 @@ sequenceDiagram
   CRON->>API: POST /v1/internal/reminders/run  X-Cron-Secret
   API->>DB: every farm, every pending reminder
   API->>API: bucket = 7 / 1 / 0 (today) / -1 (overdue), skip if already in notified_buckets
-  API->>DB: notifications.insert {title "Farmivo reminder", body "Bella (CR-0412): ... is due tomorrow", read false}
-  API->>DB: devices of the farm's users
-  API->>FCM: multicast push
-  FCM-->>App: system notification (Android channel farmivo_reminders)
+  API->>DB: notifications.insert {title_key, body_key, params, English title and body, read false}
+  API->>DB: devices of the farm's active members, each with its language
+  API->>FCM: one multicast per language, e.g. "Rappel Farmivo" / "Vaccin à faire : FMD (Bella (CR-0412)) - demain"
+  FCM-->>App: system notification (channel farmivo_reminders, Farmivo icon and colour), data type and animal_id
   API->>DB: reminders.notified_buckets += bucket, drop tokens FCM reports invalid
-  App->>API: GET /v1/notifications (More > Notifications, dashboard bell)
+  App->>API: GET /v1/notifications with Accept-Language, texts rendered in that language
   App->>API: POST /v1/notifications/<id>/read, /read-all, DELETE /v1/notifications/<id>
 ```
 
@@ -290,6 +290,8 @@ Supporting app classes:
 | Photo storage | `FARMIVO_PHOTO_STORE=gridfs` (or `minio` + `FARMIVO_MINIO_*`) | none | none |
 | Reminder job | `FARMIVO_CRON_SECRET` + a daily crontab line calling `/v1/internal/reminders/run` | none | none |
 | Sign-up email code | `MAILJET_API_KEY`, `MAILJET_API_SECRET`, `FARMIVO_MAIL_FROM_EMAIL`, `FARMIVO_MAIL_FROM_NAME`; `FARMIVO_CODE_SECRET` (empty key: code in the server log) | none | none |
+| Language | `Accept-Language` per request; `users.lang` (last request); `devices.language` per phone; texts in `app/i18n.py` | sends `Accept-Language` and the device `language` | sends `Accept-Language` and the device `language` |
+| Push look | channels `farmivo_reminders` / `farmivo_members`, icon `ic_notification`, colour `#1F6F6B` (`app/services/notifier.py`) | creates both channels, ships `res/drawable/ic_notification` | APNs sound and mutable-content |
 | Process | `/etc/supervisor/conf.d/farmivo.conf` (template `deploy/supervisor/farmivo.conf`) | none | none |
 | App id | none | `applicationId com.quadralens.farmivo` | bundle id `com.quadralens.farmivo` |
 
@@ -308,6 +310,7 @@ flowchart LR
   APP["App: Cb.onFail(message) / APIError.message"] --> UI[Message shown to the user<br/>form reopens with input on save errors]
 ```
 
+- **Language:** routers raise English texts; `app/errors.py` translates `detail` (and each validation `msg`) into the request's `Accept-Language` with `app/i18n.py`. The `code` values never change.
 - **Server:** `app/errors.py` turns every error into `{"detail": ...}`. `detail` is text, or for 422 a list of `{loc, msg, type}`. Membership and role errors are `403` with an extra `code` (`no_farm`, `pending`, `rejected`, `forbidden_role`) for the apps to route on.
 - **Android:** `data/Cb.errorMessage` reads `detail`. For a list, it shows the first `msg` plus its location. For a 404 it adds the URL that was called. A network failure becomes "No connection. Check your network and try again."
 - **iOS:** `APIClient` produces `APIError(status, message)` from `detail` and shows it in an alert or inline. A repeated 401 posts `farmivoSessionExpired`, and the app signs out.
