@@ -236,8 +236,15 @@ def request_to_join(repo: Repository, notifier: Notifier, identity: Identity, co
     current = resolve(repo, identity)
     if current.status == "active":
         raise ApiError(409, "You already belong to a farm. Leave it first")
+    recent_failures = _recent_join_failures(repo, identity.uid)
+    if len(recent_failures) >= MAX_JOIN_FAILURES_PER_HOUR:
+        raise ApiError(429, "Too many wrong codes. Try again in an hour", code="too_many_attempts")
     farm = find_farm_by_code(repo, code)
     if not farm:
+        # Remember wrong codes so nobody can try all codes to find farms.
+        fields = {"join_failures": recent_failures + [now_iso()]}
+        if repo.update("users", identity.uid, fields) is None:
+            repo.set("users", identity.uid, fields)
         raise ApiError(404, "No farm with this code")
     if current.status == "pending" and current.farm and current.farm["id"] != farm["id"]:
         repo.delete(members_path(current.farm["id"]), identity.uid)
@@ -259,6 +266,18 @@ def request_to_join(repo: Repository, notifier: Notifier, identity: Identity, co
         subject_uid=identity.uid,
     )
     return Membership("pending", farm, member)
+
+
+MAX_JOIN_FAILURES_PER_HOUR = 10
+
+
+def _recent_join_failures(repo: Repository, uid: str) -> list[str]:
+    """Times (ISO, UTC) of this user's wrong invite codes in the last hour."""
+    from datetime import datetime, timedelta, timezone
+
+    limit = datetime.now(timezone.utc) - timedelta(hours=1)
+    times = (repo.get("users", uid) or {}).get("join_failures") or []
+    return [t for t in times if datetime.fromisoformat(t) > limit]
 
 
 def leave(repo: Repository, identity: Identity) -> Membership:
@@ -292,7 +311,11 @@ def approve(repo: Repository, notifier: Notifier, farm: dict, uid: str, role: st
     member = _get_member(repo, farm["id"], uid)
     if member["status"] != "pending":
         raise ApiError(409, "This person is not waiting for approval")
-    member = _decide(repo, farm["id"], uid, decided_by, status="active", role=role)
+    # Compare-and-set: of two managers approving (or rejecting) at the same moment, only one wins.
+    member = repo.update_where(members_path(farm["id"]), uid, {"status": "pending"},
+                               {"status": "active", "role": role, "decided_at": now_iso(), "decided_by": decided_by})
+    if member is None:
+        raise ApiError(409, "This person is not waiting for approval")
     set_user(repo, uid, farm["id"], "active")
     resolve_join_requests(repo, farm["id"], uid)
     # Stored as the new member's personal notification (they can now read the farm's list) and pushed with its id.
@@ -307,7 +330,10 @@ def reject(repo: Repository, notifier: Notifier, farm: dict, uid: str, decided_b
     member = _get_member(repo, farm["id"], uid)
     if member["status"] != "pending":
         raise ApiError(409, "This person is not waiting for approval")
-    member = _decide(repo, farm["id"], uid, decided_by, status="rejected")
+    member = repo.update_where(members_path(farm["id"]), uid, {"status": "pending"},
+                               {"status": "rejected", "decided_at": now_iso(), "decided_by": decided_by})
+    if member is None:
+        raise ApiError(409, "This person is not waiting for approval")
     set_user(repo, uid, farm["id"], "rejected")
     resolve_join_requests(repo, farm["id"], uid)
     # The person is not a member, so nothing is stored in the farm's list: push only (no notification_id).

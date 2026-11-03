@@ -42,6 +42,7 @@ Smoke test without an app: sign in through a client to get an ID token, then
 | `MAILJET_API_KEY`, `MAILJET_API_SECRET` (no `FARMIVO_` prefix), `MAIL_FROM_EMAIL`, `MAIL_FROM_NAME` | Mailjet account and sender for the 6-digit sign-up code. Empty key: the code is written to the server log instead (see "Email (sign-up code)" below) |
 | `CODE_SECRET` | Key for hashing the codes (any long random string); empty = `CRON_SECRET` |
 | `CORS_ORIGINS` | Only for browser clients; mobile apps do not need it |
+| `TIMEZONE` | Time zone of the farms (default `Africa/Tunis`): decides what "today" is for reminder buckets, overdue checks, default dates and reports, whatever zone the server clock uses |
 | `FIREBASE_STORAGE_BUCKET` | Only with `DB_BACKEND=firestore` |
 
 ### Deploy on your own server (supervisor)

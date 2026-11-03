@@ -273,7 +273,7 @@ class StatusChange(Strict):
     """POST /v1/animals/<id>/status body."""
     status: AnimalStatus
     date: Date = Field(default_factory=today)
-    sale_price: float | None = Field(default=None, ge=0)
+    sale_price: float | None = Field(default=None, ge=0, le=1e12)
     buyer: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=1000)
 
@@ -417,7 +417,7 @@ class OffspringIn(Strict):
     ear_tag: str = Field(min_length=1, max_length=40)
     name: str | None = Field(default=None, max_length=80)
     sex: Sex
-    birth_weight_kg: float | None = Field(default=None, gt=0)
+    birth_weight_kg: float | None = Field(default=None, gt=0, lt=5000)
     stillborn: bool = False
 
 
@@ -456,7 +456,7 @@ class ProductionBase(Strict):
     animal_id: str | None = None  # omit for herd/flock level records
     date: Date
     product: Product
-    quantity: float = Field(ge=0)
+    quantity: float = Field(ge=0, le=1e9)
     unit: str | None = Field(default=None, max_length=20)
     notes: str | None = Field(default=None, max_length=500)
 
@@ -481,7 +481,7 @@ class FeedingBase(Strict):
     group_name: str | None = Field(default=None, max_length=80)
     date: Date
     feed_type: str = Field(min_length=1, max_length=120)
-    quantity_kg: float = Field(gt=0)
+    quantity_kg: float = Field(gt=0, le=1e7)
     notes: str | None = Field(default=None, max_length=500)
 
 
@@ -531,7 +531,7 @@ class TransactionBase(Strict):
     """Income/expense body."""
     type: TransactionType
     category: str = Field(min_length=1, max_length=60)
-    amount: float = Field(gt=0)
+    amount: float = Field(gt=0, le=1e12)
     date: Date
     description: str | None = Field(default=None, max_length=300)
     animal_id: str | None = None

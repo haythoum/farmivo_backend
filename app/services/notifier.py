@@ -77,8 +77,17 @@ class FcmNotifier:
             for token, result in zip(batch, response.responses):
                 if result.success:
                     continue
-                if isinstance(result.exception, (messaging.UnregisteredError, messaging.SenderIdMismatchError)):
+                if isinstance(result.exception, (messaging.UnregisteredError, messaging.SenderIdMismatchError)) \
+                        or _is_bad_token(result.exception):
                     invalid.append(token)
                 else:
                     logger.warning("FCM error for one token: %s", result.exception)
         return invalid
+
+
+def _is_bad_token(exc: Exception | None) -> bool:
+    """FCM answers InvalidArgumentError "... not a valid FCM registration token" for malformed tokens: those
+    never work, so they are removed like unregistered ones."""
+    from firebase_admin import exceptions
+
+    return isinstance(exc, exceptions.InvalidArgumentError) and "registration token" in str(exc).lower()

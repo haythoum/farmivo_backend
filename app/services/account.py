@@ -3,7 +3,7 @@
 What is deleted:
 
 - always: the user's devices (push tokens), the ``users/<uid>`` record, a pending email code and the
-  user's membership or join request;
+  user's membership or join request, and the notifications about them (join requests) or only for them;
 - if the user is the owner and nobody else is an active member: the whole farm, with every record
   (animals, health, breeding, growth, production, feeding, finance, reminders, notifications, members) and
   the animal photos. People who were waiting for approval lose their request;
@@ -50,6 +50,11 @@ def delete_account(repo: Repository, photo_store, identity: Identity) -> dict:
     # also older rejected or pending records in other farms
     for member in repo.group_list("members", [("uid", "==", uid)]):
         repo.delete(members_path(member["parent_id"]), uid)
+    # Notifications about the person (their join requests carry name and email) or only for them.
+    for field in ("subject_uid", "for_uid"):
+        for note in repo.group_list("notifications", [(field, "==", uid)]):
+            if note.get("parent_id"):
+                repo.delete(farm_path(note["parent_id"], "notifications"), note["id"])
 
     for device in repo.list(f"users/{uid}/devices"):
         repo.delete(f"users/{uid}/devices", device["id"])

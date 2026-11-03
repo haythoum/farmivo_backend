@@ -35,6 +35,9 @@ Every real flow (create farm, join, approve, reject, remove, leave, transfer, le
 | `POST /notifications/<id>/read` and `DELETE` did not check visibility | A worker could mark or delete a manager-only join request by id | `404` unless the caller may see it |
 | Deleting an account left old rejected/pending member records in other farms | Leftover personal data | All the user's member records are deleted |
 
+## Backend review of 3 November 2026
+Full line-by-line review: [REVIEW_2026-11-03.md](REVIEW_2026-11-03.md). Fixed: guessable GridFS photo URLs (now random ids), photo headers (`nosniff`, image types only), old photos deleted on replace and animal delete, PATCH animal re-validated, outside `photo_url` ignored, double birth and double approve/reject prevented (compare-and-set), `delivered` only through a birth, "today" in the farms' time zone (`FARMIVO_TIMEZONE`, default Africa/Tunis), one broken farm no longer stops the reminder job, wrong invite codes limited (10 per hour), notifications about a deleted account removed, CSV with BOM and full formula escaping, upper bounds on amounts and quantities, farm country/address can be cleared, malformed push tokens removed. Left as is (with reasons in the review): ear-tag uniqueness under concurrent creation, old GridFS photo ids, token revocation checks, global rate limiting.
+
 ## Known gaps / not built
 - Launch screens, dark-mode polish on Android custom screens. Server texts are translated (ar/fr/en); the apps' own strings are handled in the app repos.
 - Android: no unit/UI tests; notification tap opens the app, not the specific animal; photo EXIF rotation not applied.

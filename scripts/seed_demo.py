@@ -17,7 +17,9 @@ from app.main import create_app
 
 
 def day(offset: int = 0) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    from app.utils import today  # the farms' time zone, like the API
+
+    return (today() + timedelta(days=offset)).isoformat()
 
 
 def post(client, path: str, body: dict) -> dict:

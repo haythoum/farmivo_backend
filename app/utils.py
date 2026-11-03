@@ -16,8 +16,17 @@ GESTATION_DAYS: dict[str, int] = {
 
 
 def today() -> date:
-    """Today's date (a function so tests can patch it)."""
-    return date.today()
+    """Today's date in the farms' time zone (FARMIVO_TIMEZONE, default Africa/Tunis), not the server's:
+    a server in UTC would otherwise switch days an hour late. A function so tests can patch it."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    from app.config import get_settings
+
+    try:
+        return datetime.now(ZoneInfo(get_settings().timezone)).date()
+    except (ZoneInfoNotFoundError, ValueError):
+        return date.today()
 
 
 def parse_date(value: str | date | None) -> date | None:

@@ -106,6 +106,12 @@ class Repository(Protocol):
         """Delete a record; True if it existed."""
         ...
 
+    def update_where(self, path: str, doc_id: str, expected: dict, data: dict) -> dict | None:
+        """Merge ``data`` only if the record still has the ``expected`` field values (compare-and-set).
+        Returns the updated record, or None if it is missing or changed meanwhile. Used where two requests
+        must not both succeed (approving the same request, recording the same birth)."""
+        ...
+
     def group_list(self, name: str, filters: list[Filter] | None = None) -> list[dict]:
         """Records of every sub-collection called ``name`` (e.g. all farms' ``members``) matching the filters.
         Each record also carries ``parent_id``: the id of the record the collection belongs to (the farm)."""
@@ -150,6 +156,12 @@ class InMemoryRepository:
 
     def delete(self, path: str, doc_id: str) -> bool:
         return self._col(path).pop(doc_id, None) is not None
+
+    def update_where(self, path: str, doc_id: str, expected: dict, data: dict) -> dict | None:
+        doc = self._col(path).get(doc_id)
+        if doc is None or any(doc.get(k) != v for k, v in expected.items()):
+            return None
+        return self.update(path, doc_id, data)
 
     def group_list(self, name: str, filters: list[Filter] | None = None) -> list[dict]:
         docs = []
@@ -212,6 +224,22 @@ class FirestoreRepository:
             return False
         ref.delete()
         return True
+
+    def update_where(self, path: str, doc_id: str, expected: dict, data: dict) -> dict | None:
+        from google.cloud import firestore
+
+        ref = self._db.collection(path).document(doc_id)
+
+        @firestore.transactional
+        def run(transaction) -> bool:
+            snap = ref.get(transaction=transaction)
+            current = snap.to_dict() if snap.exists else None
+            if current is None or any(current.get(k) != v for k, v in expected.items()):
+                return False
+            transaction.update(ref, {**data, "updated_at": now_iso()})
+            return True
+
+        return self.get(path, doc_id) if run(self._db.transaction()) else None
 
     def group_list(self, name: str, filters: list[Filter] | None = None) -> list[dict]:
         docs = [{**self._to_dict(s), "parent_id": s.reference.parent.parent.id}
@@ -295,6 +323,13 @@ class MongoRepository:
     def delete(self, path: str, doc_id: str) -> bool:
         collection, parent = self._locate(path)
         return collection.delete_one({"_id": doc_id, **parent}).deleted_count > 0
+
+    def update_where(self, path: str, doc_id: str, expected: dict, data: dict) -> dict | None:
+        collection, parent = self._locate(path)
+        # One atomic update_one: the filter includes the expected values (works on MongoDB 3.6).
+        query = {**expected, **parent, "_id": doc_id}
+        res = collection.update_one(query, {"$set": {**data, "updated_at": now_iso()}})
+        return self.get(path, doc_id) if res.matched_count else None
 
     def group_list(self, name: str, filters: list[Filter] | None = None) -> list[dict]:
         query = {f: v for f, op, v in filters or [] if op == "=="}

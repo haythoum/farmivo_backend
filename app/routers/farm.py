@@ -39,7 +39,9 @@ def get_farm():
 def update_farm():
     """PATCH /v1/farm - change name, currency, country or address (manager or owner)."""
     ctx = get_ctx()
-    patch = body(FarmUpdate).model_dump(exclude_unset=True, exclude_none=True)
+    patch = body(FarmUpdate).model_dump(exclude_unset=True)
+    # name and currency are required on a farm: null is ignored; country and address may be cleared with null or "".
+    patch = {k: (v or None) for k, v in patch.items() if not (k in ("name", "currency") and not v)}
     farm = ctx.repo.update("farms", ctx.farm_id, patch) if patch else ctx.repo.get("farms", ctx.farm_id)
     return out(render_farm(ctx, farm))
 

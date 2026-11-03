@@ -274,35 +274,46 @@ def when_ref(days: int) -> dict:
 def run_due_reminders(repo: Repository, notifier: Notifier, as_of: date | None = None) -> dict[str, int]:
     """Send notifications for reminders that entered a new bucket. Returns counters."""
     current = as_of or today()
-    stats = {"farms": 0, "notified": 0}
+    stats = {"farms": 0, "notified": 0, "failed_farms": 0}
     for farm in repo.list("farms"):
         stats["farms"] += 1
-        path = farm_path(farm["id"], "reminders")
-        for reminder in repo.list(path, [("status", "==", "pending")]):
-            due = parse_date(reminder.get("due_date"))
-            if due is None:
-                continue
-            days = (due - current).days
-            bucket = reminder_bucket(days)
-            notified = list(reminder.get("notified_buckets") or [])
-            if bucket is None or bucket in notified:
-                continue
-            # The reminder title already names the animal, so the body is just "<title> - <when>".
-            if reminder.get("title_key"):
-                title = ref(reminder["title_key"], **(reminder.get("title_params") or {}))
-            else:
-                title = reminder.get("title", "")
-            notify_farm(
-                repo,
-                notifier,
-                farm,
-                title_key="push.reminder.title",
-                body_key="push.reminder.body",
-                params={"title": title, "when": when_ref(days)},
-                type_=reminder.get("source_type", "reminder"),
-                animal_id=reminder.get("animal_id"),
-                reminder_id=reminder["id"],
-            )
-            repo.update(path, reminder["id"], {"notified_buckets": notified + [bucket]})
-            stats["notified"] += 1
+        try:  # one broken farm (bad record, push error) must not stop the reminders of all the others
+            stats["notified"] += _run_farm(repo, notifier, farm, current)
+        except Exception:  # noqa: BLE001
+            stats["failed_farms"] += 1
+            logger.exception("Reminder job failed for farm %s", farm.get("id"))
     return stats
+
+
+def _run_farm(repo: Repository, notifier: Notifier, farm: dict, current: date) -> int:
+    """Push the due reminders of one farm; returns how many were sent."""
+    sent = 0
+    path = farm_path(farm["id"], "reminders")
+    for reminder in repo.list(path, [("status", "==", "pending")]):
+        due = parse_date(reminder.get("due_date"))
+        if due is None:
+            continue
+        days = (due - current).days
+        bucket = reminder_bucket(days)
+        notified = list(reminder.get("notified_buckets") or [])
+        if bucket is None or bucket in notified:
+            continue
+        # The reminder title already names the animal, so the body is just "<title> - <when>".
+        if reminder.get("title_key"):
+            title = ref(reminder["title_key"], **(reminder.get("title_params") or {}))
+        else:
+            title = reminder.get("title", "")
+        notify_farm(
+            repo,
+            notifier,
+            farm,
+            title_key="push.reminder.title",
+            body_key="push.reminder.body",
+            params={"title": title, "when": when_ref(days)},
+            type_=reminder.get("source_type", "reminder"),
+            animal_id=reminder.get("animal_id"),
+            reminder_id=reminder["id"],
+        )
+        repo.update(path, reminder["id"], {"notified_buckets": notified + [bucket]})
+        sent += 1
+    return sent

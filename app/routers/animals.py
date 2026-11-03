@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
+from pydantic import ValidationError
 
 from app.config import get_settings
 from app.deps import Ctx, get_ctx, get_photo_store
-from app.errors import ApiError
-from app.routers.crud import get_animal_or_404, path_of
+from app.errors import ApiError, validation_error
+from app.routers.crud import clean, get_animal_or_404, path_of
 from app.schemas import (
     ON_FARM_STATUSES,
+    AnimalBase,
     AnimalCreate,
     AnimalOut,
     AnimalStatus,
@@ -90,6 +92,7 @@ def create_animal():
     if ear_tag_taken(ctx, animal.ear_tag):
         raise ApiError(409, f"Ear tag '{animal.ear_tag}' is already used on this farm")
     data = animal.model_dump(mode="json")
+    data["photo_url"] = None  # photos only come from POST /animals/<id>/photo (no arbitrary outside URLs)
     check_parents(ctx, data)
     if data["status"] in ("sold", "deceased"):
         data["status_date"] = animal.date_added.isoformat()
@@ -116,6 +119,10 @@ def update_animal(animal_id: str):
     for required in ("species", "sex"):
         if required in patch and patch[required] is None:
             raise ApiError(422, f"{required} cannot be null")
+    try:  # PATCH models drop validators: re-check the merged animal (e.g. date of birth not in the future)
+        AnimalBase.model_validate({**clean(existing, AnimalBase), **patch})
+    except ValidationError as exc:
+        raise validation_error(exc) from exc
     check_parents(ctx, patch, animal_id)
     updated = ctx.repo.update(path_of(ctx, "animals"), animal_id, patch)
     return out(render_animal(updated or existing))
@@ -157,7 +164,7 @@ def change_status(animal_id: str):
 def delete_animal(animal_id: str):
     """Delete an animal and every health, growth and production record attached to it."""
     ctx = get_ctx()
-    get_animal_or_404(ctx, animal_id)
+    animal = get_animal_or_404(ctx, animal_id)
     for collection in RELATED_COLLECTIONS:
         for rec in ctx.repo.list(path_of(ctx, collection), [("animal_id", "==", animal_id)]):
             ctx.repo.delete(path_of(ctx, collection), rec["id"])
@@ -171,7 +178,19 @@ def delete_animal(animal_id: str):
         for child in ctx.repo.list(path_of(ctx, "animals"), [(field, "==", animal_id)]):
             ctx.repo.update(path_of(ctx, "animals"), child["id"], {field: None})
     ctx.repo.delete(path_of(ctx, "animals"), animal_id)
+    _delete_photo(animal.get("photo_url"))
     return no_content()
+
+
+def _delete_photo(url: str | None) -> None:
+    """Best effort: remove a photo that is no longer used (replaced, or its animal deleted)."""
+    remover = getattr(get_photo_store(), "delete", None)
+    if not url or remover is None:
+        return
+    try:
+        remover(url)
+    except Exception as exc:  # noqa: BLE001 - a leftover file must not fail the request
+        current_app.logger.warning("Could not delete photo %s: %s", url, exc)
 
 
 @bp.post("/animals/<animal_id>/photo")
@@ -179,7 +198,7 @@ def upload_photo(animal_id: str):
     """POST /v1/animals/<id>/photo - store a JPEG/PNG/WebP (multipart field "file") and set photo_url."""
     ctx = get_ctx()
     store = get_photo_store()
-    get_animal_or_404(ctx, animal_id)
+    animal = get_animal_or_404(ctx, animal_id)
     file = request.files.get("file")
     if file is None:
         raise ApiError(422, [{"loc": ["body", "file"], "msg": "Field required", "type": "missing"}])
@@ -194,6 +213,8 @@ def upload_photo(animal_id: str):
         raise ApiError(422, "Empty file")
     url = store.save(ctx.farm_id, animal_id, content, content_type)
     updated = ctx.repo.update(path_of(ctx, "animals"), animal_id, {"photo_url": url})
+    if animal.get("photo_url") and animal["photo_url"] != url:
+        _delete_photo(animal["photo_url"])  # the previous photo is no longer reachable from the app
     return out(render_animal(updated))  # type: ignore[arg-type]
 
 

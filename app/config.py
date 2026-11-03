@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="FARMIVO_", env_file=ENV_FILE, extra="ignore")
 
     firebase_project_id: str | None = None
+    # Time zone of the farms: decides what "today" is (reminder buckets, "overdue", default dates, reports).
+    timezone: str = "Africa/Tunis"
     firebase_storage_bucket: str | None = None
     # Path to the Firebase service-account key JSON (absolute, or relative to this project folder).
     firebase_credentials: str | None = None

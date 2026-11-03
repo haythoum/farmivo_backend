@@ -93,15 +93,16 @@ def report(kind: str):
     writer.writerow(columns)
     for r in rows:
         writer.writerow([_csv_safe(r.get(c)) for c in columns])
+    # UTF-8 with a byte-order mark: Excel then opens Arabic and accented text correctly.
     return Response(
-        buffer.getvalue(),
-        mimetype="text/csv",
+        "\ufeff" + buffer.getvalue(),
+        content_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="farmivo-{kind.value}-{today().isoformat()}.csv"'},
     )
 
 
 def _csv_safe(value: object) -> object:
     """Neutralise spreadsheet formula injection in user-entered text."""
-    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
         return "'" + value
     return "" if value is None else value

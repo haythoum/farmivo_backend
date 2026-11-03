@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Protocol
 
 ALLOWED_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+
+# Photo ids in URLs are random 32-hex strings, so a photo URL cannot be guessed from another one.
+_RANDOM_ID = re.compile(r"[0-9a-f]{32}")
+
+
+def photo_id(url: str | None) -> str | None:
+    """The id at the end of a ``.../v1/photos/<id>`` URL, or None."""
+    if not url or "/v1/photos/" not in url:
+        return None
+    return url.rstrip("/").rsplit("/", 1)[-1] or None
 
 
 class PhotoStore(Protocol):
@@ -30,6 +41,10 @@ class MemoryPhotoStore:
         for key in [k for k in self.files if k.startswith(f"farms/{farm_id}/")]:
             del self.files[key]
 
+    def delete(self, url: str) -> None:
+        """Delete one photo by its URL (replaced photo or deleted animal)."""
+        self.files.pop(url.replace("https://storage.test/", ""), None)
+
 
 class FirebasePhotoStore:
     """Uploads photos to Firebase Storage and returns their public URL (Firestore setup only)."""
@@ -52,6 +67,14 @@ class FirebasePhotoStore:
         for blob in storage.bucket(self._bucket_name).list_blobs(prefix=f"farms/{farm_id}/"):
             blob.delete()
 
+    def delete(self, url: str) -> None:
+        """Delete one photo by its public URL."""
+        from firebase_admin import storage
+
+        marker = f"/{self._bucket_name}/" if self._bucket_name else None
+        if marker and marker in url:
+            storage.bucket(self._bucket_name).blob(url.split(marker, 1)[1]).delete()
+
 
 class GridFsPhotoStore:
     """Stores photos in MongoDB (GridFS) and serves them through GET /v1/photos/{id}."""
@@ -63,8 +86,24 @@ class GridFsPhotoStore:
         self._base = public_base_url.rstrip("/")
 
     def save(self, farm_id: str, animal_id: str, content: bytes, content_type: str) -> str:
-        file_id = self._fs.put(content, content_type=content_type, farm_id=farm_id, animal_id=animal_id)
+        # A random id (not GridFS's default ObjectId, which is time-based and guessable).
+        file_id = uuid.uuid4().hex
+        self._fs.put(content, _id=file_id, content_type=content_type, farm_id=farm_id, animal_id=animal_id)
         return f"{self._base}/v1/photos/{file_id}"
+
+    def delete(self, url: str) -> None:
+        """Delete one photo by its URL (replaced photo or deleted animal)."""
+        file_id = photo_id(url)
+        if file_id and _RANDOM_ID.fullmatch(file_id):
+            self._fs.delete(file_id)
+        elif file_id:
+            from bson import ObjectId
+            from bson.errors import InvalidId
+
+            try:
+                self._fs.delete(ObjectId(file_id))
+            except InvalidId:
+                pass
 
     def delete_farm(self, farm_id: str, urls: list[str]) -> None:
         """Delete every photo of a farm, including replaced ones (each file carries its farm_id)."""
@@ -77,7 +116,9 @@ class GridFsPhotoStore:
         from bson.errors import InvalidId
 
         try:
-            f = self._fs.get(ObjectId(file_id))
+            # New photos have random string ids; photos stored before that keep their ObjectId.
+            key = file_id if _RANDOM_ID.fullmatch(file_id) else ObjectId(file_id)
+            f = self._fs.get(key)
         except (InvalidId, Exception):  # noqa: BLE001 - not found / malformed id
             return None
         return f.read(), f.content_type or "image/jpeg"
@@ -118,9 +159,13 @@ class MinioPhotoStore:
         import re
 
         for url in urls:
-            file_id = url.rstrip("/").rsplit("/", 1)[-1]
-            if re.fullmatch(r"[0-9a-f]{32}", file_id):
-                self._client.remove_object(self._bucket, file_id)
+            self.delete(url)
+
+    def delete(self, url: str) -> None:
+        """Delete one photo by its URL (replaced photo or deleted animal)."""
+        file_id = photo_id(url)
+        if file_id and _RANDOM_ID.fullmatch(file_id):
+            self._client.remove_object(self._bucket, file_id)
 
     def read(self, file_id: str) -> tuple[bytes, str] | None:
         """Return (bytes, content type) of a stored photo, or None if the id is unknown or malformed."""

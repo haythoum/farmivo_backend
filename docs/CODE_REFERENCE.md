@@ -118,6 +118,7 @@ Blueprint registration (all under `/v1`): `farm`, `animals`, `health` (vaccinati
 | Field (env `FARMIVO_…`) | Default | Meaning |
 |---|---|---|
 | `firebase_project_id` | none | Firebase project whose ID tokens are accepted (`farmivo-4d932`). |
+| `timezone` | `Africa/Tunis` | Time zone that decides what "today" is (reminder buckets, overdue, default dates, reports, date checks), whatever the server's own clock zone. |
 | `firebase_storage_bucket` | none | Only for the Firestore setup's photo storage. |
 | `firebase_credentials` | none | Path to the service-account key JSON (absolute or relative to the project folder). Needed to verify tokens and send pushes. |
 | `db_backend` | `mongo` | `mongo` or `firestore`. |
@@ -228,6 +229,7 @@ Server texts in English (default), French and Arabic.
 | `_matches(doc, flt)` | function | Evaluates one filter on one document. A missing field only matches `!=`; type mismatches don't match. An unknown operator raises `ValueError`. |
 | `apply_query(docs, filters, order_by, desc, limit)` | function | Filters, sorts (records without the sort field go last) and limits in Python. |
 | `Repository` | Protocol | `get(path, id)`, `list(path, filters, order_by, desc, limit)`, `create(path, data, id=None)`, `update(path, id, data)` (returns `None` if missing), `set(path, id, data)` (upsert, keeps `created_at`), `delete(path, id) -> bool`, `group_list(name, filters)` (records of every sub-collection called `name`, e.g. all farms' `members`, each with `parent_id`; Mongo queries the one collection, in-memory scans the paths, Firestore uses a collection-group query). Every returned record has an `"id"` key plus its fields, `created_at` and `updated_at`. |
+| `update_where(path, id, expected, data)` | method (all three repositories) | Compare-and-set: merges `data` only if the record still has the `expected` field values; returns the record or `None`. MongoDB: one `update_one` whose filter includes the expected values (works on 3.6); Firestore: a transaction; in memory: check then update. Used by approve/reject and by recording a birth so two simultaneous requests cannot both succeed. |
 | `InMemoryRepository` | class | Dict of dicts keyed by path; deep-copies on read and write. Tests and `seed_demo --memory`. `_col(path)` returns or creates one path's dict. |
 | `FirestoreRepository` | class | Uses `client.collection(path)`; `==` filters run in Firestore and the rest in `apply_query`. `_to_dict(snap)` adds the id. |
 | `MongoRepository(db, prefix="")` | class | **One collection per record type.** `_locate(path)` returns the collection named `prefix + <last part>` and the parent fields from the path (`farms/F/animals` → `{farm_id: F}`, `users/U/devices` → `{user_id: U}`). It creates an index on the parent fields the first time a collection is used. Records store `_id = id` plus the parent fields; `_out` removes `_id` and the parent fields and adds `"id"`. `==` filters (not on parent fields) and `in` filters run in MongoDB; the rest in `apply_query`. Every query includes the parent fields, so one farm can never read another farm's records. |
@@ -283,7 +285,7 @@ Enums: `Species` (cattle, sheep, goat, pig, horse, chicken, duck, rabbit, other)
 | Name | Description |
 |---|---|
 | `GESTATION_DAYS` | cattle 283, sheep 147, goat 150, pig 114, horse 340, rabbit 31 days. |
-| `today()` | `date.today()`. |
+| `today()` | Today's date in `FARMIVO_TIMEZONE` (default `Africa/Tunis`) via `zoneinfo`; falls back to the server date if the zone name is invalid. |
 | `parse_date(value)` | Date, ISO text (first 10 characters) or `None`. |
 | `age_parts(dob, until=None)` | `(days, months, label)`. Labels look like `4y 7m`, `4y`, `7m` or `12d`. `until` is used for deceased animals. |
 | `expected_birth(species, mating)` | `mating + GESTATION_DAYS[species]`, or `None`. |
@@ -316,7 +318,9 @@ Reminders are owned by a source record and have a predictable id: `vacc_<vaccina
 | `resolve_join_requests(repo, farm_id, uid)` | Marks the `join_request` notifications about `uid` (`subject_uid`) read and `resolved` once the request is approved, rejected, cancelled or removed. |
 | `notification_text(record, lang)` | A stored notification with `title`/`body` rendered in `lang` (old records without keys are returned unchanged). |
 | `when_ref(days)` | The translatable "in N days / tomorrow / today / overdue by N days" part of a reminder push. |
-| `run_due_reminders(repo, notifier, as_of=None) -> {"farms", "notified"}` | For every farm and every pending reminder: computes the bucket and skips it if already notified. Otherwise it calls `notify_farm` with title "Farmivo reminder" and body "<reminder title> - <when>" (the title already names the animal), then appends the bucket to `notified_buckets`. |
+| `_run_farm(repo, notifier, farm, current) -> int` | The reminder pushes of one farm (the body of the job's loop); returns how many were sent. |
+| `run_due_reminders(repo, notifier, as_of=None) -> {"farms", "notified", "failed_farms"}` | Each farm runs in its own `try`: a farm whose records break the job is logged and counted in `failed_farms`, the other farms still get their reminders. |
+| `run_due_reminders` (details) | For every farm and every pending reminder: computes the bucket and skips it if already notified. Otherwise it calls `notify_farm` with title "Farmivo reminder" and body "<reminder title> - <when>" (the title already names the animal), then appends the bucket to `notified_buckets`. |
 
 ### 10.1a services/membership.py
 
@@ -342,6 +346,7 @@ Who belongs to which farm, with which role, and the join workflow. Storage: `far
 | `label(member)` | Name, else email, else "Someone". |
 | `create_farm(repo, identity, data)` | 409 if active or pending. Creates the farm (`owner_uid`, `invite_code`, currency default USD), an active owner member and `users/<uid>`. |
 | `request_to_join(repo, notifier, identity, code)` | 409 if active. 404 "No farm with this code". Replaces a pending request elsewhere, writes a pending member (role worker) and `users/<uid>` status pending, and calls `notify_farm(..., type_="join_request", roles={"owner","manager"})`. |
+| `MAX_JOIN_FAILURES_PER_HOUR`, `_recent_join_failures(repo, uid)` | 10. Wrong invite codes are remembered in `users/<uid>.join_failures` (UTC times); after 10 in an hour `request_to_join` answers 429 `too_many_attempts`, so nobody can try codes to find farms. |
 | `leave(repo, identity)` | Deletes the member record, clears the farm from `users/<uid>` (the verified flag stays) and resolves the join-request notification; 409 "Transfer ownership first" for the owner. |
 | `_get_member(repo, farm_id, uid)` | The member or 404 "Member not found" (rejected records count as not found). |
 | `_decide(repo, farm_id, uid, decided_by, **fields)` | Updates a member with `decided_at` / `decided_by`. |
@@ -388,14 +393,16 @@ The 6-digit email code required before creating or joining a farm. Storage: `ema
 | `NullNotifier` | Stores each send (`tokens`, `title`, `body`, `data`, `channel`) in `self.sent` (tests). |
 | `fcm_message(tokens, title, body, data, channel)` | The `MulticastMessage`: `notification{title, body}`, string-only `data` (empty values dropped), Android `priority high` + `channel_id`, icon `ic_notification`, colour `#1F6F6B`; APNs priority 10, `sound default`, `mutable-content`. |
 | `FcmNotifier.send` | `send_each_for_multicast` of `fcm_message` in batches of 500. Collects tokens failing with `UnregisteredError` or `SenderIdMismatchError`; logs other failures and never raises. |
+| `_is_bad_token(exc)` | True for FCM's `InvalidArgumentError` "not a valid FCM registration token": such tokens are removed like unregistered ones. |
 
 ### 10.3 services/photos.py
 
 | Name | Description |
 |---|---|
 | `ALLOWED_TYPES` | `image/jpeg → jpg`, `image/png → png`, `image/webp → webp`. |
-| `PhotoStore` | Protocol: `save(farm_id, animal_id, content, content_type) -> url`. |
-| `GridFsPhotoStore(db, public_base_url, collection="photos")` | **Default.** `save` puts the bytes in GridFS (metadata farm_id, animal_id) and returns `<public_base_url>/v1/photos/<ObjectId>`. `read(id)` returns `(bytes, content_type)` or `None`. |
+| `photo_id(url)` | The id at the end of a `.../v1/photos/<id>` URL, or `None`. `_RANDOM_ID` is the 32-hex pattern of new photo ids. |
+| `PhotoStore` | Protocol: `save(farm_id, animal_id, content, content_type) -> url`. Every store also has `delete(url)` (one photo: a replaced photo or a deleted animal's) and `delete_farm(farm_id, urls)`. |
+| `GridFsPhotoStore(db, public_base_url, collection="photos")` | **Default.** `save` puts the bytes in GridFS under a **random 32-hex id** (not GridFS's time-based ObjectId, which could be guessed from another photo URL), with metadata farm_id and animal_id, and returns `<public_base_url>/v1/photos/<id>`. `read(file_id)` accepts the random ids and, for photos stored before, ObjectId strings; returns `(bytes, content type)` or `None`. `delete(url)` removes one file. |
 | `MinioPhotoStore(...)` | Creates the bucket if missing. `save` stores the object under a random 32-hex id and returns `<public_base_url>/v1/photos/<id>`; `read` validates the id format and streams the object back. The bucket stays private. |
 | `FirebasePhotoStore(bucket)` | Firestore setup only: uploads to Firebase Storage, makes the blob public and returns its URL. |
 | `MemoryPhotoStore` | Tests: keeps bytes in a dict and returns `https://storage.test/...`. |
@@ -447,7 +454,7 @@ Routes generated for each collection (prefix shown in later sections):
 | Route | Function | Request | Response | Notes |
 |---|---|---|---|---|
 | `GET /v1/farm` | `get_farm` | none | `FarmOut` 200 | Any role. `role` is the caller's; `invite_code` only for manager and owner. |
-| `PATCH /v1/farm` | `update_farm` | `FarmUpdate` | `FarmOut` 200 | Manager or owner. Fields sent as `null` are ignored. |
+| `PATCH /v1/farm` | `update_farm` | `FarmUpdate` | `FarmOut` 200 | Manager or owner. `name` and `currency` sent as `null` are ignored; `country` and `address` sent as `null` or `""` are cleared. |
 | `POST /v1/devices` | `register_device` | `DeviceIn` | 204 | Removes the same token from any other user (one phone = one account), then upserts `users/<uid>/devices` by token, with `platform` and `language` (the body's, else the request's Accept-Language). Uses `get_identity`, so it works before the user has a farm (pending users get the approval push). |
 | `DELETE /v1/devices?token=` | `unregister_device` | query `token` | 204 | 422 if `token` is missing. Works without a farm. |
 
@@ -486,16 +493,17 @@ Onboarding (token only, no farm needed) and member management. Rules live in `se
 | `render_animal(record)` | Adds age fields. Age is counted up to `status_date` for deceased animals. |
 | `ear_tag_taken(ctx, tag, exclude_id)` | Is the tag already used in this farm? |
 | `check_parents(ctx, data, animal_id)` | `mother_id` must be female and `father_id` male, they must exist (404) and not be the animal itself (422). |
+| `_delete_photo(url)` | Best effort: asks the photo store to delete a photo that is no longer used; failures are only logged. |
 
 | Route | Function | Request | Response | Errors and side effects |
 |---|---|---|---|---|
 | `GET /v1/animals` | `list_animals` | query `status` (a status or `on_farm`), `species`, `sex`, `q` (searches tag, name, breed), `limit` ≤ 2000 | `AnimalOut[]` sorted by ear tag | none |
-| `POST /v1/animals` | `create_animal` | `AnimalCreate` | `AnimalOut` 201 | 409 tag taken; 404/422 parents; sets `status_date` when created sold or deceased. |
+| `POST /v1/animals` | `create_animal` | `AnimalCreate` | `AnimalOut` 201 | 409 tag taken; 404/422 parents; sets `status_date` when created sold or deceased. A `photo_url` in the body is ignored (photos only come from the upload). |
 | `GET /v1/animals/<id>` | `get_animal` | none | `AnimalOut` | 404 |
-| `PATCH /v1/animals/<id>` | `update_animal` | `AnimalUpdate` | `AnimalOut` | 404; 409 tag taken; 422 if ear_tag, species or sex is set to null; parent checks. |
+| `PATCH /v1/animals/<id>` | `update_animal` | `AnimalUpdate` | `AnimalOut` | 404; 409 tag taken; 422 if ear_tag, species or sex is set to null; parent checks. The merged animal is re-validated with `AnimalBase` (e.g. 422 for a future date of birth). |
 | `POST /v1/animals/<id>/status` | `change_status` | `StatusChange` | `AnimalOut` | Sets `status` and `status_date`. Sold with a price: creates an **income transaction** (category `animal_sale`). Sold or deceased: marks the animal's pending **reminders done**. |
-| `DELETE /v1/animals/<id>` | `delete_animal` | none | 204 | Deletes records in `RELATED_COLLECTIONS` and breedings where the animal is the dam. Clears `sire_id` on its breedings as sire and `mother_id` / `father_id` on its children. |
-| `POST /v1/animals/<id>/photo` | `upload_photo` | multipart field `file` | `AnimalOut` with `photo_url` | 422 no file or empty file, 415 wrong type, 413 too large; stores the photo in the photo store. |
+| `DELETE /v1/animals/<id>` | `delete_animal` | none | 204 | Deletes records in `RELATED_COLLECTIONS` and breedings where the animal is the dam. Clears `sire_id` on its breedings as sire and `mother_id` / `father_id` on its children. Also deletes its photo (`_delete_photo`). |
+| `POST /v1/animals/<id>/photo` | `upload_photo` | multipart field `file` | `AnimalOut` with `photo_url` | 422 no file or empty file, 415 wrong type, 413 too large; stores the photo in the photo store. The previous photo is deleted from the store. |
 | `GET /v1/animals/<id>/family` | `get_family` | none | `FamilyOut` | Siblings share the mother or the father; offspring have the animal as a parent. |
 
 ### 11.4 routers/health.py
@@ -522,12 +530,12 @@ Helpers: `_render_reminder(record, as_of)` adds `days_until`; `_illness_status(r
 
 CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_date`):
 - `_validate_parents` checks the dam (404 if missing, 422 if not female) and the sire (404, or 422 if not male). It fills `expected_birth_date` from `expected_birth(dam.species, mating_date)` when not given.
-- `_before_create` validates and starts with `actual_birth_date = null` and `offspring_ids = []`. `_before_update` re-validates.
+- `_before_create` validates and starts with `actual_birth_date = null` and `offspring_ids = []`. `_before_update` re-validates and refuses (422) setting `delivered` by PATCH: only recording the birth does that.
 - `_sync` keeps reminder `birth_<id>` on `expected_birth_date` while `pregnancy_status` is pending or confirmed, and removes it otherwise. Deleting the breeding removes the reminder.
 
 | Route | Function | Behaviour |
 |---|---|---|
-| `POST /v1/breedings/<id>/births` | `record_birth` | `BirthRequest`. Rejects: 404 unknown breeding; **409** birth already recorded; 422 date in the future or before mating; 422 duplicate tags in the request; 409 a tag already used. All checks run before anything is written. Then each offspring becomes an animal (species and breed from the dam, `origin: born_on_farm`, parents set, `deceased` if stillborn); a birth weight becomes a `weights` record. The breeding becomes `delivered` with `actual_birth_date` and `offspring_ids`, and the birth reminder is deleted. **201** `BirthOut`. |
+| `POST /v1/breedings/<id>/births` | `record_birth` | `BirthRequest`. Rejects: 404 unknown breeding; **409** birth already recorded; 422 date in the future or before mating; 422 duplicate tags in the request; 409 a tag already used. All checks run before anything is written. The breeding is then claimed with `update_where` (compare-and-set on its status), so two simultaneous requests cannot both create newborns (the second gets 409). Then each offspring becomes an animal (species and breed from the dam, `origin: born_on_farm`, parents set, `deceased` if stillborn); a birth weight becomes a `weights` record. The breeding becomes `delivered` with `actual_birth_date` and `offspring_ids`, and the birth reminder is deleted. **201** `BirthOut`. |
 
 ### 11.6 routers/growth.py
 
@@ -577,14 +585,14 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 | `ReportFormat` | json (default), csv. |
 | `_range_filters(field, start, end)` | Inclusive date range filters. |
 | `build_rows(ctx, kind, start, end)` | Columns and rows. Herd: every animal with age, ignoring the range. Vaccinations, financial and production: records in the range, newest first, with the animal's ear tag added. |
-| `GET /v1/reports/<kind>` → `report` | Range defaults to the last 90 days; 422 if from > to. JSON: `{kind, date_from, date_to, columns, rows}`. CSV: `text/csv` attachment named `farmivo-<kind>-<date>.csv`. |
-| `_csv_safe(value)` | Prefixes `'` to text starting with `= + - @`, so a spreadsheet does not run it as a formula. |
+| `GET /v1/reports/<kind>` → `report` | Range defaults to the last 90 days; 422 if from > to. JSON: `{kind, date_from, date_to, columns, rows}`. CSV: `text/csv; charset=utf-8` with a byte-order mark (so Excel shows Arabic and accents correctly), attachment named `farmivo-<kind>-<date>.csv`. |
+| `_csv_safe(value)` | Prefixes `'` to text starting with `= + - @`, a tab or a carriage return, so a spreadsheet does not run it as a formula. |
 
 ### 11.11 routers/photos.py and routers/internal.py
 
 | Route | Function | Auth | Behaviour |
 |---|---|---|---|
-| `GET /v1/photos/<file_id>` | `get_photo` | **none** (the long random id is the protection, so image loaders need no token) | Streams the bytes with a one-year cache header; 404 if unknown. |
+| `GET /v1/photos/<file_id>` | `get_photo` | **none** (the long random id is the protection, so image loaders need no token) | Streams the bytes with a one-year cache header and `X-Content-Type-Options: nosniff`; a stored type other than JPEG/PNG/WebP is served as `application/octet-stream`; 404 if unknown. |
 | `POST /v1/internal/reminders/run` | `run_reminders` | header `X-Cron-Secret` must equal `FARMIVO_CRON_SECRET` (constant-time compare), else **403** | Runs `run_due_reminders` and returns `{"farms": n, "notified": m}`. Called once a day by cron. |
 
 ---
@@ -612,6 +620,7 @@ Run on the server from the project folder with the project's virtualenv, for exa
 | `tests/test_members.py` | Onboarding (no automatic farm, create, validation, join with a normalised code, unknown code, reject and ask again, switch or cancel a pending request), permissions per role (viewer, worker, manager), role change and removal taking effect, invite code rotation, ownership transfer, owner cannot leave, reminder pushes only to active members, legacy accounts becoming owners, the full `required_role` table, code helpers. |
 | `tests/test_api.py` | Health check, 401 without a token, JSON 404, animal CRUD and duplicate tag, future date of birth, vaccination → reminder → dashboard, reminder job pushing once per bucket, breeding and birth (including a second birth giving 409), growth and production summary, sale → income and finance summary, photo upload, sire link cleared on delete, and more. |
 | `tests/test_verification.py` | Email code: `/me` flag and farm creation/join blocked until verified, send and verify (spaces ignored), only the hash stored, 60 s cooldown and `retry_after`, a new code replacing the old, 5 per hour, wrong-code countdown and burnt code, expiry, no code, already verified, token claim saved, active members grandfathered, flag kept after leaving a farm, no email, mail failure (502, no cooldown), the email's content, the Mailjet payload and refusal handling. |
+| `tests/test_review.py` | Regression tests of the 2026-11-03 review: compare-and-set, double birth, `delivered` only through a birth, time zone, PATCH re-validation, outside photo URLs, replaced and deleted photos removed, photo headers, absurd amounts, CSV BOM and formula escaping, one broken farm in the reminder job, notifications removed with the account, wrong invite codes limited, farm address cleared. |
 | `tests/test_i18n.py` | Languages: every catalog entry has en/fr/ar with the same placeholders, Accept-Language negotiation, fallbacks, nested `ref` rendering, translated error details and validation messages, device and user language stored, pushes in each recipient's language (join, approval), stored notifications and reminder titles rendered per reader, reminder push body (animal named once), Arabic RTL email, the FCM payload shape, join requests hidden from workers. |
 | `tests/test_account.py` | `DELETE /v1/me`: member (farm kept), pending requester, user without a farm (email code removed), lone owner (farm records and photos gone, pending requester detached), owner with active members (409 in en/fr/ar, nothing deleted), owner after transfer, Firebase failure still 204, 401 without a token. Public pages: each page in each language (`lang`, `dir="rtl"` for Arabic, contact address, language switch) and the language from Accept-Language. The `auth_admin` fixture records Firebase deletions; `photo_store` is shared by the clients. |
 | `tests/test_mongo_repository.py` | `MongoRepository` on `mongomock` (skipped if it isn't installed): CRUD, filters, farm isolation, `set` keeping `created_at`, one collection per type with `farm_id` / `user_id`. |

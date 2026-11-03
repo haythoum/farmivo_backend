@@ -17,6 +17,7 @@ Start here. The three repositories each have a `docs/` folder; this one (backend
 | [BRANDING.md](BRANDING.md) | Logo files, colour palette, where "Powered by Quadralens" appears |
 | [APP_FLOWS.md](APP_FLOWS.md) | Screen-by-screen guide: what each action calls and what comes back (real example responses), plus the "everything is 404" checklist |
 | [STATUS.md](STATUS.md) | What is done, what was **not** verified, known gaps, suggested next steps |
+| [REVIEW_2026-11-03.md](REVIEW_2026-11-03.md) | Backend review of 3 November 2026: every finding, fixed or not, with severity |
 
 Per app: [Android docs](https://github.com/haythoum/farmivo_android/tree/feature/initial-app/docs) · [iOS docs](https://github.com/haythoum/farmivo_ios/tree/feature/initial-app/docs)
 

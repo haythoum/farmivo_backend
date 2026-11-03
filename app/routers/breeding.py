@@ -45,7 +45,10 @@ def _before_create(ctx: Ctx, data: dict) -> dict:
 
 
 def _before_update(ctx: Ctx, existing: dict, merged: dict) -> dict:
-    """CRUD hook: re-validate parents on every update."""
+    """CRUD hook: re-validate parents on every update. "delivered" is only set by recording the birth
+    (POST /breedings/<id>/births), which also creates the newborns."""
+    if merged.get("pregnancy_status") == "delivered" and existing.get("pregnancy_status") != "delivered":
+        raise ApiError(422, "Record the birth to mark a pregnancy as delivered")
     _validate_parents(ctx, merged)
     return merged
 
@@ -104,6 +107,13 @@ def record_birth(breeding_id: str):
     for tag in tags:  # check everything first so a conflict creates nothing
         if ear_tag_taken(ctx, tag):
             raise ApiError(409, f"Ear tag '{tag}' is already used on this farm")
+
+    # Claim the breeding first (compare-and-set), so two simultaneous requests cannot both create the newborns.
+    claimed = ctx.repo.update_where(path_of(ctx, "breedings"), breeding_id,
+                                    {"pregnancy_status": breeding.get("pregnancy_status")},
+                                    {"pregnancy_status": "delivered", "actual_birth_date": req.birth_date.isoformat()})
+    if claimed is None:
+        raise ApiError(409, "A birth was already recorded for this breeding")
 
     dam = ctx.repo.get(path_of(ctx, "animals"), breeding["dam_id"]) or {}
     created: list[dict] = []
