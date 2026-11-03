@@ -254,7 +254,7 @@ sequenceDiagram
   end
 ```
 
-Public pages for the stores (no sign-in): `/privacy`, `/terms`, `/support`, `/delete-account` on the API server (not under `/v1`). The apps open them from More and from the Create account screen; their address is the API base URL without `/v1`.
+Public pages for the stores (no sign-in): `/privacy`, `/terms`, `/delete-account` on the API server (not under `/v1`), meant to be reached at the public domain `https://farmivo.quadralens.tn` (never the IP). Help and support is the QuadraLens product page https://quadralens.tn/product/farmivo/ (`/support` redirects there). The apps open these from More and from the Create account screen.
 
 ---
 

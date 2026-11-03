@@ -45,10 +45,15 @@ def terms():
     return render("terms")
 
 
+SUPPORT_URL = "https://quadralens.tn/product/farmivo/"
+
+
 @bp.get("/support")
 def support():
-    """GET /support - contact and frequently asked questions."""
-    return render("support")
+    """GET /support - help and support live on QuadraLens' Farmivo product page: permanent redirect there."""
+    from flask import redirect
+
+    return redirect(SUPPORT_URL, code=301)
 
 
 @bp.get("/delete-account")

@@ -241,7 +241,7 @@ HTML pages for the stores and the apps' More screen, in English, French and Arab
 |---|---|
 | `GET /privacy` | Privacy policy (store "Privacy policy URL") |
 | `GET /terms` | Terms of use |
-| `GET /support` | Contact and FAQ (join a farm, email code, forgot password, delete account) |
+| `GET /support` | 301 redirect to the QuadraLens product page https://quadralens.tn/product/farmivo/ (help and support) |
 | `GET /delete-account` | How to delete the account in the app or by email, and what is deleted (Google Play "Delete account URL") |
 
 **The texts are templates written for QuadraLens: the owner (ideally with a lawyer) must review them before release.** They live in `app/legal.py`; the layout is `app/templates/legal/page.html`.

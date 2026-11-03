@@ -38,7 +38,7 @@
     </div>
     <nav>
       {% for key in ["privacy", "terms", "support", "delete-account"] %}
-        <a href="/{{ key }}?lang={{ lang }}" class="{{ 'on' if key == current else '' }}">{{ nav[key] }}</a>
+        <a href="{{ 'https://quadralens.tn/product/farmivo/' if key == 'support' else '/' ~ key ~ '?lang=' ~ lang }}" class="{{ 'on' if key == current else '' }}">{{ nav[key] }}</a>
       {% endfor %}
       <span class="langs">
         <a href="?lang=en" lang="en">English</a><a href="?lang=fr" lang="fr">Français</a><a href="?lang=ar" lang="ar">العربية</a>
