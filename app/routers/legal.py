@@ -13,6 +13,9 @@ from app.legal import CONTACT_EMAIL, NAV, PAGES, UPDATED
 
 bp = Blueprint("legal", __name__)
 
+# Official public pages on the QuadraLens website.
+SUPPORT_URL = "https://quadralens.tn/product/farmivo/"
+
 
 def _with_contact(text: str) -> Markup:
     """Escape a text and turn ``{email}`` into a mailto link."""
@@ -46,11 +49,10 @@ def privacy():
 
 @bp.get("/terms")
 def terms():
-    """GET /terms - terms of use."""
-    return render("terms")
+    """GET /terms - the terms of use are on QuadraLens' Farmivo product page: permanent redirect there."""
+    from flask import redirect
 
-
-SUPPORT_URL = "https://quadralens.tn/product/farmivo/"
+    return redirect(SUPPORT_URL, code=301)
 
 
 @bp.get("/support")
@@ -63,5 +65,7 @@ def support():
 
 @bp.get("/delete-account")
 def delete_account():
-    """GET /delete-account - how to delete an account and what is deleted (Google Play requirement)."""
-    return render("delete-account")
+    """GET /delete-account - account deletion is explained on QuadraLens' Farmivo product page: redirect there."""
+    from flask import redirect
+
+    return redirect(SUPPORT_URL, code=301)

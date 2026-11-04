@@ -252,6 +252,7 @@ Enums: `Species` (cattle, sheep, goat, pig, horse, chicken, duck, rabbit, other)
 | `JoinIn` | POST `/farms/join` | `invite_code` 4–20 characters (normalised by the service). |
 | `MeFarm`, `MeOut` | GET `/me` and the onboarding calls | `uid`, `email`, `status` (none, pending, active, rejected), `role` (only when active), `farm` `{id, name}` or null, `email_verified`. |
 | `VerifyIn` | POST `/me/verification/verify` | `code` (1–20 characters; spaces are removed by the service). |
+| `NameIn` | PATCH `/me` | `name` (1–60 characters; repeated spaces collapsed, blank refused). |
 | `VerificationSentOut` | POST `/me/verification/send` response | `sent_to`, `resend_after_seconds`, `expires_in_seconds`. |
 | `AssignableRole`, `ApproveIn`, `RoleIn` | approve / change role | Role must be `manager`, `worker` or `viewer` (`owner` only by transfer); approve defaults to `worker`. |
 | `TransferIn` | POST `/farm/transfer-ownership` | `uid` of the new owner. |
@@ -331,6 +332,8 @@ Who belongs to which farm, with which role, and the join workflow. Storage: `far
 | `CODE_ALPHABET` | Characters used in invite codes, without look-alikes (no 0/O, 1/I/L). |
 | `Identity` | dataclass: `uid`, `email`, `name`, `email_verified` (the token's claim). |
 | `set_user(repo, uid, farm_id, status)` | Points `users/<uid>` at the farm and status by merging only those two fields (never replacing the document, so `email_verified`, `lang` survive concurrent requests). `farm_id=None` clears them. Used by every membership change and by `resolve` to repair the pointer. |
+| `user_name(repo, identity)` | The user's name: `users/<uid>.name` (set in the app), else the sign-in account's name. Used for new member records and `/me`. |
+| `set_name(repo, identity, name)` | Saves `users/<uid>.name` and copies it to every member record of that user. |
 | `remember_lang(repo, uid, lang)` | Stores the language of the user's last request in `users/<uid>.lang` (written only when it changes). Called by `get_identity` when the request has a supported Accept-Language. |
 | `Membership` | dataclass: `status` (none, pending, active, rejected), `farm`, `member`; property `role` (only when active). |
 | `members_path(farm_id)` | `farms/<farm_id>/members`. |
@@ -341,7 +344,7 @@ Who belongs to which farm, with which role, and the join workflow. Storage: `far
 | `ensure_invite_code(repo, farm)` | Adds a code to a farm that has none (farms created before codes existed). |
 | `STATUS_ORDER`, `_find_member(repo, uid) -> (farm, member) or None` | Looks the user's member records up across all farms (`group_list("members")`): active first, then pending, then the newest rejection. |
 | `resolve(repo, identity) -> Membership` | The **member record is the source of truth**. Follows `users/<uid>` to the farm and member record; a legacy account (points at a farm it owns or is listed in, no member record) becomes an **active owner** (or manager if only listed in `member_uids`). If the pointer is missing, stale or leads nowhere, `_find_member` finds the record in any farm. The pointer is repaired whenever it disagrees. Fills a missing email/name from the token. |
-| `me_payload(identity, membership, email_verified=False)` | The `GET /me` body, including `email_verified`. |
+| `me_payload(identity, membership, email_verified=False, name=None)` | The `GET /me` body, including `email_verified` and `name` (given name, else the member record's, else the token's). |
 | `list_members(repo, farm_id)` | Pending (oldest first), then active (owner, managers, workers, viewers, then by name). Rejected are left out. |
 | `label(member)` | Name, else email, else "Someone". |
 | `create_farm(repo, identity, data)` | 409 if active or pending. Creates the farm (`owner_uid`, `invite_code`, currency default USD), an active owner member and `users/<uid>`. |
@@ -467,6 +470,7 @@ Onboarding (token only, no farm needed) and member management. Rules live in `se
 | Route | Function | Request | Response | Who / errors |
 |---|---|---|---|---|
 | `GET /v1/me` | `me` | none | `MeOut` 200 | Anyone signed in. Also upgrades legacy accounts (see `resolve`) and reports `email_verified`. |
+| `PATCH /v1/me` | `update_me` | `NameIn` | `MeOut` 200 | Anyone signed in: sets the user's name (`set_name`). |
 | `POST /v1/me/verification/send` | `send_verification_code` | none | `VerificationSentOut` 200 | See `verification.send_code`: 409 already_verified, 400 no_email, 429 too_soon / too_many_codes, 502 email_failed. |
 | `POST /v1/me/verification/verify` | `verify_email` | `VerifyIn` | `MeOut` 200 (`email_verified: true`) | See `verification.verify_code`: 400 wrong_code, 429 too_many_attempts, 410 code_expired. Then `_mark_firebase_verified`. |
 | `POST /v1/farms` | `create_farm` | `FarmCreate` | `MeOut` 201 | 403 email_unverified first. Caller becomes owner. 409 if already active or pending. |
