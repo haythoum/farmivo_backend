@@ -73,7 +73,7 @@ For a server that already runs MongoDB (and optionally MinIO). The API runs as a
    ```
    After a code update: `git pull && .venv/bin/pip install -r requirements.txt && sudo supervisorctl restart farmivo`. Logs: `/var/log/farmivo/`.
 6. **nginx + TLS** (`deploy/nginx/farmivo.conf`, then `certbot --nginx`): the apps need https in production.
-7. **Daily reminders:** add a cron entry (07:00 local): `0 7 * * * curl -fsS -X POST -H "X-Cron-Secret: <secret>" https://<host>/v1/internal/reminders/run`.
+7. **Daily reminders (needed for vaccination pushes):** `chmod +x deploy/cron/run_reminders.sh`, then `crontab -e` and add `0 7 * * * /home/ubuntu/farmivo/farmivo_backend/deploy/cron/run_reminders.sh >> /var/log/farmivo-reminders.log 2>&1` (07:00 server time). Test once by running the script by hand. Without this job no reminder push is ever sent.
 8. **Firewall:** MongoDB (27017) and MinIO (9000/9001) should only accept connections from the API server itself (or a private network), not from the internet. Expose only 80/443.
 9. Put the https URL into both apps' release configuration.
 

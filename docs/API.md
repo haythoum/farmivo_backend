@@ -38,7 +38,8 @@ These work **without** a farm (token only):
 
 | Method & path | Body | Response |
 |---|---|---|
-| `GET /me` | | `200 Me` |
+| `GET /me` | | `200 Me` (includes `name`: the name the user set, else the sign-in account's name, else null) |
+| `PATCH /me` | `{name}` (1–60 characters, extra spaces removed) | `200 Me`. Also copies the name to the user's member record, so managers see it in Members |
 | `POST /me/verification/send` | | `200 {sent_to, resend_after_seconds: 60, expires_in_seconds: 900}`: emails a new 6-digit code (the previous one stops working). `429 too_soon` with `retry_after` (seconds) within 60 s of the last code, `429 too_many_codes` after 5 codes in an hour, `409 already_verified`, `400 no_email`, `502 email_failed` |
 | `POST /me/verification/verify` | `{code}` (`"482715"`, spaces ignored) | `200 Me` with `email_verified: true`. `400 wrong_code` ("Wrong code. 4 attempts left"), `429 too_many_attempts` after 5 wrong tries (the code is burnt), `410 code_expired` (expired, burnt or never sent) |
 | `POST /farms` | `{name (2-80), address (5-200), country?, currency? (3 letters, default USD)}` | `201 Me` (caller becomes **owner**). `403 email_unverified` before the code was confirmed. `409` if already active in or waiting for a farm |

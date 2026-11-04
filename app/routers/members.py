@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.deps import get_ctx, get_identity, get_mailer, get_notifier, get_photo_store, get_repo
 from app.errors import ApiError
 from app.schemas import (
+    NameIn,
     ApproveIn, FarmCreate, InviteCodeOut, JoinIn, MemberOut, MeOut, RoleIn, TransferIn, VerificationSentOut, VerifyIn,
 )
 from app.services import account, membership, verification
@@ -26,8 +27,9 @@ bp = Blueprint("members", __name__)
 
 
 def _me(identity, state) -> MeOut:
-    verified = verification.is_verified(get_repo(), identity, state)
-    return MeOut.model_validate(membership.me_payload(identity, state, verified))
+    repo = get_repo()
+    verified = verification.is_verified(repo, identity, state)
+    return MeOut.model_validate(membership.me_payload(identity, state, verified, membership.user_name(repo, identity)))
 
 
 def _require_verified(identity) -> None:
@@ -40,6 +42,14 @@ def _require_verified(identity) -> None:
 def me():
     """GET /v1/me - status none | pending | active | rejected, the role and the farm. Call it after sign-in."""
     identity = get_identity()
+    return out(_me(identity, membership.resolve(get_repo(), identity)))
+
+
+@bp.patch("/me")
+def update_me():
+    """PATCH /v1/me {"name"} - set the user's own name (1-60 characters); returns /me."""
+    identity = get_identity()
+    membership.set_name(get_repo(), identity, body(NameIn).name)
     return out(_me(identity, membership.resolve(get_repo(), identity)))
 
 

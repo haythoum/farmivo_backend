@@ -62,6 +62,21 @@ def set_user(repo: Repository, uid: str, farm_id: str | None, status: str | None
     repo.update("users", uid, {"farm_id": farm_id, "status": status if farm_id else None})
 
 
+def user_name(repo: Repository, identity: Identity) -> str | None:
+    """The user's name: the one they set in the app (users/<uid>.name), else the sign-in account's name."""
+    return (repo.get("users", identity.uid) or {}).get("name") or identity.name
+
+
+def set_name(repo: Repository, identity: Identity, name: str) -> None:
+    """Save the user's name (PATCH /v1/me) and copy it to their member record so managers see it."""
+    if repo.get("users", identity.uid) is None:
+        repo.set("users", identity.uid, {"name": name})
+    else:
+        repo.update("users", identity.uid, {"name": name})
+    for member in repo.group_list("members", [("uid", "==", identity.uid)]):
+        repo.update(members_path(member["parent_id"]), identity.uid, {"name": name})
+
+
 def members_path(farm_id: str) -> str:
     """Repository path of a farm's member records."""
     return farm_path(farm_id, "members")
@@ -172,13 +187,15 @@ def resolve(repo: Repository, identity: Identity) -> Membership:
     return Membership(status, farm, member)
 
 
-def me_payload(identity: Identity, membership: Membership, email_verified: bool = False) -> dict:
+def me_payload(identity: Identity, membership: Membership, email_verified: bool = False,
+               name: str | None = None) -> dict:
     """The body of GET /v1/me (and of the onboarding calls)."""
     farm = membership.farm
     return {
         "email_verified": email_verified,
         "uid": identity.uid,
         "email": identity.email,
+        "name": name or (membership.member or {}).get("name") or identity.name,
         "status": membership.status,
         "role": membership.role,
         "farm": {"id": farm["id"], "name": farm.get("name")} if farm and membership.status != "none" else None,
@@ -220,7 +237,7 @@ def create_farm(repo: Repository, identity: Identity, data: dict) -> Membership:
     })
     stamp = now_iso()
     member = repo.set(members_path(farm["id"]), identity.uid, {
-        "uid": identity.uid, "email": identity.email, "name": identity.name, "role": "owner", "status": "active",
+        "uid": identity.uid, "email": identity.email, "name": user_name(repo, identity), "role": "owner", "status": "active",
         "requested_at": stamp, "decided_at": stamp, "decided_by": identity.uid,
     })
     set_user(repo, identity.uid, farm["id"], "active")
@@ -250,7 +267,7 @@ def request_to_join(repo: Repository, notifier: Notifier, identity: Identity, co
         repo.delete(members_path(current.farm["id"]), identity.uid)
     stamp = now_iso()
     member = repo.set(members_path(farm["id"]), identity.uid, {
-        "uid": identity.uid, "email": identity.email, "name": identity.name, "role": "worker", "status": "pending",
+        "uid": identity.uid, "email": identity.email, "name": user_name(repo, identity), "role": "worker", "status": "pending",
         "requested_at": stamp, "decided_at": None, "decided_by": None,
     })
     set_user(repo, identity.uid, farm["id"], "pending")

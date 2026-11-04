@@ -25,7 +25,7 @@ def join(make_client, owner, uid, role="worker"):
 def test_new_user_has_no_farm_and_no_auto_creation(make_client, repo):
     c = make_client("new")
     me = c.get("/v1/me").json
-    assert me == {"uid": "new", "email": "new@example.com", "status": "none", "role": None, "farm": None,
+    assert me == {"uid": "new", "email": "new@example.com", "status": "none", "role": None, "farm": None, "name": None,
                   "email_verified": True}
     r = c.get("/v1/animals")
     assert r.status_code == 403 and r.json["code"] == "no_farm"

@@ -161,10 +161,24 @@ class MeOut(BaseModel):
     """Response of GET /v1/me and of the onboarding calls: where the signed-in user stands."""
     uid: str
     email: str | None = None
+    name: str | None = None  # the user's own name (PATCH /v1/me), used in greetings and member lists
     status: str  # none | pending | active | rejected
     role: str | None = None  # owner | manager | worker | viewer, only when status is active
     farm: MeFarm | None = None
     email_verified: bool = False  # false until the 6-digit email code is confirmed (POST /v1/me/verification/verify)
+
+
+class NameIn(Strict):
+    """Body of PATCH /v1/me: the user's own name."""
+    name: str = Field(min_length=1, max_length=60)
+
+    @field_validator("name")
+    @classmethod
+    def _trim(cls, v: str) -> str:
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("Name must not be empty")
+        return v
 
 
 class VerifyIn(Strict):

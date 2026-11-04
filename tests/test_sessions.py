@@ -217,3 +217,17 @@ def test_device_token_moves_to_the_new_user(repo):
     assert client_for("bob").post("/v1/devices", json={"token": token, "platform": "android"}).status_code == 204
     assert repo.list("users/alice/devices") == []
     assert len(repo.list("users/bob/devices")) == 1
+
+
+def test_user_name_set_shown_and_copied_to_members(make_client):
+    """PATCH /v1/me sets the name; /me returns it; it is used for new and existing member records."""
+    c = make_client("nm")
+    assert c.patch("/v1/me", json={"name": "  Rahma   Chbak "}).json["name"] == "Rahma Chbak"
+    assert c.patch("/v1/me", json={"name": ""}).status_code == 422
+    assert c.patch("/v1/me", json={"name": "x" * 61}).status_code == 422
+    c.post("/v1/farms", json=FARM)
+    assert me(make_client, "nm")["name"] == "Rahma Chbak"
+    assert c.get("/v1/farm/members").json[0]["name"] == "Rahma Chbak"
+    c.patch("/v1/me", json={"name": "Rahma"})
+    assert c.get("/v1/farm/members").json[0]["name"] == "Rahma"
+    assert me(make_client, "nm")["name"] == "Rahma"
