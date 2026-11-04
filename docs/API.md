@@ -240,7 +240,7 @@ HTML pages for the stores and the apps' More screen, in English, French and Arab
 
 | Path | Content |
 |---|---|
-| `GET /privacy` | Privacy policy (store "Privacy policy URL") |
+| `GET /privacy` | 301 redirect to the official privacy policy https://quadralens.tn/product/farmivo-privacy/ (store "Privacy policy URL") |
 | `GET /terms` | Terms of use |
 | `GET /support` | 301 redirect to the QuadraLens product page https://quadralens.tn/product/farmivo/ (help and support) |
 | `GET /delete-account` | How to delete the account in the app or by email, and what is deleted (Google Play "Delete account URL") |

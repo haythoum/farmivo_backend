@@ -117,7 +117,7 @@ def test_delete_requires_sign_in():
 
 # ------------------------------------------------------------------ public pages
 
-@pytest.mark.parametrize("page", ["privacy", "terms", "delete-account"])
+@pytest.mark.parametrize("page", ["terms", "delete-account"])
 @pytest.mark.parametrize("lang", ["en", "fr", "ar"])
 def test_public_pages_in_each_language(page, lang):
     from app.main import create_app
@@ -137,8 +137,8 @@ def test_public_page_language_from_header():
     from app.main import create_app
 
     c = create_app().test_client()
-    assert 'lang="fr"' in c.get("/privacy", headers={"Accept-Language": "fr-FR,fr;q=0.9"}).get_data(as_text=True)
-    assert 'lang="en"' in c.get("/privacy?lang=xx").get_data(as_text=True)
+    assert 'lang="fr"' in c.get("/terms", headers={"Accept-Language": "fr-FR,fr;q=0.9"}).get_data(as_text=True)
+    assert 'lang="en"' in c.get("/terms?lang=xx").get_data(as_text=True)
 
 
 def test_support_redirects_to_the_product_page():
@@ -146,3 +146,10 @@ def test_support_redirects_to_the_product_page():
 
     r = create_app().test_client().get("/support?lang=fr")
     assert r.status_code == 301 and r.headers["Location"] == "https://quadralens.tn/product/farmivo/"
+
+
+def test_privacy_redirects_to_the_official_page():
+    from app.main import create_app
+
+    r = create_app().test_client().get("/privacy?lang=ar")
+    assert r.status_code == 301 and r.headers["Location"] == "https://quadralens.tn/product/farmivo-privacy/"

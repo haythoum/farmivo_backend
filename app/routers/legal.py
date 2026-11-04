@@ -33,10 +33,15 @@ def render(page_key: str):
                            current=page_key, updated=UPDATED[lang], email=CONTACT_EMAIL)
 
 
+PRIVACY_URL = "https://quadralens.tn/product/farmivo-privacy/"
+
+
 @bp.get("/privacy")
 def privacy():
-    """GET /privacy - privacy policy."""
-    return render("privacy")
+    """GET /privacy - the privacy policy is QuadraLens' official Farmivo page: permanent redirect there."""
+    from flask import redirect
+
+    return redirect(PRIVACY_URL, code=301)
 
 
 @bp.get("/terms")
