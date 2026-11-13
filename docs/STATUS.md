@@ -58,3 +58,11 @@ Full line-by-line review: [REVIEW_2026-11-03.md](REVIEW_2026-11-03.md). Fixed: g
 - Deploy: pull, `sudo supervisorctl restart farmivo`, then once, from the project folder with the virtualenv's Python 3 (plain `python` on the server is Python 2.7): `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.sync_breeding_reminders` (pending matings get a pregnancy-check reminder instead of an expected-birth one).
 - Forgot password now needs Mailjet configured (the same keys as the verification code) and the Firebase service-account key (already required for sign-in). Without Mailjet the link is written to the log.
 - Tests: 153 passed (in-memory and Mongo-backed runs). See docs/API.md for the new fields and endpoints.
+
+## Admin: delete a farm (13 Nov 2026)
+
+The apps cannot delete a farm yet (planned, with an admin dashboard). On the server, from the project folder:
+
+- `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.delete_farm` lists the farms (id, name, owner, members, animals); `--find <text>` searches name, id or member email.
+- `... -m scripts.delete_farm <farm_id> --dry-run` shows what the farm holds; without `--dry-run` it asks to type the farm name, then deletes the farm, every record under it (including barns) and the animal photos. Members keep their sign-in and get "create or join a farm" in the app. No undo: `mongodump` first if in doubt.
+- Fixed at the same time: deleting an account that owns a farm now also deletes the farm's barns (they were left behind); a test checks that every farm collection used in the code is deleted.

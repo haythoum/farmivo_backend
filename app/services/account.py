@@ -5,7 +5,7 @@ What is deleted:
 - always: the user's devices (push tokens), the ``users/<uid>`` record, a pending email code and the
   user's membership or join request, and the notifications about them (join requests) or only for them;
 - if the user is the owner and nobody else is an active member: the whole farm, with every record
-  (animals, health, breeding, growth, production, feeding, finance, reminders, notifications, members) and
+  (animals, barns, health, breeding, growth, production, feeding, finance, reminders, notifications, members) and
   the animal photos. People who were waiting for approval lose their request;
 - if the user is the owner and other active members exist: nothing; 409 ``owner_must_transfer``
   (transfer ownership first, so the farm is not lost for the others).
@@ -22,9 +22,10 @@ from app.services.membership import Identity, members_path, resolve, set_user
 
 log = logging.getLogger("farmivo.account")
 
-# Every collection that lives under farms/<farm_id>/ (see docs/DATA_MODEL.md).
+# Every collection that lives under farms/<farm_id>/ (see docs/DATA_MODEL.md). A test checks that every
+# farm collection used in app/ is listed here, so a new one cannot be forgotten when a farm is deleted.
 FARM_COLLECTIONS = (
-    "animals", "vaccinations", "treatments", "vet_visits", "illnesses", "reminders", "breedings",
+    "animals", "barns", "vaccinations", "treatments", "vet_visits", "illnesses", "reminders", "breedings",
     "weights", "production", "feedings", "transactions", "notifications", "members",
 )
 
