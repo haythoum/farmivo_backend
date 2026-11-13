@@ -306,6 +306,7 @@ class AnimalOut(Record):
     photo_url: str | None = None
     age_class: str | None = None
     age_class_label: str | None = None  # the age class in the caller's language
+    breed_label: str | None = None      # the breed in the caller's language (a typed breed as is)
     purchase_price: float | None = None
     barn_id: str | None = None
     barn_name: str | None = None

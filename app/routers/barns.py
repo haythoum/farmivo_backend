@@ -1,4 +1,4 @@
-"""Barns of a farm (/v1/barns) and the age-by-teeth catalog (/v1/age-classes).
+"""Barns of a farm (/v1/barns), the age-by-teeth catalog (/v1/age-classes) and the breed lists (/v1/breeds).
 
 A farm can have several barns (sheepfold, stable for the horses, cow shed ...). A barn may be reserved to one
 species; each animal can be placed in one barn (``barn_id`` on the animal). Everyone on the farm can read them;
@@ -9,7 +9,7 @@ from __future__ import annotations
 from flask import Blueprint
 from pydantic import ValidationError
 
-from app import age_classes
+from app import age_classes, breeds
 from app.deps import Ctx, get_ctx
 from app.errors import ApiError, validation_error
 from app.i18n import request_lang
@@ -112,3 +112,11 @@ def list_age_classes():
     request's language. Species not listed (pig, poultry, rabbit, other) are aged by date of birth only."""
     get_ctx()
     return out(age_classes.catalog(request_lang()))
+
+
+@bp.get("/breeds")
+def list_breeds():
+    """GET /v1/breeds - per species, the breeds offered in the apps' breed list ({name, label}; name is what the
+    animal stores, label is in the request's language). The apps also let the farmer type another breed."""
+    get_ctx()
+    return out(breeds.catalog(request_lang()))

@@ -258,3 +258,15 @@ def test_sync_script_replaces_old_birth_reminders_of_pending_matings(client, rep
     assert set(reminders(client)) == {"birth", "pregnancy_check"}
     assert sync_all(repo) == 1
     assert set(reminders(client)) == {"pregnancy_check"}
+
+
+def test_breed_list_and_label(client):
+    fr = client.get("/v1/breeds", headers={"Accept-Language": "fr"}).json
+    assert fr["sheep"][0] == {"name": "Barbarine", "label": "Barbarine"}
+    assert {"name": "Holstein", "label": "Prim'Holstein"} in fr["cattle"] and "other" not in fr
+    cow = add(client, species="cattle", breed="Holstein").json
+    assert cow["breed"] == "Holstein" and cow["breed_label"] == "Holstein"
+    ar = client.get(f"/v1/animals/{cow['id']}", headers={"Accept-Language": "ar"}).json
+    assert ar["breed_label"] == "هولشتاين"
+    typed = add(client, ear_tag="002", species="cattle", breed="Sahiwal").json  # a breed not in the list
+    assert typed["breed_label"] == "Sahiwal"

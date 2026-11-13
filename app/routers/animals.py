@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.deps import Ctx, get_ctx, get_photo_store
 from app.errors import ApiError, validation_error
 from app.routers.crud import clean, get_animal_or_404, path_of
-from app import age_classes
+from app import age_classes, breeds
 from app.i18n import request_lang
 from app.schemas import (
     DEAD_STATUSES,
@@ -45,7 +45,8 @@ def render_animal(record: dict, barns: dict[str, str] | None = None) -> AnimalOu
     until = parse_date(record.get("status_date")) if record.get("status") in DEAD_STATUSES else None
     days, months, label = age_parts(dob, until)
     extra = {"age_days": days, "age_months": months, "age_label": label,
-             "age_class_label": age_classes.label(record.get("species"), record.get("age_class"), request_lang())}
+             "age_class_label": age_classes.label(record.get("species"), record.get("age_class"), request_lang()),
+             "breed_label": breeds.label(record.get("species"), record.get("breed"), request_lang())}
     if barns is not None and record.get("barn_id"):
         extra["barn_name"] = barns.get(record["barn_id"])
     return AnimalOut.model_validate({**record, **extra})
