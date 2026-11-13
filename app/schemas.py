@@ -352,6 +352,12 @@ class BarnOut(BarnBase, Record):
     vaccines_due_count: int = 0  # vaccinations overdue or due within 7 days
 
 
+class MoveAnimalsIn(Strict):
+    """POST /v1/animals/move body: animals to put in a barn, or outside (no barn) with barn_id null."""
+    animal_ids: list[str] = Field(min_length=1, max_length=500)
+    barn_id: str | None = None
+
+
 class PasswordResetIn(Strict):
     """POST /v1/auth/password-reset body: the account's email."""
     email: str = Field(min_length=3, max_length=254)

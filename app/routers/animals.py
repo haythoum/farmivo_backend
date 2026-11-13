@@ -21,6 +21,7 @@ from app.schemas import (
     AnimalStatus,
     AnimalUpdate,
     FamilyOut,
+    MoveAnimalsIn,
     StatusChange,
 )
 from app.services.photos import ALLOWED_TYPES
@@ -168,6 +169,27 @@ def create_animal():
         data["status_date"] = animal.date_added.isoformat()
     created = sync_purchase(ctx, ctx.repo.create(path_of(ctx, "animals"), data))
     return out(render_one(ctx, created), 201)
+
+
+@bp.post("/animals/move")
+def move_animals():
+    """POST /v1/animals/move {animal_ids, barn_id} - put several animals in a barn at once, or outside (barn_id
+    null: no barn). Workers and above. All or nothing: 404 if an animal or the barn is missing, 422 if one is not
+    on the farm (sold, dead ...) or the barn is kept for another species. Returns {"moved": n, "barn_id"}."""
+    ctx = get_ctx()
+    data = body(MoveAnimalsIn)
+    ids = list(dict.fromkeys(data.animal_ids))  # duplicates once
+    animals = [get_animal_or_404(ctx, i) for i in ids]
+    for a in animals:
+        if a.get("status") not in ON_FARM_STATUSES:
+            raise ApiError(422, f"Only animals on the farm can be moved ({a.get('ear_tag')})")
+        check_barn(ctx, data.barn_id, a.get("species"))
+    moved = 0
+    for a in animals:
+        if a.get("barn_id") != data.barn_id:
+            ctx.repo.update(path_of(ctx, "animals"), a["id"], {"barn_id": data.barn_id})
+            moved += 1
+    return out({"moved": moved, "barn_id": data.barn_id})
 
 
 @bp.get("/animals/<animal_id>")

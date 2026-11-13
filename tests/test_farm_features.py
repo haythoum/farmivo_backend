@@ -216,6 +216,32 @@ def test_barn_cards_count_what_needs_attention(client):
     assert client.get(f"/v1/barns/{shed['id']}").json["pregnant_count"] == 1
 
 
+def test_move_animals_to_a_barn_and_outside(client, make_client):
+    shed = client.post("/v1/barns", json={"name": "Cow shed", "species": "cattle"}).json
+    cows = [add(client, ear_tag=f"00{i}", species="cattle").json for i in range(1, 4)]
+    goat = add(client, ear_tag="009", species="goat").json
+    ids = [c["id"] for c in cows]
+    r = client.post("/v1/animals/move", json={"animal_ids": ids + [ids[0]], "barn_id": shed["id"]})
+    assert r.status_code == 200 and r.json == {"moved": 3, "barn_id": shed["id"]}
+    assert client.get("/v1/barns").json[0]["animal_count"] == 3
+    # all or nothing: a goat cannot go into the cow shed, nothing moves
+    r = client.post("/v1/animals/move", json={"animal_ids": [goat["id"]], "barn_id": shed["id"]})
+    assert r.status_code == 422
+    assert client.get("/v1/animals", query_string={"barn_id": "none"}).json[0]["id"] == goat["id"]
+    assert client.post("/v1/animals/move", json={"animal_ids": ["nope"], "barn_id": None}).status_code == 404
+    assert client.post("/v1/animals/move", json={"animal_ids": [], "barn_id": None}).status_code == 422
+    # back outside (no barn); a sold animal cannot be moved
+    assert client.post("/v1/animals/move", json={"animal_ids": ids[:1], "barn_id": None}).json["moved"] == 1
+    assert client.post(f"/v1/animals/{ids[1]}/status", json={"status": "sold", "sale_price": 100}).status_code == 200
+    r = client.post("/v1/animals/move", json={"animal_ids": [ids[1]], "barn_id": None}, headers={"Accept-Language": "fr"})
+    assert r.status_code == 422 and "déplacés" in r.json["detail"]
+    # workers can move animals; viewers cannot
+    worker = join(make_client, client, "wk")
+    assert worker.post("/v1/animals/move", json={"animal_ids": [ids[0]], "barn_id": shed["id"]}).status_code == 200
+    viewer = join(make_client, client, "vw", role="viewer")
+    assert viewer.post("/v1/animals/move", json={"animal_ids": [ids[0]], "barn_id": None}).status_code == 403
+
+
 def test_pending_mating_is_not_pregnant(client):
     ewe = add(client, species="sheep").json
     b = client.post("/v1/breedings", json={"dam_id": ewe["id"], "mating_date": iso(-5)}).json
