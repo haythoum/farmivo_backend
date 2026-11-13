@@ -47,14 +47,19 @@ def seed(client) -> None:
     if me["status"] == "active":
         client.patch("/v1/farm", json=FARM)
 
+    shed = post(client, "barns", {"name": "Cow shed", "species": "cattle", "capacity": 40})
+    fold = post(client, "barns", {"name": "Sheepfold", "capacity": 120})
     bella = post(client, "animals", {"ear_tag": "CR-0412", "name": "Bella", "species": "cattle", "breed": "Holstein",
-                                     "sex": "female", "date_of_birth": day(-1700), "date_added": day(-1200)})
+                                     "sex": "female", "date_of_birth": day(-1700), "date_added": day(-1200),
+                                     "barn_id": shed["id"], "origin": "purchased", "purchase_price": 4200})
     thor = post(client, "animals", {"ear_tag": "CR-0301", "name": "Thor", "species": "cattle", "breed": "Holstein",
-                                    "sex": "male", "date_of_birth": day(-2500), "date_added": day(-2000)})
+                                    "sex": "male", "date_of_birth": day(-2500), "date_added": day(-2000),
+                                    "barn_id": shed["id"]})
     max_ = post(client, "animals", {"ear_tag": "SH-0217", "name": "Max", "species": "sheep", "sex": "male",
-                                    "date_of_birth": day(-900)})
+                                    "age_class": "four_teeth", "barn_id": fold["id"], "origin": "purchased",
+                                    "purchase_price": 650})
     luna = post(client, "animals", {"ear_tag": "GT-0098", "name": "Luna", "species": "goat", "sex": "female",
-                                    "date_of_birth": day(-700)})
+                                    "date_of_birth": day(-700), "barn_id": fold["id"]})
 
     post(client, "vaccinations", {"animal_id": bella["id"], "vaccine_name": "Foot-and-mouth booster",
                                   "date_given": day(-180), "next_due_date": day(1)})
@@ -67,7 +72,9 @@ def seed(client) -> None:
     post(client, "vet-visits", {"animal_id": bella["id"], "visit_date": day(-7), "vet_name": "Dr. Haddad",
                                 "reason": "Lameness check", "follow_up_date": day(7)})
 
-    post(client, "breedings", {"dam_id": bella["id"], "sire_id": thor["id"], "mating_date": day(-30)})
+    post(client, "breedings", {"dam_id": bella["id"], "sire_id": thor["id"], "mating_date": day(-60),
+                               "pregnancy_status": "confirmed"})
+    post(client, "breedings", {"dam_id": luna["id"], "mating_date": day(-10)})  # waiting for the pregnancy check
 
     for offset, kg in ((-90, 520), (-60, 535), (-30, 550), (0, 565)):
         post(client, "weights", {"animal_id": bella["id"], "date": day(offset), "weight_kg": kg})
@@ -76,9 +83,9 @@ def seed(client) -> None:
                                     "quantity": 20 + offset % 3, "unit": "liters"})
     post(client, "feedings", {"group_name": "Dairy herd", "date": day(), "feed_type": "Alfalfa hay", "quantity_kg": 120})
 
-    post(client, "transactions", {"type": "income", "category": "milk sales", "amount": 1240, "date": day(-4)})
+    post(client, "transactions", {"type": "income", "category": "milk_sale", "amount": 1240, "date": day(-4)})
     post(client, "transactions", {"type": "expense", "category": "feed", "amount": 850, "date": day(-2)})
-    print("Demo data written: 4 animals, vaccinations, treatment, vet visit, breeding, weights, milk, feeding, finance.")
+    print("Demo data written: 2 barns, 4 animals, vaccinations, treatment, vet visit, breeding, weights, milk, feeding, finance.")
 
 
 def main() -> None:

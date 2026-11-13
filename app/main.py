@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.errors import register_error_handlers
 from app.i18n import negotiate, normalize
 from app.routers import (
-    animals, breeding, dashboard, farm, finance, growth, health, internal, legal, members, notifications, photos,
+    animals, auth, barns, breeding, dashboard, farm, finance, growth, health, internal, legal, members, notifications, photos,
     reports,
 )
 
@@ -47,6 +47,8 @@ def create_app(overrides: dict | None = None) -> Flask:
         members,
         farm,
         animals,
+        barns,
+        auth,
         health,
         growth,
         finance,

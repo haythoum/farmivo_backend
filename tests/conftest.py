@@ -22,6 +22,7 @@ class FakeMailer:
     def __init__(self):
         self.sent: list[tuple[str, str]] = []  # (to, code)
         self.langs: list[str] = []  # language of each email
+        self.resets: list[tuple[str, str, str]] = []  # (to, link, lang) of password reset emails
         self.fail = False
 
     def send_code(self, to, code, minutes, lang="en"):
@@ -31,6 +32,13 @@ class FakeMailer:
             raise MailError("smtp down")
         self.sent.append((to, code))
         self.langs.append(lang)
+
+    def send_password_reset(self, to, link, lang="en"):
+        from app.services.mailer import MailError
+
+        if self.fail:
+            raise MailError("smtp down")
+        self.resets.append((to, link, lang))
 
     @property
     def last_code(self):
@@ -71,10 +79,10 @@ def make_client(repo, notifier, mailer, auth_admin, photo_store):
     """
     photos = photo_store
 
-    def make(uid: str, email: str | None = None, name: str | None = None, verified: bool = True):
+    def make(uid: str, email: str | None = None, name: str | None = None, verified: bool = True, **extra):
         app = create_app(overrides={"repo": repo, "notifier": notifier, "photo_store": photos, "mailer": mailer, "auth_admin": auth_admin,
                                     "uid": uid, "email": email or f"{uid}@example.com", "name": name,
-                                    "email_verified": verified})
+                                    "email_verified": verified, **extra})
         app.testing = True
         return app.test_client()
 

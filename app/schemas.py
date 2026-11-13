@@ -31,6 +31,8 @@ class Species(str, Enum):
     chicken = "chicken"
     duck = "duck"
     rabbit = "rabbit"
+    dog = "dog"
+    cat = "cat"
     other = "other"
 
 
@@ -41,15 +43,22 @@ class Sex(str, Enum):
 
 
 class AnimalStatus(str, Enum):
-    """Animal status; active/sick/quarantine count as on the farm."""
+    """Animal status; active/sick/quarantine count as on the farm, the others mean the animal left it."""
     active = "active"
     sick = "sick"
     quarantine = "quarantine"
     sold = "sold"
     deceased = "deceased"
+    donated = "donated"        # voluntary charity (sadaqa)
+    gifted = "gifted"          # given as a gift
+    sacrificed = "sacrificed"  # sacrificial animal (udhiya)
 
 
 ON_FARM_STATUSES = {AnimalStatus.active.value, AnimalStatus.sick.value, AnimalStatus.quarantine.value}
+# Statuses where the animal is no longer on the farm: its pending reminders are closed.
+LEFT_STATUSES = {"sold", "deceased", "donated", "gifted", "sacrificed"}
+# Statuses where the animal is dead: its age stops at the status date.
+DEAD_STATUSES = {"deceased", "sacrificed"}
 
 
 class Origin(str, Enum):
@@ -244,6 +253,19 @@ class AnimalBase(Strict):
     mother_id: str | None = None
     father_id: str | None = None
     notes: str | None = Field(default=None, max_length=2000)
+    # Age by teeth when the date of birth is unknown (see app/age_classes.py; checked against the species).
+    age_class: str | None = Field(default=None, max_length=40)
+    # What the animal cost. With an origin other than born on farm it is also booked as an expense.
+    purchase_price: float | None = Field(default=None, ge=0, le=1e12)
+    barn_id: str | None = None  # the barn (GET /v1/barns) the animal lives in
+
+    @model_validator(mode="after")
+    def _age_class_fits_species(self) -> "AnimalBase":
+        from app.age_classes import keys_for
+
+        if self.age_class and self.age_class not in keys_for(self.species.value):
+            raise ValueError(f"age_class '{self.age_class}' does not exist for {self.species.value}")
+        return self
 
     @field_validator("date_of_birth")
     @classmethod
@@ -277,19 +299,58 @@ class AnimalOut(Record):
     notes: str | None = None
     status: AnimalStatus = AnimalStatus.active
     status_date: Date | None = None
+    buyer: str | None = None        # sold: who bought it
+    sale_price: float | None = None  # sold: the price (also an income transaction)
+    recipient: str | None = None    # donated / gifted: who received it
+    status_notes: str | None = None
     photo_url: str | None = None
+    age_class: str | None = None
+    age_class_label: str | None = None  # the age class in the caller's language
+    purchase_price: float | None = None
+    barn_id: str | None = None
+    barn_name: str | None = None
     age_days: int | None = None
     age_months: int | None = None
     age_label: str | None = None
 
 
 class StatusChange(Strict):
-    """POST /v1/animals/<id>/status body."""
+    """POST /v1/animals/<id>/status body. sale_price and buyer for sold, recipient for donated and gifted."""
     status: AnimalStatus
     date: Date = Field(default_factory=today)
     sale_price: float | None = Field(default=None, ge=0, le=1e12)
     buyer: str | None = Field(default=None, max_length=120)
+    recipient: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("date")
+    @classmethod
+    def _not_future(cls, v: Date) -> Date:
+        if v > today():
+            raise ValueError("date cannot be in the future")
+        return v
+
+
+# --------------------------------------------------------------------- barns
+class BarnBase(Strict):
+    """A barn (stable, pen, fold) of the farm. ``species`` empty = any species."""
+    name: str = Field(min_length=1, max_length=60)
+    species: Species | None = None
+    capacity: int | None = Field(default=None, ge=1, le=100000)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+BarnUpdate = make_partial(BarnBase, "BarnUpdate")
+
+
+class BarnOut(BarnBase, Record):
+    """Barn as returned, with the number of animals on the farm in it."""
+    animal_count: int = 0
+
+
+class PasswordResetIn(Strict):
+    """POST /v1/auth/password-reset body: the account's email."""
+    email: str = Field(min_length=3, max_length=254)
 
 
 class FamilyOut(BaseModel):

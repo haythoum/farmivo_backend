@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.deps import Ctx, get_ctx
 from app.errors import ApiError
-from app.routers.animals import ear_tag_taken, render_animal
+from app.routers.animals import ear_tag_taken, render_one, tag_conflict
 from app.routers.crud import build_crud_blueprint, path_of
 from app.schemas import (
     BirthOut,
@@ -14,14 +14,15 @@ from app.schemas import (
     BreedingUpdate,
 )
 from app.services.reminders import animal_label, delete_reminder, source_title, sync_reminder
-from app.utils import expected_birth, parse_date, today
+from app.utils import expected_birth, parse_date, pregnancy_check, today
 from app.web import body, out
 
+# "pending" = mated, not checked yet; only "confirmed" counts as pregnant (dashboard, pregnant list).
 ACTIVE_PREGNANCY = {"pending", "confirmed"}
 
 
-def _validate_parents(ctx: Ctx, data: dict) -> None:
-    """Check dam (female) and sire (male) and fill expected_birth_date from the gestation table."""
+def _validate_parents(ctx: Ctx, data: dict) -> dict:
+    """Check dam (female) and sire (male), fill expected_birth_date from the gestation table; returns the dam."""
     dam = ctx.repo.get(path_of(ctx, "animals"), data["dam_id"])
     if not dam:
         raise ApiError(404, "Dam (female) not found")
@@ -36,40 +37,65 @@ def _validate_parents(ctx: Ctx, data: dict) -> None:
     if not data.get("expected_birth_date"):
         suggested = expected_birth(dam.get("species"), parse_date(data["mating_date"]))
         data["expected_birth_date"] = suggested.isoformat() if suggested else None
+    if data.get("pregnancy_status") == "confirmed" and not data.get("pregnancy_confirmed_date"):
+        data["pregnancy_confirmed_date"] = today().isoformat()
+    return dam
 
 
 def _before_create(ctx: Ctx, data: dict) -> dict:
     """CRUD hook: validate parents and start with no birth recorded."""
+    if data.get("pregnancy_status") == "delivered":
+        raise ApiError(422, "Record the birth to mark a pregnancy as delivered")
     _validate_parents(ctx, data)
     return {**data, "actual_birth_date": None, "offspring_ids": []}
 
 
 def _before_update(ctx: Ctx, existing: dict, merged: dict) -> dict:
     """CRUD hook: re-validate parents on every update. "delivered" is only set by recording the birth
-    (POST /breedings/<id>/births), which also creates the newborns."""
+    (POST /breedings/<id>/births), which also creates the newborns. When the mating date moves and the expected
+    birth was still the suggested one, the suggestion follows the new date."""
     if merged.get("pregnancy_status") == "delivered" and existing.get("pregnancy_status") != "delivered":
         raise ApiError(422, "Record the birth to mark a pregnancy as delivered")
+    if merged.get("mating_date") != existing.get("mating_date") and existing.get("expected_birth_date"):
+        dam = ctx.repo.get(path_of(ctx, "animals"), existing["dam_id"]) or {}
+        old = expected_birth(dam.get("species"), parse_date(existing["mating_date"]))
+        if old and merged.get("expected_birth_date") == old.isoformat():
+            merged["expected_birth_date"] = None  # recomputed by _validate_parents
+    if merged.get("pregnancy_status") == "pending":
+        merged["pregnancy_confirmed_date"] = None  # not checked yet: no confirmation date
     _validate_parents(ctx, merged)
     return merged
 
 
 def _sync(ctx: Ctx, record: dict) -> None:
-    """CRUD hook: keep the birth_<id> reminder on expected_birth_date while the pregnancy is pending/confirmed."""
-    active = record.get("pregnancy_status") in ACTIVE_PREGNANCY
+    """CRUD hook: an unconfirmed mating (pending) gets a "Pregnancy check" reminder a few weeks after mating; a
+    confirmed pregnancy gets the "Expected birth" reminder on expected_birth_date. Other states have neither."""
+    status = record.get("pregnancy_status")
     label = animal_label(ctx.repo, ctx.farm_id, record["dam_id"])
-    title, key, params = source_title("birth", label)
-    sync_reminder(
-        ctx.repo,
-        ctx.farm_id,
-        f"birth_{record['id']}",
-        source_type="birth",
-        source_id=record["id"],
-        animal_id=record["dam_id"],
-        title=title,
-        title_key=key,
-        title_params=params,
-        due_date=record.get("expected_birth_date") if active else None,
-    )
+    dam = ctx.repo.get(path_of(ctx, "animals"), record["dam_id"]) or {}
+    check = pregnancy_check(dam.get("species"), parse_date(record["mating_date"])) if status == "pending" else None
+    for kind, reminder_id, due in (
+        ("pregnancy_check", f"check_{record['id']}", check.isoformat() if check else None),
+        ("birth", f"birth_{record['id']}", record.get("expected_birth_date") if status == "confirmed" else None),
+    ):
+        title, key, params = source_title(kind, label)
+        sync_reminder(
+            ctx.repo,
+            ctx.farm_id,
+            reminder_id,
+            source_type=kind,
+            source_id=record["id"],
+            animal_id=record["dam_id"],
+            title=title,
+            title_key=key,
+            title_params=params,
+            due_date=due,
+        )
+
+
+def _after_delete(ctx: Ctx, record: dict) -> None:
+    delete_reminder(ctx.repo, ctx.farm_id, f"birth_{record['id']}")
+    delete_reminder(ctx.repo, ctx.farm_id, f"check_{record['id']}")
 
 
 bp = build_crud_blueprint(
@@ -82,7 +108,7 @@ bp = build_crud_blueprint(
     before_create=_before_create,
     before_update=_before_update,
     after_write=_sync,
-    after_delete=lambda ctx, rec: delete_reminder(ctx.repo, ctx.farm_id, f"birth_{rec['id']}"),
+    after_delete=_after_delete,
 )
 
 
@@ -101,12 +127,14 @@ def record_birth(breeding_id: str):
     if req.birth_date < parse_date(breeding["mating_date"]):  # type: ignore[operator]
         raise ApiError(422, "birth_date cannot be before the mating date")
 
+    dam = ctx.repo.get(path_of(ctx, "animals"), breeding["dam_id"]) or {}
+    species = dam.get("species", "other")
     tags = [o.ear_tag for o in req.offspring]
     if len(set(tags)) != len(tags):
         raise ApiError(422, "Duplicate ear tags in request")
     for tag in tags:  # check everything first so a conflict creates nothing
-        if ear_tag_taken(ctx, tag):
-            raise ApiError(409, f"Ear tag '{tag}' is already used on this farm")
+        if ear_tag_taken(ctx, tag, species):
+            raise tag_conflict(tag, species)
 
     # Claim the breeding first (compare-and-set), so two simultaneous requests cannot both create the newborns.
     claimed = ctx.repo.update_where(path_of(ctx, "breedings"), breeding_id,
@@ -115,13 +143,12 @@ def record_birth(breeding_id: str):
     if claimed is None:
         raise ApiError(409, "A birth was already recorded for this breeding")
 
-    dam = ctx.repo.get(path_of(ctx, "animals"), breeding["dam_id"]) or {}
     created: list[dict] = []
     for kid in req.offspring:
         data = {
             "ear_tag": kid.ear_tag,
             "name": kid.name,
-            "species": dam.get("species", "other"),
+            "species": species,
             "breed": dam.get("breed"),
             "sex": kid.sex.value,
             "date_of_birth": req.birth_date.isoformat(),
@@ -133,6 +160,7 @@ def record_birth(breeding_id: str):
             "status": "deceased" if kid.stillborn else "active",
             "status_date": req.birth_date.isoformat() if kid.stillborn else None,
             "photo_url": None,
+            "barn_id": dam.get("barn_id"),  # newborns stay with their mother
         }
         animal = ctx.repo.create(path_of(ctx, "animals"), data)
         created.append(animal)
@@ -157,7 +185,8 @@ def record_birth(breeding_id: str):
         },
     )
     delete_reminder(ctx.repo, ctx.farm_id, f"birth_{breeding_id}")
+    delete_reminder(ctx.repo, ctx.farm_id, f"check_{breeding_id}")
     return out(BirthOut(
         breeding=BreedingOut.model_validate(updated),
-        offspring=[render_animal(a) for a in created],
+        offspring=[render_one(ctx, a) for a in created],
     ), 201)

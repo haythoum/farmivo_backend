@@ -1,7 +1,7 @@
 """Automatic reminders.
 
 Reminders are derived from other records (vaccination ``next_due_date``, vet visit
-``follow_up_date``, breeding ``expected_birth_date``). Each source record owns one
+``follow_up_date``, breeding: ``expected_birth_date`` once confirmed, a pregnancy check while pending). Each source record owns one
 reminder with a deterministic id, so create/update/delete of the source keeps the
 reminder in sync. ``run_due_reminders`` is called by the daily cron job and pushes
 notifications when a reminder enters a new bucket: 7 days, 1 day, due today, overdue.
@@ -98,7 +98,8 @@ def reminder_title(record: dict, lang: str | None) -> str:
 
 
 def source_title(kind: str, animal: str | None, **params) -> tuple[str, str, dict]:
-    """(English title, key, params) for a server-made reminder: kind is vaccination, vet or birth."""
+    """(English title, key, params) for a server-made reminder: kind is vaccination, vet, birth or
+    pregnancy_check."""
     key = f"reminder.{kind}_animal" if animal else f"reminder.{kind}"
     if animal:
         params["animal"] = animal

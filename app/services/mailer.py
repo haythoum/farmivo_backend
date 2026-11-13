@@ -1,4 +1,5 @@
-"""Sending email: the 6-digit verification code after sign-up, through Mailjet (Send API v3.1).
+"""Sending email through Mailjet (Send API v3.1): the 6-digit verification code after sign-up and the
+password reset link ("Forgot password?").
 
 Configured with MAILJET_API_KEY / MAILJET_API_SECRET (see .env.example). Without the key the code is
 written to the server log instead (WARNING level), so sign-up can be tested before Mailjet is set up.
@@ -18,9 +19,11 @@ class MailError(Exception):
 
 
 class Mailer(Protocol):
-    """Anything that can deliver a verification code (Mailjet in production, a fake in the tests)."""
+    """Anything that can deliver Farmivo's emails (Mailjet in production, a fake in the tests)."""
 
     def send_code(self, to: str, code: str, minutes: int, lang: str = "en") -> None: ...
+
+    def send_password_reset(self, to: str, link: str, lang: str = "en") -> None: ...
 
 
 def code_text(code: str, minutes: int, lang: str = "en") -> str:
@@ -81,6 +84,67 @@ def code_message(sender_email: str, sender_name: str, to: str, code: str, minute
     }
 
 
+def reset_text(link: str, lang: str = "en") -> str:
+    """Plain-text body of the password reset email in ``lang``."""
+    return (
+        f"{t('reset.intro', lang)}\n\n{t('reset.action', lang)}\n{link}\n\n"
+        f"{t('reset.expires', lang)}\n\n{t('reset.ignore', lang)}\n\n"
+        f"Farmivo - {t('email.slogan', lang)} - Powered by Quadralens\n"
+    )
+
+
+def reset_html(link: str, lang: str = "en") -> str:
+    """Branded HTML body of the password reset email (teal header, one big button); right-to-left for Arabic."""
+    from html import escape
+
+    direction = "rtl" if lang == "ar" else "ltr"
+    align = "right" if lang == "ar" else "left"
+    href = escape(link, quote=True)
+    return f"""\
+<!doctype html>
+<html lang="{lang}" dir="{direction}"><body dir="{direction}" style="margin:0;padding:0;background:#FBF6EE;font-family:Arial,Helvetica,sans-serif;color:#1E2A29">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FBF6EE;padding:24px 0">
+<tr><td align="center">
+<table role="presentation" dir="{direction}" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #DCE5E3;text-align:{align}">
+<tr><td style="background:#1F6F6B;padding:22px 28px;color:#ffffff">
+<div style="font-size:26px;font-weight:bold">Farmivo</div>
+<div style="font-size:14px;color:#F7EBDD;margin-top:4px">{t('email.slogan', lang)}</div>
+</td></tr>
+<tr><td style="padding:28px">
+<div style="font-size:18px;font-weight:bold">{t('reset.title', lang)}</div>
+<div style="font-size:15px;color:#5B6B69;margin-top:8px">{t('reset.intro', lang)}</div>
+<div style="text-align:center;margin:26px 0">
+<a href="{href}" style="display:inline-block;background:#1F6F6B;color:#ffffff;text-decoration:none;font-weight:bold;font-size:16px;padding:14px 28px;border-radius:12px">{t('reset.button', lang)}</a>
+</div>
+<div style="font-size:13px;color:#5B6B69">{t('reset.expires', lang)}</div>
+<div style="font-size:12px;color:#5B6B69;margin-top:14px;word-break:break-all" dir="ltr">{href}</div>
+<div style="font-size:13px;color:#5B6B69;margin-top:18px">{t('reset.ignore', lang)}</div>
+</td></tr>
+<tr><td style="padding:16px 28px;border-top:1px solid #E8EFED;font-size:12px;color:#5B6B69;text-align:center">
+{t('email.slogan', lang)} &middot; Powered by Quadralens
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>
+"""
+
+
+def reset_message(sender_email: str, sender_name: str, to: str, link: str, lang: str = "en") -> dict:
+    """The Mailjet Send API v3.1 payload for one password reset email in ``lang``."""
+    return {
+        "Messages": [
+            {
+                "From": {"Email": sender_email, "Name": sender_name},
+                "To": [{"Email": to}],
+                "Subject": t("reset.subject", lang),
+                "TextPart": reset_text(link, lang),
+                "HTMLPart": reset_html(link, lang),
+                "CustomID": "farmivo-password-reset",
+            }
+        ]
+    }
+
+
 class MailjetMailer:
     """Sends through Mailjet's Send API v3.1 (package ``mailjet_rest``)."""
 
@@ -96,7 +160,13 @@ class MailjetMailer:
 
     def send_code(self, to: str, code: str, minutes: int, lang: str = "en") -> None:
         """Send the verification email in ``lang``. Raises MailError unless Mailjet reports success."""
-        data = code_message(self.sender_email, self.sender_name, to, code, minutes, lang)
+        self._send(code_message(self.sender_email, self.sender_name, to, code, minutes, lang), to)
+
+    def send_password_reset(self, to: str, link: str, lang: str = "en") -> None:
+        """Send the password reset email in ``lang``. Raises MailError unless Mailjet reports success."""
+        self._send(reset_message(self.sender_email, self.sender_name, to, link, lang), to)
+
+    def _send(self, data: dict, to: str) -> None:
         try:
             result = self._client().send.create(data=data, timeout=self.timeout)
             body = result.json()
@@ -130,3 +200,13 @@ class LogMailer:
         except RuntimeError:  # outside a request, e.g. a script
             logger = log
         logger.warning("Email not configured; verification code for %s: %s", to, code)
+
+    def send_password_reset(self, to: str, link: str, lang: str = "en") -> None:
+        """Log the reset link at WARNING level (look for 'password reset link for' in the log)."""
+        try:
+            from flask import current_app
+
+            logger = current_app.logger
+        except RuntimeError:
+            logger = log
+        logger.warning("Email not configured; password reset link for %s: %s", to, link)

@@ -12,6 +12,21 @@ GESTATION_DAYS: dict[str, int] = {
     "pig": 114,
     "horse": 340,
     "rabbit": 31,
+    "dog": 63,
+    "cat": 65,
+}
+
+# Days after mating when a pregnancy can be checked (scan, palpation, no return to heat): the "check pregnancy"
+# reminder of an unconfirmed mating.
+PREGNANCY_CHECK_DAYS: dict[str, int] = {
+    "cattle": 40,
+    "sheep": 35,
+    "goat": 35,
+    "pig": 25,
+    "horse": 30,
+    "rabbit": 12,
+    "dog": 28,
+    "cat": 21,
 }
 
 
@@ -53,6 +68,11 @@ def age_parts(dob: date | None, until: date | None = None) -> tuple[int | None, 
     else:
         label = f"{days}d"
     return days, months, label
+
+
+def pregnancy_check(species: str | None, mating: date) -> date:
+    """When to check an unconfirmed mating: mating date + the species' delay (30 days if unknown)."""
+    return mating + timedelta(days=PREGNANCY_CHECK_DAYS.get(species or "", 30))
 
 
 def expected_birth(species: str | None, mating: date) -> date | None:

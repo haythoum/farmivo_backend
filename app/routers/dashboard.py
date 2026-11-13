@@ -46,6 +46,8 @@ def dashboard():
     births = sum(1 for a in all_animals if a.get("origin") == "born_on_farm" and in_period(a.get("date_of_birth")))
     deaths = sum(1 for a in all_animals if a.get("status") == "deceased" and in_period(a.get("status_date")))
     sales = sum(1 for a in all_animals if a.get("status") == "sold" and in_period(a.get("status_date")))
+    given = sum(1 for a in all_animals if a.get("status") in ("donated", "gifted") and in_period(a.get("status_date")))
+    sacrificed = sum(1 for a in all_animals if a.get("status") == "sacrificed" and in_period(a.get("status_date")))
     purchases = sum(1 for a in all_animals if a.get("origin") == "purchased" and in_period(a.get("date_added")))
 
     horizon = (now + timedelta(days=upcoming_days)).isoformat()
@@ -66,7 +68,9 @@ def dashboard():
         }
 
     breedings = ctx.repo.list(path_of(ctx, "breedings"))
-    pregnant = [b for b in breedings if b.get("pregnancy_status") in ("pending", "confirmed")]
+    # Only a confirmed pregnancy counts as pregnant; a mating not yet checked is "awaiting check".
+    pregnant = [b for b in breedings if b.get("pregnancy_status") == "confirmed"]
+    awaiting = [b for b in breedings if b.get("pregnancy_status") == "pending"]
     due_soon = sorted(
         (b for b in pregnant if b.get("expected_birth_date") and now.isoformat() <= b["expected_birth_date"] <= horizon),
         key=lambda b: b["expected_birth_date"],
@@ -87,8 +91,10 @@ def dashboard():
             "by_species": _count_by(on_farm, "species"),
             "by_sex": _count_by(on_farm, "sex"),
             "by_status": _count_by(all_animals, "status"),
+            "by_barn": _count_by(on_farm, "barn_id"),  # barn id -> animals on the farm ("unknown" = no barn)
         },
-        movements={"births": births, "deaths": deaths, "sales": sales, "purchases": purchases},
+        movements={"births": births, "deaths": deaths, "sales": sales, "purchases": purchases, "given": given,
+                   "sacrificed": sacrificed},
         health={
             "upcoming_vaccinations": [item(r) for r in upcoming_vacc[:10]],
             "upcoming_vaccinations_count": len(upcoming_vacc),
@@ -98,6 +104,7 @@ def dashboard():
         },
         breeding={
             "pregnant_count": len(pregnant),
+            "awaiting_check_count": len(awaiting),
             "due_soon": [
                 {
                     "breeding_id": b["id"],

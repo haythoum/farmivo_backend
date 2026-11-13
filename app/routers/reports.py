@@ -11,7 +11,7 @@ from flask import Blueprint, Response
 
 from app.deps import Ctx, get_ctx
 from app.errors import ApiError
-from app.routers.animals import render_animal
+from app.routers.animals import barn_names, render_animal
 from app.routers.crud import path_of
 from app.utils import today
 from app.web import out, q_date, q_enum
@@ -41,8 +41,11 @@ def _range_filters(field: str, start: date, end: date) -> list[tuple[str, str, o
 def build_rows(ctx: Ctx, kind: ReportKind, start: date, end: date) -> tuple[list[str], list[dict]]:
     """Column names and rows of one report for a date range (herd ignores the range)."""
     if kind == ReportKind.herd:
-        columns = ["ear_tag", "name", "species", "breed", "sex", "date_of_birth", "age_label", "date_added", "status", "status_date"]
-        rows = [render_animal(a).model_dump(mode="json") for a in ctx.repo.list(path_of(ctx, "animals"), order_by="ear_tag")]
+        columns = ["ear_tag", "name", "species", "breed", "sex", "date_of_birth", "age_label", "age_class_label",
+                   "barn_name", "date_added", "purchase_price", "status", "status_date"]
+        barns = barn_names(ctx)
+        rows = [render_animal(a, barns).model_dump(mode="json")
+                for a in ctx.repo.list(path_of(ctx, "animals"), order_by="ear_tag")]
         return columns, rows
 
     animals = {a["id"]: a for a in ctx.repo.list(path_of(ctx, "animals"))}

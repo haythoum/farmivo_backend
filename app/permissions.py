@@ -29,8 +29,8 @@ def required_role(method: str, path: str) -> str:
     """Lowest role allowed to call ``method path`` (path with or without the /v1 prefix).
 
     - owner only: transferring ownership
-    - manager+: finance, financial report, members and invite code, farm settings (PATCH /farm), any DELETE
-      of farm records (except notifications)
+    - manager+: finance, financial report, members and invite code, farm settings (PATCH /farm), barns
+      (POST/PATCH/DELETE), any DELETE of farm records (except notifications)
     - worker+: creating and editing records (POST/PATCH), deleting notifications
     - viewer+: reading (GET) everything else, marking notifications read
     """
@@ -46,8 +46,8 @@ def required_role(method: str, path: str) -> str:
         if p.endswith("/read") or p.endswith("/read-all"):
             return "viewer"
         return "worker"  # deleting a notification from the farm's list
-    if p == "/farm":
-        return "manager"  # PATCH /farm: farm settings
+    if p == "/farm" or p.startswith("/barns"):
+        return "manager"  # PATCH /farm: farm settings; creating, editing and deleting barns
     if method == "DELETE":
         return "manager"
     return "worker"
