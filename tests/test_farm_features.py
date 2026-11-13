@@ -242,6 +242,16 @@ def test_move_animals_to_a_barn_and_outside(client, make_client):
     assert viewer.post("/v1/animals/move", json={"animal_ids": [ids[0]], "barn_id": None}).status_code == 403
 
 
+def test_blank_barn_id_means_outside(client):
+    shed = client.post("/v1/barns", json={"name": "Shed"}).json
+    a = add(client, barn_id="  ").json
+    assert a["barn_id"] is None
+    assert client.patch(f"/v1/animals/{a['id']}", json={"barn_id": shed["id"]}).json["barn_id"] == shed["id"]
+    assert client.patch(f"/v1/animals/{a['id']}", json={"barn_id": ""}).json["barn_id"] is None
+    assert client.post("/v1/animals/move", json={"animal_ids": [a["id"]], "barn_id": ""}).json["barn_id"] is None
+    assert [x["id"] for x in client.get("/v1/animals", query_string={"barn_id": "none"}).json] == [a["id"]]
+
+
 def test_pending_mating_is_not_pregnant(client):
     ewe = add(client, species="sheep").json
     b = client.post("/v1/breedings", json={"dam_id": ewe["id"], "mating_date": iso(-5)}).json

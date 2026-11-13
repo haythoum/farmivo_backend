@@ -6,9 +6,18 @@ from datetime import date as Date
 from enum import Enum
 from typing import Annotated, Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, create_model, field_validator, model_validator
 
 from app.utils import today
+
+
+def _blank_to_none(v: Any) -> Any:
+    """"" or spaces mean "none" (a barn id sent empty by a form = outside, no barn)."""
+    return None if isinstance(v, str) and not v.strip() else v
+
+
+# A barn id; empty means no barn. Kept by make_partial (it copies the Annotated metadata).
+BarnRef = Annotated[Optional[str], BeforeValidator(_blank_to_none)]
 
 
 def make_partial(model: type[BaseModel], name: str) -> type[BaseModel]:
@@ -257,7 +266,7 @@ class AnimalBase(Strict):
     age_class: str | None = Field(default=None, max_length=40)
     # What the animal cost. With an origin other than born on farm it is also booked as an expense.
     purchase_price: float | None = Field(default=None, ge=0, le=1e12)
-    barn_id: str | None = None  # the barn (GET /v1/barns) the animal lives in
+    barn_id: BarnRef = None  # the barn (GET /v1/barns) the animal lives in
 
     @model_validator(mode="after")
     def _age_class_fits_species(self) -> "AnimalBase":
@@ -355,7 +364,7 @@ class BarnOut(BarnBase, Record):
 class MoveAnimalsIn(Strict):
     """POST /v1/animals/move body: animals to put in a barn, or outside (no barn) with barn_id null."""
     animal_ids: list[str] = Field(min_length=1, max_length=500)
-    barn_id: str | None = None
+    barn_id: BarnRef = None
 
 
 class PasswordResetIn(Strict):
