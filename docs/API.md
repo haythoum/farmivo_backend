@@ -20,15 +20,15 @@ This file is the reference for the contract; the backend serves no auto-generate
 
 | Name | Values |
 |---|---|
-| species | `cattle` `sheep` `goat` `pig` `horse` `chicken` `duck` `rabbit` `other` |
+| species | `cattle` `sheep` `goat` `pig` `horse` `chicken` `duck` `rabbit` `dog` `cat` `other` |
 | sex | `male` `female` |
-| animal status | `active` `sick` `quarantine` `sold` `deceased` (on the farm = active, sick, quarantine) |
+| animal status | `active` `sick` `quarantine` `sold` `deceased` `donated` (voluntary charity) `gifted` `sacrificed` (on the farm = active, sick, quarantine; the others left the farm) |
 | origin | `born_on_farm` `purchased` `other` |
-| pregnancy_status | `pending` `confirmed` `not_pregnant` `delivered` `aborted` |
+| pregnancy_status | `pending` (mated, not checked: **not** counted as pregnant) `confirmed` `not_pregnant` `delivered` (only by recording the birth) `aborted` |
 | mating method | `natural` `artificial_insemination` |
 | product | `milk` `eggs` `wool` `meat` `other` (default unit: liters, count, kg, kg, units) |
 | transaction type | `income` `expense` |
-| reminder source_type | `vaccination` `vet_visit` `birth` `custom` |
+| reminder source_type | `vaccination` `vet_visit` `birth` `pregnancy_check` `custom` |
 
 Suggested finance categories (free text, but offer these in the UI): income: `animal_sale`, `milk_sale`, `egg_sale`, `other_income`; expense: `feed`, `veterinary`, `medication`, `labor`, `equipment`, `purchase_animal`, `utilities`, `other_expense`.
 
@@ -118,17 +118,20 @@ Animal (response):
   "sex": "female", "date_of_birth": "2022-03-14", "date_added": "2023-01-10",
   "origin": "purchased", "mother_id": null, "father_id": null, "notes": null,
   "status": "active", "status_date": null, "photo_url": "https://…",
+  "age_class": null, "age_class_label": null, "purchase_price": 4200, "barn_id": "…", "barn_name": "Cow shed",
+  "buyer": null, "sale_price": null, "recipient": null, "status_notes": null,
   "age_days": 1692, "age_months": 55, "age_label": "4y 7m",
   "created_at": "…", "updated_at": "…"
 }
 ```
-`age_*` are computed by the server (null if no `date_of_birth`).
+`age_*` are computed by the server (null if no `date_of_birth`). `age_class` is the age by teeth chosen when the birth date is unknown (keys per species from `GET /age-classes`); `age_class_label` is its label in the request's language. `barn_name` is filled from `barn_id`.
 
-- `GET /animals?status=&species=&sex=&q=&limit=` → `[Animal]` sorted by ear tag. `status` accepts any animal status or `on_farm`. `q` searches ear tag, name, breed (case-insensitive).
-- `POST /animals` → `201 Animal`. Body: `{ear_tag (required, unique per farm), species (required), sex (required), name?, breed?, date_of_birth?, date_added? (default today), origin? (default purchased), status? (default active), photo_url?, mother_id? (must be a female animal), father_id? (must be a male animal), notes?}`. `409` if the ear tag is taken. `date_of_birth` cannot be in the future.
+- `GET /age-classes` → `{species: [{key, label, hint}]}` for cattle, sheep, goat, horse, dog and cat (labels in the request's language). Other species are aged by date of birth only.
+- `GET /animals?status=&species=&sex=&barn_id=&q=&limit=` → `[Animal]` sorted by ear tag. `barn_id=none` lists animals in no barn. `status` accepts any animal status or `on_farm`. `q` searches ear tag, name, breed (case-insensitive).
+- `POST /animals` → `201 Animal`. Body: `{ear_tag (required, unique per species on the farm: goat 001 and dog 001 can both exist), species (required), age_class? (must exist for the species), purchase_price? (≥ 0; with an origin other than born_on_farm it books one `purchase_animal` expense on date_added, kept in sync on edit), barn_id? (an existing barn; a barn reserved to one species only takes that species), sex (required), name?, breed?, date_of_birth?, date_added? (default today), origin? (default purchased), status? (default active), photo_url?, mother_id? (must be a female animal), father_id? (must be a male animal), notes?}`. `409` if the ear tag is taken by an animal of the same species. `date_of_birth` cannot be in the future.
 - `GET /animals/{id}` → Animal
-- `PATCH /animals/{id}` → Animal. Same fields as create except `status`/`photo_url` (use the endpoints below). `409` on duplicate ear tag.
-- `POST /animals/{id}/status` → Animal. Body: `{status, date? (default today), sale_price?, buyer?, notes?}`. Marking `sold` with `sale_price` also creates an `animal_sale` income transaction. Marking `sold` or `deceased` closes the animal's pending reminders.
+- `PATCH /animals/{id}` → Animal. Same fields as create except `status`/`photo_url` (use the endpoints below). `409` on duplicate ear tag within the species. Changing the species drops an age class that does not exist for the new one.
+- `POST /animals/{id}/status` → Animal. Body: `{status, date? (default today, not in the future), sale_price?, buyer?, recipient?, notes?}`. Marking `sold` with `sale_price` books one `animal_sale` income transaction (id kept on the animal): selling again with another price updates it, any other status removes it, so a sale is never counted twice. `recipient` is kept for `donated` and `gifted`. Leaving statuses (sold, deceased, donated, gifted, sacrificed) close the animal's pending reminders.
 - `POST /animals/{id}/photo` → Animal. `multipart/form-data`, field name `file`, JPEG/PNG/WebP, max 5 MB (compress/resize to ~1600px on device). `photo_url` in the response is a public URL (`/v1/photos/{id}`, served by the API from GridFS or MinIO) that image loaders can fetch without an auth header.
 - `DELETE /animals/{id}` → `204`. Deletes the animal and all its health, weight, production, feeding and breeding records.
 - `GET /animals/{id}/family` → `{animal, mother, father, siblings: [Animal], offspring: [Animal]}` (mother/father may be null).
@@ -148,7 +151,7 @@ All record endpoints below support: `GET ""` (list, filters `animal_id`, `date_f
 `next_due_date` must not be before `date_given`.
 
 ### Automatic reminders
-Setting `next_due_date` on a vaccination, `follow_up_date` on a vet visit, or an expected birth date on an active pregnancy automatically creates a reminder; changing/removing the date updates/removes it. The server pushes a notification (FCM) and stores an in-app notification when a reminder is 7 days away, 1 day away, due today, and overdue.
+Setting `next_due_date` on a vaccination, `follow_up_date` on a vet visit, or an expected birth date on a **confirmed** pregnancy automatically creates a reminder (a `pending` mating gets a `pregnancy_check` reminder instead: mating + 40 days cattle, 35 sheep/goat, 30 horse, 25 pig, 28 dog, 21 cat, 12 rabbit, 30 others); changing/removing the date updates/removes it. The server pushes a notification (FCM) and stores an in-app notification when a reminder is 7 days away, 1 day away, due today, and overdue.
 
 - `GET /reminders?status=pending|done|all (default pending)&within_days=&animal_id=&source_type=` → `[Reminder]` ascending by due date (overdue first). `within_days=30` includes overdue.
 - `POST /reminders` `{title, due_date, animal_id?}` → `201 Reminder` (custom reminder)
@@ -162,10 +165,21 @@ Reminder: `{id, source_type, source_id, animal_id, title, due_date, status, days
 Resource `/breedings` (same list/get/patch/delete conventions; date filter `mating_date`):
 
 Breeding: `{id, dam_id, sire_id, sire_note, mating_date, method, pregnancy_status, pregnancy_confirmed_date, expected_birth_date, actual_birth_date, offspring_ids: [], notes}`.
-Create requires `dam_id` (female) and `mating_date`; `sire_id` (male) optional, `sire_note` for external sire / semen straw. If `expected_birth_date` is omitted the server fills it from the species' typical gestation (cattle 283, sheep 147, goat 150, pig 114, horse 340, rabbit 31 days; null for other species). `pregnancy_status` defaults to `pending`.
+Create requires `dam_id` (female) and `mating_date`; `sire_id` (male) optional, `sire_note` for external sire / semen straw. If `expected_birth_date` is omitted the server fills it from the species' typical gestation (cattle 283, sheep 147, goat 150, pig 114, horse 340, rabbit 31 days; null for other species). `pregnancy_status` defaults to `pending` (not counted as pregnant). Confirming without a date sets `pregnancy_confirmed_date` to today. Moving `mating_date` moves an expected birth date that was still the suggested one. `delivered` cannot be set by PATCH (422): record the birth.
 
-- `POST /breedings/{id}/births` → `201 {breeding, offspring: [Animal]}`. Body: `{birth_date, offspring: [{ear_tag, sex, name?, birth_weight_kg?, stillborn? (default false)}] (1–20), notes?}`. Creates the offspring as animals (species/breed of the dam, `origin=born_on_farm`, parents linked, stillborn → status `deceased`), records birth weights, sets the pregnancy to `delivered`. `409` if an ear tag is taken or a birth was already recorded.
+- `POST /breedings/{id}/births` → `201 {breeding, offspring: [Animal]}`. Body: `{birth_date, offspring: [{ear_tag, sex, name?, birth_weight_kg?, stillborn? (default false)}] (1–20), notes?}`. Creates the offspring as animals (species/breed of the dam, `origin=born_on_farm`, parents linked, stillborn → status `deceased`), records birth weights, sets the pregnancy to `delivered`. `409` if an ear tag is taken by an animal of the dam's species or a birth was already recorded. Newborns go to the dam's barn.
 - Parent/family history: `GET /animals/{id}/family`.
+
+## Barns
+
+A farm can have several barns (cow shed, sheepfold, stable ...). Everyone reads them; managers and the owner create, edit and delete them.
+
+Barn: `{id, name, species (null = any species), capacity, notes, animal_count (animals on the farm in it)}`.
+
+- `GET /barns` → `[Barn]` by name.
+- `POST /barns` `{name (unique on the farm, case-insensitive), species?, capacity? (≥ 1), notes?}` → `201 Barn` (`409` duplicate name).
+- `GET /barns/{id}` → Barn; `PATCH /barns/{id}` → Barn (`422` when reserving the barn to a species while animals of another species are in it).
+- `DELETE /barns/{id}` → `204`; its animals stay on the farm without a barn.
 
 ## Growth & production
 
@@ -186,17 +200,18 @@ Create requires `dam_id` (female) and `mating_date`; `sire_id` (male) optional, 
 {
   "generated_at": "…", "period_days": 30, "period_from": "2026-10-02", "period_to": "2026-10-31",
   "animals": {"total": 42, "total_all_time": 51, "by_species": {"cattle": 30, "sheep": 12},
-              "by_sex": {"female": 28, "male": 14}, "by_status": {"active": 40, "sick": 2, "sold": 6, "deceased": 3}},
-  "movements": {"births": 3, "deaths": 1, "sales": 2, "purchases": 0},
+              "by_sex": {"female": 28, "male": 14}, "by_status": {"active": 40, "sick": 2, "sold": 6, "deceased": 3},
+              "by_barn": {"<barn id>": 30, "unknown": 12}},
+  "movements": {"births": 3, "deaths": 1, "sales": 2, "purchases": 0, "given": 1, "sacrificed": 0},
   "health": {"upcoming_vaccinations": [{"reminder_id","animal_id","animal_label","title","due_date","days_until"}],
              "upcoming_vaccinations_count": 4, "overdue_vaccinations_count": 1,
              "sick_animals": 2, "ongoing_illnesses": 2},
-  "breeding": {"pregnant_count": 5, "due_soon": [{"breeding_id","dam_id","dam_label","expected_birth_date","days_until"}]},
+  "breeding": {"pregnant_count": 5, "awaiting_check_count": 2, "due_soon": [{"breeding_id","dam_id","dam_label","expected_birth_date","days_until"}]},
   "finance": {"currency": "USD", "income": 1200.0, "expenses": 800.0, "net": 400.0},  // null for workers and viewers
   "unread_notifications": 3
 }
 ```
-`animals.total` counts animals currently on the farm; `by_status` covers all animals ever added. Maps may be empty.
+`animals.total` counts animals currently on the farm; `by_status` covers all animals ever added. Maps may be empty. `pregnant_count` and `due_soon` cover confirmed pregnancies only; `awaiting_check_count` counts matings still `pending`. `given` = donated + gifted in the period.
 
 ## Notifications
 
@@ -229,6 +244,10 @@ Push payload (FCM), in the recipient's language (phone `language`, else the user
 
 `GET /reports/{kind}?format=json|csv&date_from=&date_to=` with `kind` = `herd` | `vaccinations` | `financial` | `production` (default range last 90 days; `herd` ignores dates).
 JSON: `{kind, date_from, date_to, columns: [...], rows: [{...}]}`. CSV: `text/csv` attachment — download and hand to the system share sheet.
+
+## Password reset (no sign-in)
+
+- `POST /auth/password-reset` `{email}` → `204`. Emails a link to choose a new password (made by Firebase Admin, sent through Mailjet from the Farmivo sender, in the Accept-Language language). Same `204` for an address without an account (nothing sent). `422 invalid_email`, `429 too_soon` (with `retry_after`, 60 s between emails) / `too_many` (5 per hour per address), `502 email_failed`.
 
 ## Health check
 
