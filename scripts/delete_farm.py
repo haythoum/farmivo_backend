@@ -15,7 +15,11 @@ There is no undo: take a backup first if in doubt (``mongodump``).
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+
+if __package__ in (None, ""):  # started as "python scripts/delete_farm.py" or from inside scripts/: find app/
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.repository import Repository, farm_path
 from app.services.account import FARM_COLLECTIONS, delete_farm
