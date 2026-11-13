@@ -197,6 +197,25 @@ def reminders(client):
     return {r["source_type"]: r for r in client.get("/v1/reminders", query_string={"status": "pending"}).json}
 
 
+def test_barn_cards_count_what_needs_attention(client):
+    shed = client.post("/v1/barns", json={"name": "Cow shed", "species": "cattle", "capacity": 40}).json
+    assert (shed["sick_count"], shed["pregnant_count"], shed["vaccines_due_count"]) == (0, 0, 0)
+    cow = add(client, species="cattle", barn_id=shed["id"]).json
+    sick = add(client, ear_tag="002", species="cattle", barn_id=shed["id"]).json
+    later = add(client, ear_tag="003", species="cattle", barn_id=shed["id"]).json
+    add(client, ear_tag="004", species="cattle")  # in no barn: never counted
+    client.post(f"/v1/animals/{sick['id']}/status", json={"status": "sick"})
+    b = client.post("/v1/breedings", json={"dam_id": cow["id"], "mating_date": iso(-40)}).json
+    client.post("/v1/vaccinations", json={"animal_id": sick["id"], "vaccine_name": "FMD", "date_given": iso(-300),
+                                          "next_due_date": iso(-1)})  # overdue
+    client.post("/v1/vaccinations", json={"animal_id": later["id"], "vaccine_name": "FMD", "date_given": iso(),
+                                          "next_due_date": iso(60)})  # not due soon
+    card = client.get("/v1/barns").json[0]
+    assert (card["animal_count"], card["sick_count"], card["pregnant_count"], card["vaccines_due_count"]) == (3, 1, 0, 1)
+    client.patch(f"/v1/breedings/{b['id']}", json={"pregnancy_status": "confirmed"})  # pending was not pregnant
+    assert client.get(f"/v1/barns/{shed['id']}").json["pregnant_count"] == 1
+
+
 def test_pending_mating_is_not_pregnant(client):
     ewe = add(client, species="sheep").json
     b = client.post("/v1/breedings", json={"dam_id": ewe["id"], "mating_date": iso(-5)}).json

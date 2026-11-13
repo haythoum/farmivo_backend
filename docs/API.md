@@ -177,7 +177,7 @@ A farm can have several barns (cow shed, sheepfold, stable ...). Everyone reads 
 
 Barn: `{id, name, species (null = any species), capacity, notes, animal_count (animals on the farm in it)}`.
 
-- `GET /barns` → `[Barn]` by name.
+- `GET /barns` → `[Barn]` by name. Barn: `{id, name, species, capacity, notes, animal_count, sick_count, pregnant_count, vaccines_due_count}` — counts cover animals on the farm in the barn: sick or in quarantine, confirmed pregnancies, and a vaccination overdue or due within 7 days.
 - `POST /barns` `{name (unique on the farm, case-insensitive), species?, capacity? (≥ 1), notes?}` → `201 Barn` (`409` duplicate name).
 - `GET /barns/{id}` → Barn; `PATCH /barns/{id}` → Barn (`422` when reserving the barn to a species while animals of another species are in it).
 - `DELETE /barns/{id}` → `204`; its animals stay on the farm without a barn.

@@ -345,8 +345,11 @@ BarnUpdate = make_partial(BarnBase, "BarnUpdate")
 
 
 class BarnOut(BarnBase, Record):
-    """Barn as returned, with the number of animals on the farm in it."""
+    """Barn as returned, with the number of animals on the farm in it and what needs attention there."""
     animal_count: int = 0
+    sick_count: int = 0  # sick or in quarantine
+    pregnant_count: int = 0  # confirmed pregnancies of dams in the barn
+    vaccines_due_count: int = 0  # vaccinations overdue or due within 7 days
 
 
 class PasswordResetIn(Strict):
