@@ -55,6 +55,6 @@ Full line-by-line review: [REVIEW_2026-11-03.md](REVIEW_2026-11-03.md). Fixed: g
 4. Deep links from notifications, offline cache, multi-language (Arabic/French/Spanish?), PDF reports.
 
 ## 13 Nov 2026: barns, age by teeth, ear tags per species, statuses, pregnancy check, password reset
-- Deploy: pull, `sudo supervisorctl restart farmivo`, then once `python -m scripts.sync_breeding_reminders` (pending matings get a pregnancy-check reminder instead of an expected-birth one).
+- Deploy: pull, `sudo supervisorctl restart farmivo`, then once, from the project folder with the virtualenv's Python 3 (plain `python` on the server is Python 2.7): `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.sync_breeding_reminders` (pending matings get a pregnancy-check reminder instead of an expected-birth one).
 - Forgot password now needs Mailjet configured (the same keys as the verification code) and the Firebase service-account key (already required for sign-in). Without Mailjet the link is written to the log.
 - Tests: 153 passed (in-memory and Mongo-backed runs). See docs/API.md for the new fields and endpoints.

@@ -1,6 +1,6 @@
 """Bring the breeding reminders of every farm in line with the November 2026 rules (run once after deploying):
 
-    python -m scripts.sync_breeding_reminders
+    /home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.sync_breeding_reminders   # the venv's Python 3, not "python" (2.7)
 
 Before, a mating that was only "pending" (not checked) already had an "Expected birth" reminder. Now a pending
 mating gets a "Pregnancy check" reminder instead, and only a confirmed pregnancy gets "Expected birth".
