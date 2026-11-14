@@ -70,6 +70,11 @@ def _prepare(ctx: Ctx, data: dict) -> dict:
 
 
 def _before_update(ctx: Ctx, existing: dict, merged: dict) -> dict:
+    from flask import request
+
+    sent = request.get_json(silent=True) or {}
+    if "animal_ids" in sent and "animal_id" not in sent:
+        merged = {**merged, "animal_id": None}  # the list decides (an emptied list clears the one animal too)
     # A whole-barn expense keeps the animals it was shared between unless the barn changed.
     if merged.get("whole_barn") and merged.get("barn_id") == existing.get("barn_id") and existing.get("animal_ids"):
         merged = {**merged, "whole_barn": False, "animal_ids": existing["animal_ids"]}

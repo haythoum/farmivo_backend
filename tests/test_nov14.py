@@ -161,6 +161,10 @@ def test_whole_barn_and_chosen_animals_expenses_and_animal_costs(make_client):
     assert {(l["category"], l["amount"], l["shared_with"]) for l in costs["expenses"]} == {("feed", 150, 2), ("veterinary", 80, 1)}
     status(c, a1, "sold", sale_price=1000)
     assert c.get(f"/v1/animals/{a1['id']}/costs").json["result"] == 170
+    # emptying the animals of a one-animal expense clears it (animal_id included)
+    cleared = c.patch(f"/v1/transactions/{vet['id']}", json={"animal_ids": []}).json
+    assert cleared["animal_ids"] == [] and cleared["animal_id"] is None
+    c.patch(f"/v1/transactions/{vet['id']}", json={"animal_ids": [a1["id"]]})
     # a later whole-barn edit of the amount keeps the same animals
     edited = c.patch(f"/v1/transactions/{feed['id']}", json={"amount": 400}).json
     assert sorted(edited["animal_ids"]) == sorted([a1["id"], a2["id"]])
