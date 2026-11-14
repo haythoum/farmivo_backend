@@ -225,3 +225,39 @@ def test_upgrade_script_takes_left_animals_out_of_barns(make_client, repo):
     assert upgrade(repo) == 1 and upgrade(repo) == 0
     got = c.get(f"/v1/animals/{a['id']}").json
     assert got["barn_id"] is None and got["last_barn_id"] == fold["id"]
+
+
+def test_purchase_entered_by_hand_is_capital(make_client):
+    """20 sheep bought in one go and booked as one "purchase animal" expense: capital, shared between them."""
+    c = farm_client(make_client)
+    fold = c.post("/v1/barns", json={"name": "Fold"}).json
+    a, b = add(c, "S1", barn_id=fold["id"]), add(c, "S2", barn_id=fold["id"])
+    expense(c, 1000, "purchase_animal", barn_id=fold["id"], animal_ids=[a["id"], b["id"]])
+    expense(c, 300, "purchase_animal")  # no animal named: farm-wide capital
+    bilan = c.get("/v1/finance/bilan").json
+    assert (bilan["purchases_total"], bilan["purchases_count"], bilan["capital"]) == (1300, 2, 1300)
+    assert "purchase_animal" not in bilan["expenses_by_category"] and bilan["expenses_total"] == 0
+    assert bilan["herd_value"] == 1000 and bilan["profit"] == -300
+    fb = c.get(f"/v1/finance/bilan?barn_id={fold['id']}").json
+    assert fb["purchases_total"] == 1000 and fb["profit"] == 0
+    costs = c.get(f"/v1/animals/{a['id']}/costs").json
+    assert (costs["purchase_price"], costs["expenses_total"], costs["total_cost"]) == (500, 0, 500)
+    assert costs["expenses"] == []
+    # one of them dies: its share moves to expenses
+    status(c, b, "deceased")
+    bilan = c.get("/v1/finance/bilan").json
+    assert (bilan["lost_purchases"], bilan["capital"], bilan["expenses_total"]) == (500, 800, 500)
+    assert bilan["profit"] == round(500 - 800 - 500, 2)
+
+
+def test_deleted_animal_keeps_its_money_in_the_farm_bilan(make_client):
+    c = farm_client(make_client)
+    a = add(c, "S1", purchase_price=1000)
+    expense(c, 200, animal_ids=[a["id"]])
+    status(c, a, "sold", sale_price=1500)
+    before = c.get("/v1/finance/bilan").json["profit"]
+    assert before == 300
+    assert c.delete(f"/v1/animals/{a['id']}").status_code == 204
+    after = c.get("/v1/finance/bilan").json
+    assert after["profit"] == 300 and after["sales_total"] == 1500 and after["purchases_total"] == 1000
+

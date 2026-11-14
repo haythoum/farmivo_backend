@@ -4,8 +4,10 @@ balance sheet (GET /v1/finance/bilan).
 Rules (agreed with the farm, November 2026):
 
 - Buying an animal is capital, not a loss: its purchase price (``purchase_price``, origin not born on the farm)
-  goes to "purchases". The app still books a ``purchase_animal`` expense transaction for the cash view; the
-  balance sheet never counts that transaction as an expense.
+  goes to "purchases". The server books a ``purchase_animal`` expense transaction for it (the animal's
+  ``purchase_tx_id``) for the cash view; the balance sheet counts the animal's price, never that transaction.
+- A ``purchase_animal`` expense entered by hand (20 sheep bought in one go, or the purchase of an animal deleted
+  since) is capital too: it goes to "purchases", shared between its animals when it names them.
 - An expense can be shared between animals (``animal_ids``, or ``animal_id`` for one): each animal carries an
   equal share. An expense of a barn with no animals, or of the whole farm, stays an operating expense.
 - An animal still on the farm is worth its purchase price plus the expenses booked on it.
@@ -56,15 +58,18 @@ def _bought_price(animal: dict) -> float:
     return float(animal.get("purchase_price") or 0)
 
 
-def _is_shared_expense(tx: dict) -> bool:
-    return tx.get("type") == "expense" and tx.get("category") != PURCHASE_CATEGORY
+def auto_purchase_ids(animals: list[dict]) -> set[str]:
+    """The purchase expenses the server booked from the animals' prices (counted from the animals instead)."""
+    return {a["purchase_tx_id"] for a in animals if a.get("purchase_tx_id")}
 
 
-def animal_cost_lines(repo: Repository, farm_id: str, animal_id: str) -> list[dict]:
-    """Every expense (not the purchase itself) that concerns the animal, with the animal's share, newest first."""
+def animal_cost_lines(repo: Repository, farm_id: str, animal_id: str, skip: set[str] | None = None) -> list[dict]:
+    """Every expense that concerns the animal, with the animal's share, newest first; ``skip`` = the purchase
+    expenses booked from animal prices (the animal's own price is shown apart)."""
+    skip = skip or set()
     lines = []
     for tx in repo.list(farm_path(farm_id, "transactions")):
-        if not _is_shared_expense(tx):
+        if tx.get("type") != "expense" or tx["id"] in skip:
             continue
         ids = tx_animals(tx)
         if animal_id not in ids:
@@ -80,10 +85,16 @@ def animal_cost_lines(repo: Repository, farm_id: str, animal_id: str) -> list[di
 
 def animal_costs(repo: Repository, farm_id: str, animal: dict) -> dict:
     """Purchase, expenses, total and (once it left the farm) the result for one animal."""
-    lines = animal_cost_lines(repo, farm_id, animal["id"])
+    skip = auto_purchase_ids(repo.list(farm_path(farm_id, "animals")))
+    if animal.get("purchase_tx_id"):
+        skip.add(animal["purchase_tx_id"])
+    every = animal_cost_lines(repo, farm_id, animal["id"], skip)
+    # A purchase entered by hand that names the animal is part of what it cost to buy, not an expense on it.
+    bought_by_hand = sum(line["amount"] for line in every if line["category"] == PURCHASE_CATEGORY)
+    lines = [line for line in every if line["category"] != PURCHASE_CATEGORY]
     expenses = round(sum(line["amount"] for line in lines), 2)
     health = round(sum(line["amount"] for line in lines if line["category"] in HEALTH_CATEGORIES), 2)
-    purchase = _bought_price(animal)
+    purchase = round(_bought_price(animal) + bought_by_hand, 2)
     total = round(purchase + expenses, 2)
     result = None
     if animal.get("status") == "sold":
@@ -107,6 +118,7 @@ def _in_barn(animal: dict, barn_id: str) -> bool:
 def bilan(repo: Repository, farm_id: str, barn_id: str | None = None) -> dict:
     """The herd's balance sheet for the whole farm or one barn (all dates). See the module docstring."""
     animals = repo.list(farm_path(farm_id, "animals"))
+    booked = auto_purchase_ids(animals)  # purchases counted from the animals' prices
     if barn_id:
         animals = [a for a in animals if _in_barn(a, barn_id)]
     by_id = {a["id"]: a for a in animals}
@@ -115,6 +127,7 @@ def bilan(repo: Repository, farm_id: str, barn_id: str | None = None) -> dict:
     purchases_count = lost_count = herd_count = 0
     herd_value = 0.0
     animal_expenses: dict[str, float] = {}
+    hand_bought: dict[str, float] = {}  # share of purchase expenses entered by hand, per animal
     for a in animals:
         price = _bought_price(a)
         if price > 0:
@@ -132,14 +145,29 @@ def bilan(repo: Repository, farm_id: str, barn_id: str | None = None) -> dict:
         ids = tx_animals(tx)
         if tx.get("type") == "income":
             if tx.get("category") == SALE_CATEGORY and ids:
-                if any(i in by_id for i in ids):
+                if not barn_id or any(i in by_id for i in ids):
+                    # Whole farm: a sale stays counted even when the animal was deleted since.
                     sales_total += amount
-                    sold_ids.update(i for i in ids if i in by_id)
+                    sold_ids.update(i for i in ids if i in by_id or not barn_id)
             elif not barn_id or tx.get("barn_id") == barn_id or any(i in by_id for i in ids):
                 other_income += amount
             continue
         if tx.get("category") == PURCHASE_CATEGORY:
-            continue  # the purchase is capital, counted from the animals
+            if tx["id"] in booked:
+                continue  # counted from the animal's price
+            # Entered by hand: capital, shared between its animals when it names them.
+            if ids:
+                mine = [i for i in ids if i in by_id] if barn_id else ids
+                if not mine:
+                    continue
+                share = amount / len(ids)
+                purchases_total += share * len(mine)
+                purchases_count += len(mine)
+                for i in mine:
+                    hand_bought[i] = hand_bought.get(i, 0.0) + share
+            elif not barn_id or tx.get("barn_id") == barn_id:
+                purchases_total += amount
+            continue
         if ids:
             share = amount / len(ids)
             mine = [i for i in ids if i in by_id] if barn_id else ids
@@ -157,7 +185,9 @@ def bilan(repo: Repository, farm_id: str, barn_id: str | None = None) -> dict:
     for a in animals:
         if a.get("status") in ON_FARM_STATUSES:
             herd_count += 1
-            herd_value += _bought_price(a) + animal_expenses.get(a["id"], 0.0)
+            herd_value += _bought_price(a) + hand_bought.get(a["id"], 0.0) + animal_expenses.get(a["id"], 0.0)
+        elif a.get("status") in LOST_STATUSES:
+            lost_purchases += hand_bought.get(a["id"], 0.0)
 
     operating = sum(expenses_by.values())
     capital = purchases_total - lost_purchases

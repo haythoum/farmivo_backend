@@ -44,6 +44,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "err.already_asked": {"en": "You already asked to join a farm. Cancel that request first",
                           "fr": "Vous avez déjà demandé à rejoindre une ferme. Annulez d'abord cette demande",
                           "ar": "لقد طلبت الانضمام إلى مزرعة بالفعل. ألغِ ذلك الطلب أولًا"},
+    "err.already_member": {"en": "You already belong to this farm", "fr": "Vous faites déjà partie de cette ferme",
+                           "ar": "أنت عضو في هذه المزرعة بالفعل"},
     "err.transfer_first": {"en": "Transfer ownership first", "fr": "Transférez d'abord la propriété",
                            "ar": "انقل الملكية أولًا"},
     "err.owner_must_transfer": {"en": "Transfer ownership before deleting your account",
