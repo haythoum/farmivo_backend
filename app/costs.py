@@ -101,11 +101,18 @@ def animal_costs(repo: Repository, farm_id: str, animal: dict) -> dict:
         result = round(float(animal.get("sale_price") or 0) - total, 2)
     elif animal.get("status") in LOST_STATUSES:
         result = -total
+    direct = round(sum(line["amount"] for line in lines if line["shared_with"] <= 1), 2)
+    on_farm = animal.get("status") in ON_FARM_STATUSES
     return {
         "purchase_price": purchase,
         "purchase_date": animal.get("date_added") if purchase else None,
         "lines": lines, "expenses_total": expenses, "health_total": health, "total_cost": total,
+        # direct = booked on this animal alone; shared = its share of expenses split between several animals
+        "direct_total": direct, "shared_total": round(expenses - direct, 2),
+        # the lowest price it can be sold at without a loss (while it is on the farm)
+        "break_even": total if on_farm else None,
         "sale_price": animal.get("sale_price") if animal.get("status") == "sold" else None,
+        "sale_date": animal.get("status_date") if animal.get("status") == "sold" else None,
         "result": result,
     }
 
@@ -189,6 +196,18 @@ def bilan(repo: Repository, farm_id: str, barn_id: str | None = None) -> dict:
         elif a.get("status") in LOST_STATUSES:
             lost_purchases += hand_bought.get(a["id"], 0.0)
 
+    # Every sold animal still on record: what it cost, what it was sold for, the gain or loss.
+    sold = []
+    for a in animals:
+        if a.get("status") != "sold":
+            continue
+        cost = _bought_price(a) + hand_bought.get(a["id"], 0.0) + animal_expenses.get(a["id"], 0.0)
+        price = float(a.get("sale_price") or 0)
+        sold.append({"id": a["id"], "ear_tag": a.get("ear_tag"), "name": a.get("name"), "species": a.get("species"),
+                     "date": a.get("status_date"), "sale_price": round(price, 2), "total_cost": round(cost, 2),
+                     "result": round(price - cost, 2)})
+    sold.sort(key=lambda x: x["date"] or "", reverse=True)
+
     operating = sum(expenses_by.values())
     capital = purchases_total - lost_purchases
     expenses_total = operating + lost_purchases
@@ -203,5 +222,6 @@ def bilan(repo: Repository, farm_id: str, barn_id: str | None = None) -> dict:
         "sales_total": r(sales_total), "sales_count": len(sold_ids), "other_income": r(other_income),
         "cash_in": r(cash_in),
         "herd_count": herd_count, "herd_value": r(herd_value),
+        "sold": sold, "sales_result": r(sum(x["result"] for x in sold)),
         "profit": r(cash_in + herd_value - capital - expenses_total),
     }

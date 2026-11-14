@@ -261,3 +261,48 @@ def test_deleted_animal_keeps_its_money_in_the_farm_bilan(make_client):
     after = c.get("/v1/finance/bilan").json
     assert after["profit"] == 300 and after["sales_total"] == 1500 and after["purchases_total"] == 1000
 
+
+
+def test_mating_only_within_one_species_and_on_the_farm(make_client):
+    c = farm_client(make_client)
+    ewe = add(c, "E1", species="sheep", sex="female")
+    ram = add(c, "R1", species="sheep", sex="male")
+    bull = add(c, "B1", species="cattle", sex="male")
+    r = c.post("/v1/breedings", json={"dam_id": ewe["id"], "sire_id": bull["id"], "mating_date": "2026-11-01"},
+               headers={"Accept-Language": "ar"})
+    assert r.status_code == 422 and r.json["detail"] == "يجب أن يكون الأب من نوع الأم نفسه (أغنام)"
+    r = c.post("/v1/breedings", json={"dam_id": ram["id"], "mating_date": "2026-11-01"})
+    assert r.status_code == 422  # a male is never the mother
+    assert c.post("/v1/breedings", json={"dam_id": ewe["id"], "sire_id": ram["id"],
+                                         "mating_date": "2026-11-01"}).status_code == 201
+    status(c, ram, "sold", sale_price=500)
+    r = c.post("/v1/breedings", json={"dam_id": ewe["id"], "sire_id": ram["id"], "mating_date": "2026-11-02"})
+    assert r.status_code == 422 and "on the farm" in r.json["detail"]
+
+
+def test_parents_must_be_of_the_animal_species(make_client):
+    c = farm_client(make_client)
+    cow = add(c, "C1", species="cattle", sex="female")
+    r = c.post("/v1/animals", json={"ear_tag": "L1", "species": "sheep", "sex": "female", "mother_id": cow["id"]})
+    assert r.status_code == 422 and "same species" in r.json["detail"]
+    lamb = add(c, "L2", species="sheep", sex="female")
+    assert c.patch(f"/v1/animals/{lamb['id']}", json={"mother_id": cow["id"]}).status_code == 422
+
+
+def test_animal_card_and_sales_list(make_client):
+    """Example of the farm's note: ewe bought 600, 80 on her alone, 70 as her share of the feed; sold 850 → +100."""
+    c = farm_client(make_client)
+    fold = c.post("/v1/barns", json={"name": "Fold"}).json
+    ewe = add(c, "E1", barn_id=fold["id"], purchase_price=600, origin="purchased")
+    other = add(c, "E2", barn_id=fold["id"])
+    expense(c, 80, "veterinary", animal_ids=[ewe["id"]])
+    expense(c, 140, barn_id=fold["id"], whole_barn=True)
+    card = c.get(f"/v1/animals/{ewe['id']}/costs").json
+    assert (card["direct_total"], card["shared_total"], card["total_cost"], card["break_even"]) == (80, 70, 750, 750)
+    status(c, ewe, "sold", sale_price=850, date="2026-11-10")
+    card = c.get(f"/v1/animals/{ewe['id']}/costs").json
+    assert card["break_even"] is None and card["sale_date"] == "2026-11-10" and card["result"] == 100
+    bilan = c.get("/v1/finance/bilan").json
+    assert bilan["sales_result"] == 100
+    assert [(s["ear_tag"], s["sale_price"], s["total_cost"], s["result"]) for s in bilan["sold"]] == [("E1", 850, 750, 100)]
+    assert other["id"] not in [s["id"] for s in bilan["sold"]]

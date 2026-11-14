@@ -7,6 +7,7 @@ from app.errors import ApiError
 from app.routers.animals import ear_tag_taken, render_one, tag_conflict
 from app.routers.crud import build_crud_blueprint, path_of
 from app.schemas import (
+    ON_FARM_STATUSES,
     BirthOut,
     BirthRequest,
     BreedingBase,
@@ -21,19 +22,26 @@ from app.web import body, out
 ACTIVE_PREGNANCY = {"pending", "confirmed"}
 
 
-def _validate_parents(ctx: Ctx, data: dict) -> dict:
-    """Check dam (female) and sire (male), fill expected_birth_date from the gestation table; returns the dam."""
+def _validate_parents(ctx: Ctx, data: dict, new: bool = False) -> dict:
+    """Check dam (female) and sire (male, same species as the dam; a cow is never mated with a ram), fill
+    expected_birth_date from the gestation table; returns the dam. A new mating needs both animals on the farm."""
     dam = ctx.repo.get(path_of(ctx, "animals"), data["dam_id"])
     if not dam:
         raise ApiError(404, "Dam (female) not found")
     if dam.get("sex") != "female":
         raise ApiError(422, "dam_id must reference a female animal")
+    if new and dam.get("status") not in ON_FARM_STATUSES:
+        raise ApiError(422, f"Only animals on the farm can be mated ({dam.get('ear_tag')})")
     if data.get("sire_id"):
         sire = ctx.repo.get(path_of(ctx, "animals"), data["sire_id"])
         if not sire:
             raise ApiError(404, "Sire (male) not found")
         if sire.get("sex") != "male":
             raise ApiError(422, "sire_id must reference a male animal")
+        if sire.get("species") != dam.get("species"):
+            raise ApiError(422, f"The father must be of the same species as the mother ({dam.get('species')})")
+        if new and sire.get("status") not in ON_FARM_STATUSES:
+            raise ApiError(422, f"Only animals on the farm can be mated ({sire.get('ear_tag')})")
     if not data.get("expected_birth_date"):
         suggested = expected_birth(dam.get("species"), parse_date(data["mating_date"]))
         data["expected_birth_date"] = suggested.isoformat() if suggested else None
@@ -46,7 +54,7 @@ def _before_create(ctx: Ctx, data: dict) -> dict:
     """CRUD hook: validate parents and start with no birth recorded."""
     if data.get("pregnancy_status") == "delivered":
         raise ApiError(422, "Record the birth to mark a pregnancy as delivered")
-    _validate_parents(ctx, data)
+    _validate_parents(ctx, data, new=True)
     return {**data, "actual_birth_date": None, "offspring_ids": []}
 
 

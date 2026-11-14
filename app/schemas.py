@@ -699,8 +699,24 @@ class AnimalCostsOut(BaseModel):
     expenses_total: float
     health_total: float    # of which vet, medicine and vaccines
     total_cost: float      # purchase + expenses
+    direct_total: float = 0  # expenses booked on this animal alone
+    shared_total: float = 0  # its share of expenses split between several animals (feed of the barn …)
+    break_even: float | None = None  # lowest sale price without a loss (= total cost), while on the farm
     sale_price: float | None = None
+    sale_date: Date | None = None
     result: float | None = None  # sale price - total cost once sold; - total cost once dead or given
+
+
+class SoldAnimal(BaseModel):
+    """One sold animal in the balance sheet's sales section."""
+    id: str
+    ear_tag: str | None = None
+    name: str | None = None
+    species: str | None = None
+    date: Date | None = None
+    sale_price: float
+    total_cost: float      # purchase + its expenses
+    result: float          # sale_price - total_cost
 
 
 class BilanOut(BaseModel):
@@ -728,6 +744,8 @@ class BilanOut(BaseModel):
     # 4. Herd and result
     herd_count: int
     herd_value: float      # purchase price + expenses of the animals still on the farm
+    sold: list[SoldAnimal] = []  # newest first (sold animals deleted since are not listed)
+    sales_result: float = 0      # sum of the sold animals' gains and losses
     profit: float
 
 

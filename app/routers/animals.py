@@ -129,6 +129,10 @@ def check_parents(ctx: Ctx, data: dict, animal_id: str | None = None) -> None:
             raise ApiError(404, f"{field} animal not found")
         if parent.get("sex") != expected_sex:
             raise ApiError(422, f"{field} must reference a {expected_sex} animal")
+        species = data.get("species")
+        if species and parent.get("species") and parent["species"] != species:
+            raise ApiError(422, f"The {'mother' if field == 'mother_id' else 'father'} must be of the same species "
+                                f"as the animal ({species})")
 
 
 @bp.get("/animals")
@@ -231,7 +235,7 @@ def update_animal(animal_id: str):
     if ("ear_tag" in patch or "species" in patch) and ear_tag_taken(ctx, merged["ear_tag"], merged["species"],
                                                                      exclude_id=animal_id):
         raise tag_conflict(merged["ear_tag"], merged["species"])
-    check_parents(ctx, patch, animal_id)
+    check_parents(ctx, {**patch, "species": merged["species"]}, animal_id)
     if patch.get("barn_id") and existing.get("status") in LEFT_STATUSES:
         raise ApiError(422, "This animal is no longer on the farm")
     if "barn_id" in patch or "species" in patch:
