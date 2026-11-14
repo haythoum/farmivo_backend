@@ -1,7 +1,7 @@
 """Barns of a farm (/v1/barns), the age-by-teeth catalog (/v1/age-classes) and the breed lists (/v1/breeds).
 
-A farm can have several barns (sheepfold, stable for the horses, cow shed ...). A barn may be reserved to one
-species; each animal can be placed in one barn (``barn_id`` on the animal). Everyone on the farm can read them;
+A farm can have several barns (sheepfold, stable for the horses, cow shed ...). A barn may be kept for one
+species or several mixed (``species_list``; empty = any); each animal can be placed in one barn (``barn_id``). Everyone on the farm can read them;
 workers and above create and edit them, managers and the owner delete them (the usual role policy).
 """
 from __future__ import annotations
@@ -11,14 +11,14 @@ from datetime import timedelta
 from flask import Blueprint
 from pydantic import ValidationError
 
-from app import age_classes, breeds
+from app import age_classes, breeds, costs
 from app.deps import Ctx, get_ctx
 from app.errors import ApiError, validation_error
 from app.i18n import request_lang
 from app.routers.crud import clean, path_of
 from app.schemas import ON_FARM_STATUSES, BarnBase, BarnOut, BarnUpdate
 from app.utils import today
-from app.web import body, no_content, out
+from app.web import body, no_content, out, q_str
 
 bp = Blueprint("barns", __name__)
 
@@ -40,7 +40,7 @@ def _render(barn: dict, animals: list[dict], attention: tuple[set[str], set[str]
     here = [a for a in animals if a.get("barn_id") == barn["id"] and a.get("status") in ON_FARM_STATUSES]
     pregnant, due = attention
     return BarnOut.model_validate({
-        **clean(barn, BarnOut), "id": barn["id"],
+        **clean(barn, BarnOut), "id": barn["id"], "species_list": costs.barn_species(barn), "species": None,
         "animal_count": len(here),
         "sick_count": sum(1 for a in here if a.get("status") in ("sick", "quarantine")),
         "pregnant_count": sum(1 for a in here if a["id"] in pregnant),
@@ -61,12 +61,12 @@ def _check_name(ctx: Ctx, name: str, exclude_id: str | None = None) -> None:
             raise ApiError(409, f"A barn named '{name}' already exists")
 
 
-def _check_species(ctx: Ctx, barn_id: str, species: str | None) -> None:
-    """A barn reserved to one species cannot already hold animals of another one (422)."""
+def _check_species(ctx: Ctx, barn_id: str, species: list[str]) -> None:
+    """A barn kept for some species cannot already hold animals of another one (422)."""
     if not species:
         return
     others = [a for a in ctx.repo.list(path_of(ctx, "animals"), [("barn_id", "==", barn_id)])
-              if a.get("species") != species and a.get("status") in ON_FARM_STATUSES]
+              if a.get("species") not in species and a.get("status") in ON_FARM_STATUSES]
     if others:
         raise ApiError(422, f"{len(others)} animals of another species are in this barn")
 
@@ -108,25 +108,43 @@ def update_barn(barn_id: str):
     patch = body(BarnUpdate).model_dump(mode="json", exclude_unset=True)
     if "name" in patch and patch["name"] is None:
         raise ApiError(422, "name cannot be null")
+    base = {**clean(existing, BarnBase), "species_list": costs.barn_species(existing)}
+    if "species" in patch and "species_list" not in patch:  # older apps send one species (or null = any)
+        patch["species_list"] = [patch["species"]] if patch["species"] else []
+    if patch.get("species_list") is None and "species_list" in patch:
+        patch["species_list"] = []
     try:
-        merged = BarnBase.model_validate({**clean(existing, BarnBase), **patch}).model_dump(mode="json")
+        merged = BarnBase.model_validate({**base, **patch, "species": None}).model_dump(mode="json")
     except ValidationError as exc:
         raise validation_error(exc) from exc
     if "name" in patch:
         _check_name(ctx, merged["name"], exclude_id=barn_id)
-    if patch.get("species"):
-        _check_species(ctx, barn_id, merged["species"])
+    if "species_list" in patch:
+        _check_species(ctx, barn_id, merged["species_list"])
+        patch["species_list"], patch["species"] = merged["species_list"], merged["species"]
     barn = ctx.repo.update(path_of(ctx, "barns"), barn_id, patch) or existing
     return out(_render(barn, ctx.repo.list(path_of(ctx, "animals"), [("barn_id", "==", barn_id)]), _attention(ctx)))
 
 
 @bp.delete("/barns/<barn_id>")
 def delete_barn(barn_id: str):
-    """DELETE /v1/barns/<id> - delete a barn; its animals stay on the farm without a barn."""
+    """DELETE /v1/barns/<id>?move_to=<barn id> - delete a barn. Its animals go to the barn ``move_to`` (all or
+    nothing: 422 if one does not fit that barn's species) or, without it, outside (no barn). Animals that left
+    the farm only forget the barn."""
+    from app.routers.animals import check_barn
+
     ctx = get_ctx()
     _get_or_404(ctx, barn_id)
-    for animal in ctx.repo.list(path_of(ctx, "animals"), [("barn_id", "==", barn_id)]):
-        ctx.repo.update(path_of(ctx, "animals"), animal["id"], {"barn_id": None})
+    move_to = q_str("move_to") or None
+    if move_to == barn_id:
+        raise ApiError(422, "Choose another barn")
+    inside = ctx.repo.list(path_of(ctx, "animals"), [("barn_id", "==", barn_id)])
+    for animal in inside:
+        check_barn(ctx, move_to, animal.get("species"))  # 404 / 422 before anything changes
+    for animal in inside:
+        ctx.repo.update(path_of(ctx, "animals"), animal["id"], {"barn_id": move_to})
+    for animal in ctx.repo.list(path_of(ctx, "animals"), [("last_barn_id", "==", barn_id)]):
+        ctx.repo.update(path_of(ctx, "animals"), animal["id"], {"last_barn_id": None})
     ctx.repo.delete(path_of(ctx, "barns"), barn_id)
     return no_content()
 

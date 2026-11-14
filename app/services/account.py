@@ -4,7 +4,7 @@ What is deleted:
 
 - always: the user's devices (push tokens), the ``users/<uid>`` record, a pending email code and the
   user's membership or join request, and the notifications about them (join requests) or only for them;
-- if the user is the owner and nobody else is an active member: the whole farm, with every record
+- for each farm the user owns where nobody else is an active member: the whole farm, with every record
   (animals, barns, health, breeding, growth, production, feeding, finance, reminders, notifications, members) and
   the animal photos. People who were waiting for approval lose their request;
 - if the user is the owner and other active members exist: nothing; 409 ``owner_must_transfer``
@@ -37,17 +37,18 @@ def delete_account(repo: Repository, photo_store, identity: Identity) -> dict:
     has other active members.
     """
     uid = identity.uid
-    current = resolve(repo, identity)
-    farm_deleted = False
-    if current.farm and current.status == "active" and current.role == "owner":
-        others = [m for m in repo.list(members_path(current.farm["id"]))
-                  if m.get("status") == "active" and m["id"] != uid]
-        if others:
-            raise ApiError(409, "Transfer ownership before deleting your account", code="owner_must_transfer")
-        delete_farm(repo, photo_store, current.farm)
-        farm_deleted = True
-    elif current.farm:
-        repo.delete(members_path(current.farm["id"]), uid)
+    resolve(repo, identity)  # repairs legacy accounts first
+    owned = []
+    for member in repo.group_list("members", [("uid", "==", uid)]):
+        farm = repo.get("farms", member.get("parent_id") or "")
+        if farm and member.get("status") == "active" and member.get("role") == "owner":
+            others = [m for m in repo.list(members_path(farm["id"])) if m.get("status") == "active" and m["id"] != uid]
+            if others:
+                raise ApiError(409, "Transfer ownership before deleting your account", code="owner_must_transfer")
+            owned.append(farm)
+    for farm in owned:  # every farm the user owns alone (checked above, before anything is deleted)
+        delete_farm(repo, photo_store, farm)
+    farm_deleted = bool(owned)
     # also older rejected or pending records in other farms
     for member in repo.group_list("members", [("uid", "==", uid)]):
         repo.delete(members_path(member["parent_id"]), uid)

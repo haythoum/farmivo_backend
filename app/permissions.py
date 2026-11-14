@@ -28,16 +28,18 @@ def can_see_finance(role: str | None) -> bool:
 def required_role(method: str, path: str) -> str:
     """Lowest role allowed to call ``method path`` (path with or without the /v1 prefix).
 
-    - owner only: transferring ownership
-    - manager+: finance, financial report, members and invite code, farm settings (PATCH /farm), barns
+    - owner only: transferring ownership, deleting the farm (DELETE /farm)
+    - manager+: finance, an animal's costs, financial report, members and invite code, farm settings (PATCH /farm), barns
       (POST/PATCH/DELETE), any DELETE of farm records (except notifications)
     - worker+: creating and editing records (POST/PATCH), deleting notifications
     - viewer+: reading (GET) everything else, marking notifications read
     """
     p = path[3:] if path.startswith("/v1/") else path
     method = method.upper()
-    if p.startswith("/farm/transfer-ownership"):
-        return "owner"
+    if p.startswith("/farm/transfer-ownership") or (p == "/farm" and method == "DELETE"):
+        return "owner"  # transferring ownership, deleting the farm
+    if p.startswith("/animals/") and p.endswith("/costs"):
+        return "manager"  # what an animal cost: finance
     if p.startswith(_MANAGER_PREFIXES):
         return "manager"
     if method in ("GET", "HEAD", "OPTIONS"):

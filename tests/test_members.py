@@ -26,7 +26,7 @@ def test_new_user_has_no_farm_and_no_auto_creation(make_client, repo):
     c = make_client("new")
     me = c.get("/v1/me").json
     assert me == {"uid": "new", "email": "new@example.com", "status": "none", "role": None, "farm": None, "name": None,
-                  "email_verified": True}
+                  "email_verified": True, "farms_count": 0}
     r = c.get("/v1/animals")
     assert r.status_code == 403 and r.json["code"] == "no_farm"
     assert repo.list("farms") == []
@@ -39,7 +39,6 @@ def test_create_farm_makes_owner(make_client):
     assert r.json["status"] == "active" and r.json["role"] == "owner" and r.json["farm"]["name"] == FARM["name"]
     farm = c.get("/v1/farm").json
     assert farm["role"] == "owner" and farm["currency"] == "TND" and farm["invite_code"].startswith("GVF-")
-    assert c.post("/v1/farms", json=FARM).status_code == 409
 
 
 def test_create_farm_validation(make_client):

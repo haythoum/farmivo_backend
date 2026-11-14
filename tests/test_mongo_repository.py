@@ -36,4 +36,25 @@ def test_one_collection_per_type(repo):
     raw = repo._db["animals"].find_one({"_id": a["id"]})
     assert raw["farm_id"] == "f1" and raw["ear_tag"] == "A"
     repo.set("users/u1/devices", "tok", {"platform": "ios"})
-    assert repo._db["devices"].find_one({"_id": "tok"})["user_id"] == "u1"
+    assert repo._db["devices"].find_one({"_id": "u1/tok"})["user_id"] == "u1"
+
+
+def test_same_id_under_two_parents(repo):
+    """One person, member of two farms: two records, not one overwriting the other."""
+    repo.set("farms/f1/members", "u1", {"role": "owner"})
+    repo.set("farms/f2/members", "u1", {"role": "worker"})
+    assert repo.get("farms/f1/members", "u1")["role"] == "owner"
+    assert repo.get("farms/f2/members", "u1")["role"] == "worker"
+    assert sorted((m["parent_id"], m["id"]) for m in repo.group_list("members")) == [("f1", "u1"), ("f2", "u1")]
+    assert repo.update_where("farms/f2/members", "u1", {"role": "worker"}, {"role": "manager"})["role"] == "manager"
+    assert repo.delete("farms/f1/members", "u1") and repo.get("farms/f2/members", "u1")["role"] == "manager"
+
+
+def test_older_plain_id_records_are_still_found_and_upgraded(repo):
+    repo._db["members"].insert_one({"_id": "u1", "farm_id": "f1", "role": "owner", "created_at": "2026-01-01"})
+    assert repo.get("farms/f1/members", "u1")["role"] == "owner"
+    assert [m["id"] for m in repo.list("farms/f1/members")] == ["u1"]
+    assert repo.update("farms/f1/members", "u1", {"role": "manager"})["role"] == "manager"
+    upgraded = repo.set("farms/f1/members", "u1", {"role": "owner"})
+    assert upgraded["created_at"] == "2026-01-01"
+    assert [r["_id"] for r in repo._db["members"].find({})] == ["f1/u1"]

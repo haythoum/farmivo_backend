@@ -102,6 +102,11 @@ The server enforces this on every request (`app/permissions.py`); a refused call
 | `PATCH /farm` | `{name?, currency? (3 letters), country?, address? (max 200)}` (manager or owner) | Farm |
 | `POST /devices` | `{token, platform: "android"\|"ios", language?: "ar"\|"fr"\|"en"}` (FCM token) | `204`. Works without a farm, so a pending user receives the approval push. `language` is the language pushes to this phone use (default: the request's `Accept-Language`); send it again when the user changes the app language |
 | `DELETE /devices?token=...` | | `204` (call on sign-out) |
+| `DELETE /farm` | (owner only) | `204`: the farm, every record under it and the photos are deleted; its people keep their account. The app asks for the password first (Firebase re-authentication): the token's `auth_time` must be less than 5 minutes old, else `403 recent_login_required` |
+| `GET /me/farms` | | `[{id, name, role, status: "active"\|"pending", current}]`: the user's farms and pending requests (works without a farm) |
+| `POST /me/farm` | `{farm_id}` | `/me` of that farm: the user now works in it (`403` if not an active member there) |
+
+Several farms: an account can own or work in several farms. `POST /farms` while already in a farm creates one more and switches to it; `POST /farms/join` while in a farm keeps the user where they are (the request shows in `GET /me/farms`, and stays listed once accepted). `/me` has `farms_count` (active farms): more than one, the apps show a farm switcher.
 
 Farm: `{id, name, currency, country, address, owner_uid, invite_code (null unless the caller is manager or owner), role (the caller's role), created_at, updated_at}`.
 Call `POST /devices` after login and whenever the FCM token refreshes.
@@ -176,12 +181,14 @@ Create requires `dam_id` (female) and `mating_date`; `sire_id` (male) optional, 
 
 A farm can have several barns (cow shed, sheepfold, stable ...). Everyone reads them; managers and the owner create, edit and delete them.
 
-Barn: `{id, name, species (null = any species), capacity, notes, animal_count (animals on the farm in it)}`.
+Barn: `{id, name, species_list ([] = any; one or several species mixed), species (the single species when there is exactly one, else null; older apps may still send only it), capacity, notes, animal_count (animals on the farm in it)}`.
 
 - `GET /barns` → `[Barn]` by name. Barn: `{id, name, species, capacity, notes, animal_count, sick_count, pregnant_count, vaccines_due_count}` — counts cover animals on the farm in the barn: sick or in quarantine, confirmed pregnancies, and a vaccination overdue or due within 7 days.
 - `POST /barns` `{name (unique on the farm, case-insensitive), species?, capacity? (≥ 1), notes?}` → `201 Barn` (`409` duplicate name).
 - `GET /barns/{id}` → Barn; `PATCH /barns/{id}` → Barn (`422` when reserving the barn to a species while animals of another species are in it).
-- `DELETE /barns/{id}` → `204`; its animals stay on the farm without a barn.
+- `DELETE /barns/{id}?move_to={barn id}` → `204`; its animals go to the barn `move_to` (all or nothing: `422` if one does not fit that barn's species, `404` unknown barn) or, without `move_to`, outside (no barn). The apps show how many animals are inside and ask where they go first.
+
+An animal that leaves the farm (sold, deceased, donated, gifted, sacrificed) leaves its barn: `barn_id` becomes null and `last_barn_id` / `last_barn_name` keep the barn (it still counts in that barn's balance sheet; undoing with `active` puts it back). Such an animal cannot leave a second time (`409`): the same status again only corrects it (e.g. the sale price, never booked twice), `active` undoes it; it cannot be moved into a barn (`422`).
 
 ## Growth & production
 
@@ -192,7 +199,9 @@ Barn: `{id, name, species (null = any species), capacity, notes, animal_count (a
 
 ## Finance
 
-- Transactions `/transactions`: **type**, **category**, **amount** (>0), **date**, description, animal_id. (Filters as above, date field `date`.)
+- Transactions `/transactions`: **type**, **category**, **amount** (>0), **date**, description, `barn_id?`, `whole_barn` (true: shared by every animal on the farm in the barn when saved; the server fills `animal_ids`), `animal_ids?` (the chosen animals; `animal_id` = one animal, kept for older apps). The amount is shared equally: each animal's file shows its share. Returned with `label` (description in the caller's language: the app's own "Purchase of …" / "Sale of …" are translated), `barn_name`, `share` (per animal when shared by several). (Filters as above, date field `date`.)
+- `GET /animals/{id}/costs` (manager+) → `{currency, purchase_price (0 when born on the farm), purchase_date, expenses: [{transaction_id, date, category, label, amount (its share), total_amount, shared_with}], expenses_total, health_total (veterinary + medication), total_cost, sale_price, result (sale − total cost once sold; − total cost once dead or given)}`.
+- `GET /finance/bilan?barn_id=` (manager+) → the herd's balance sheet, all dates, for the farm or one barn: `{currency, barn_id, purchases_total, purchases_count, lost_purchases (price of bought animals that died or were given), capital (= purchases − lost), expenses_by_category (operating, without the purchase transactions), operating_expenses, lost_count, expenses_total (= operating + lost), sales_total, sales_count, other_income (milk, wool…), cash_in, herd_count, herd_value (purchase price + expenses of the animals still on the farm), profit}` with **profit = (cash_in + herd_value) − (capital + expenses_total)**.
 - `GET /finance/summary?date_from=&date_to=` → `{date_from, date_to, currency, income, expenses, net, income_by_category: {cat: amount}, expenses_by_category: {…}, monthly: [{month: "YYYY-MM", income, expenses}]}`. Default window: last 30 days.
 
 ## Dashboard

@@ -154,7 +154,7 @@ def get_identity() -> Identity:
     forced = _override("uid")
     if forced:
         identity = Identity(uid=forced, email=_override("email"), name=_override("name"),
-                            email_verified=bool(_override("email_verified")))
+                            email_verified=bool(_override("email_verified")), auth_time=_override("auth_time"))
     else:
         header = request.headers.get("Authorization", "")
         scheme, _, token = header.partition(" ")
@@ -170,7 +170,7 @@ def get_identity() -> Identity:
             current_app.logger.warning("Rejected Firebase token: %s", exc)
             raise ApiError(401, "Invalid or expired token") from exc
         identity = Identity(uid=decoded["uid"], email=decoded.get("email"), name=decoded.get("name"),
-                            email_verified=bool(decoded.get("email_verified")))
+                            email_verified=bool(decoded.get("email_verified")), auth_time=decoded.get("auth_time"))
     g.farmivo_identity = identity
     if g.get("lang_given"):
         remember_lang(get_repo(), identity.uid, g.lang)

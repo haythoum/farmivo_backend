@@ -184,6 +184,21 @@ class MeOut(BaseModel):
     role: str | None = None  # owner | manager | worker | viewer, only when status is active
     farm: MeFarm | None = None
     email_verified: bool = False  # false until the 6-digit email code is confirmed (POST /v1/me/verification/verify)
+    farms_count: int = 0  # active farms of the user (more than one: the apps show a farm switcher)
+
+
+class MyFarmOut(BaseModel):
+    """One farm of GET /v1/me/farms."""
+    id: str
+    name: str | None = None
+    role: str | None = None
+    status: str  # active | pending
+    current: bool = False
+
+
+class SwitchFarmIn(Strict):
+    """POST /v1/me/farm body: the farm to work in (an active membership)."""
+    farm_id: str = Field(min_length=1, max_length=64)
 
 
 class NameIn(Strict):
@@ -319,6 +334,10 @@ class AnimalOut(Record):
     purchase_price: float | None = None
     barn_id: str | None = None
     barn_name: str | None = None
+    # When the animal left the farm (sold, dead, given ...) it leaves its barn; the barn is remembered for
+    # that barn's figures (GET /v1/finance/bilan?barn_id=).
+    last_barn_id: str | None = None
+    last_barn_name: str | None = None
     age_days: int | None = None
     age_months: int | None = None
     age_label: str | None = None
@@ -343,11 +362,22 @@ class StatusChange(Strict):
 
 # --------------------------------------------------------------------- barns
 class BarnBase(Strict):
-    """A barn (stable, pen, fold) of the farm. ``species`` empty = any species."""
+    """A barn (stable, pen, fold) of the farm. ``species_list``: the species it takes (one, several mixed, or
+    empty = any). ``species`` is the single species when there is exactly one (kept for older apps: sending
+    only ``species`` means ``species_list = [species]``)."""
     name: str = Field(min_length=1, max_length=60)
     species: Species | None = None
+    species_list: list[Species] = Field(default_factory=list, max_length=12)
     capacity: int | None = Field(default=None, ge=1, le=100000)
     notes: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _species_agree(self) -> "BarnBase":
+        if self.species and not self.species_list:
+            self.species_list = [self.species]
+        self.species_list = list(dict.fromkeys(self.species_list))  # each once, in order
+        self.species = self.species_list[0] if len(self.species_list) == 1 else None
+        return self
 
 
 BarnUpdate = make_partial(BarnBase, "BarnUpdate")
@@ -622,21 +652,83 @@ class ProductionSummary(BaseModel):
 
 # ------------------------------------------------------------------ finance
 class TransactionBase(Strict):
-    """Income/expense body."""
+    """Income/expense body. An expense can be for the whole farm, for a barn (``barn_id``) or for animals:
+    ``whole_barn`` true = every animal on the farm in the barn on save (the server fills ``animal_ids``), else
+    the chosen ``animal_ids`` (``animal_id`` = one animal, kept for older apps). The amount is shared equally
+    between those animals: each animal's file shows its share."""
     type: TransactionType
     category: str = Field(min_length=1, max_length=60)
     amount: float = Field(gt=0, le=1e12)
     date: Date
     description: str | None = Field(default=None, max_length=300)
     animal_id: str | None = None
+    barn_id: BarnRef = None
+    whole_barn: bool = False
+    animal_ids: list[str] = Field(default_factory=list, max_length=2000)
 
 
 TransactionUpdate = make_partial(TransactionBase, "TransactionUpdate")
 
 
 class TransactionOut(TransactionBase, Record):
-    """Transaction as returned."""
-    pass
+    """Transaction as returned: ``label`` is the description in the caller's language (purchases and sales
+    booked by the app are written for the language of whoever reads them), ``barn_name`` and ``share`` (amount
+    per animal when it is shared between animals)."""
+    label: str | None = None
+    barn_name: str | None = None
+    share: float | None = None
+
+
+class CostLine(BaseModel):
+    """One expense that concerns an animal: its share of it."""
+    transaction_id: str
+    date: Date
+    category: str
+    label: str | None = None
+    amount: float          # this animal's share
+    total_amount: float    # the whole expense
+    shared_with: int       # how many animals share it (1 = this animal alone)
+
+
+class AnimalCostsOut(BaseModel):
+    """GET /v1/animals/<id>/costs: what the animal cost, what was spent on it and, once sold, the result."""
+    currency: str
+    purchase_price: float  # 0 when born on the farm
+    purchase_date: Date | None = None
+    expenses: list[CostLine]
+    expenses_total: float
+    health_total: float    # of which vet, medicine and vaccines
+    total_cost: float      # purchase + expenses
+    sale_price: float | None = None
+    result: float | None = None  # sale price - total cost once sold; - total cost once dead or given
+
+
+class BilanOut(BaseModel):
+    """GET /v1/finance/bilan: the herd's balance sheet (all dates), for the farm or one barn.
+
+    profit = (cash_in + herd_value) - (capital + expenses_total), where capital = what was paid for the animals
+    still on the farm or sold, and expenses_total includes the price of animals lost (dead) or given away."""
+    currency: str
+    barn_id: str | None = None
+    # 1. Purchases (capital turned into animals)
+    purchases_total: float
+    purchases_count: int
+    lost_purchases: float  # purchase price of the bought animals that died or were given away
+    capital: float         # purchases_total - lost_purchases
+    # 2. Expenses
+    expenses_by_category: dict[str, float]
+    operating_expenses: float
+    lost_count: int
+    expenses_total: float  # operating_expenses + lost_purchases
+    # 3. Sales
+    sales_total: float
+    sales_count: int
+    other_income: float    # milk, wool ... (farm-wide, or booked on the barn)
+    cash_in: float         # sales_total + other_income
+    # 4. Herd and result
+    herd_count: int
+    herd_value: float      # purchase price + expenses of the animals still on the farm
+    profit: float
 
 
 class MonthlyFinance(BaseModel):

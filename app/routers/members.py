@@ -18,7 +18,8 @@ from app.deps import get_ctx, get_identity, get_mailer, get_notifier, get_photo_
 from app.errors import ApiError
 from app.schemas import (
     NameIn,
-    ApproveIn, FarmCreate, InviteCodeOut, JoinIn, MemberOut, MeOut, RoleIn, TransferIn, VerificationSentOut, VerifyIn,
+    ApproveIn, FarmCreate, InviteCodeOut, JoinIn, MemberOut, MeOut, MyFarmOut, RoleIn, SwitchFarmIn, TransferIn,
+    VerificationSentOut, VerifyIn,
 )
 from app.services import account, membership, verification
 from app.web import body, no_content, out
@@ -29,7 +30,9 @@ bp = Blueprint("members", __name__)
 def _me(identity, state) -> MeOut:
     repo = get_repo()
     verified = verification.is_verified(repo, identity, state)
-    return MeOut.model_validate(membership.me_payload(identity, state, verified, membership.user_name(repo, identity)))
+    count = len(membership.my_farms(repo, identity.uid, active_only=True))
+    return MeOut.model_validate(membership.me_payload(identity, state, verified, membership.user_name(repo, identity),
+                                                      count))
 
 
 def _require_verified(identity) -> None:
@@ -51,6 +54,23 @@ def update_me():
     identity = get_identity()
     membership.set_name(get_repo(), identity, body(NameIn).name)
     return out(_me(identity, membership.resolve(get_repo(), identity)))
+
+
+@bp.get("/me/farms")
+def my_farms():
+    """GET /v1/me/farms - the user's farms (active, with the role) and pending requests; ``current`` marks the
+    farm the user works in now."""
+    identity = get_identity()
+    membership.resolve(get_repo(), identity)
+    return out([MyFarmOut.model_validate(f) for f in membership.my_farms(get_repo(), identity.uid)])
+
+
+@bp.post("/me/farm")
+def switch_farm():
+    """POST /v1/me/farm {"farm_id"} - work in another of the user's farms; returns /me (403 if not an active
+    member there)."""
+    identity = get_identity()
+    return out(_me(identity, membership.switch_farm(get_repo(), identity, body(SwitchFarmIn).farm_id)))
 
 
 @bp.post("/me/verification/send")
@@ -119,8 +139,9 @@ def _delete_firebase_user(uid: str) -> None:
 
 @bp.post("/farms")
 def create_farm():
-    """POST /v1/farms - create a farm and become its owner (201). 409 if already in or waiting for a farm,
-    403 email_unverified before the email code was confirmed."""
+    """POST /v1/farms - create a farm and become its owner (201); the user then works in it (their other farms
+    stay in GET /me/farms). 409 while only waiting for approval somewhere, 403 email_unverified before the email
+    code was confirmed."""
     identity = get_identity()
     _require_verified(identity)
     data = body(FarmCreate).model_dump(exclude_none=True)
@@ -129,8 +150,9 @@ def create_farm():
 
 @bp.post("/farms/join")
 def join_farm():
-    """POST /v1/farms/join - ask to join the farm with this invite code; waits for approval (status pending).
-    403 email_unverified before the email code was confirmed."""
+    """POST /v1/farms/join - ask to join the farm with this invite code; waits for approval. Without a farm the
+    user's status becomes pending; already working in a farm, they stay there and the request shows in
+    GET /me/farms. 409 if already a member there, 403 email_unverified before the email code was confirmed."""
     identity = get_identity()
     _require_verified(identity)
     code = body(JoinIn).invite_code

@@ -9,9 +9,11 @@ from app.config import get_settings
 from app.deps import Ctx, get_ctx, get_photo_store
 from app.errors import ApiError, validation_error
 from app.routers.crud import clean, get_animal_or_404, path_of
-from app import age_classes, breeds
+from app import age_classes, breeds, costs
 from app.i18n import request_lang
 from app.schemas import (
+    AnimalCostsOut,
+    CostLine,
     DEAD_STATUSES,
     LEFT_STATUSES,
     ON_FARM_STATUSES,
@@ -50,13 +52,19 @@ def render_animal(record: dict, barns: dict[str, str] | None = None) -> AnimalOu
              "breed_label": breeds.label(record.get("species"), record.get("breed"), request_lang())}
     if barns is not None and record.get("barn_id"):
         extra["barn_name"] = barns.get(record["barn_id"])
+    if barns is not None and record.get("last_barn_id"):
+        extra["last_barn_name"] = barns.get(record["last_barn_id"])
     return AnimalOut.model_validate({**record, **extra})
 
 
 def render_one(ctx: Ctx, record: dict) -> AnimalOut:
-    """render_animal for a single animal, with its barn name."""
-    barn = ctx.repo.get(path_of(ctx, "barns"), record["barn_id"]) if record.get("barn_id") else None
-    return render_animal(record, {barn["id"]: barn.get("name", "")} if barn else {})
+    """render_animal for a single animal, with its barn names."""
+    names = {}
+    for key in ("barn_id", "last_barn_id"):
+        barn = ctx.repo.get(path_of(ctx, "barns"), record[key]) if record.get(key) else None
+        if barn:
+            names[barn["id"]] = barn.get("name", "")
+    return render_animal(record, names)
 
 
 def ear_tag_taken(ctx: Ctx, ear_tag: str, species: str | None, exclude_id: str | None = None) -> bool:
@@ -72,14 +80,15 @@ def tag_conflict(tag: str, species: str | None) -> ApiError:
 
 
 def check_barn(ctx: Ctx, barn_id: str | None, species: str | None) -> None:
-    """The barn must exist on this farm and, when it is reserved to one species, match the animal's (404/422)."""
+    """The barn must exist on this farm and, when it is kept for some species, take the animal's (404/422)."""
     if not barn_id:
         return
     barn = ctx.repo.get(path_of(ctx, "barns"), barn_id)
     if not barn:
         raise ApiError(404, "Barn not found")
-    if barn.get("species") and species and barn["species"] != species:
-        raise ApiError(422, f"Barn '{barn.get('name')}' is for {barn['species']}, not {species}")
+    allowed = costs.barn_species(barn)
+    if allowed and species and species not in allowed:
+        raise ApiError(422, f"Barn '{barn.get('name')}' is for {', '.join(allowed)}, not {species}")
 
 
 def sync_purchase(ctx: Ctx, animal: dict) -> dict:
@@ -167,6 +176,7 @@ def create_animal():
     check_barn(ctx, data.get("barn_id"), data["species"])
     if data["status"] in LEFT_STATUSES:
         data["status_date"] = animal.date_added.isoformat()
+        data["last_barn_id"], data["barn_id"] = data.get("barn_id"), None  # an animal that left is in no barn
     created = sync_purchase(ctx, ctx.repo.create(path_of(ctx, "animals"), data))
     return out(render_one(ctx, created), 201)
 
@@ -222,6 +232,8 @@ def update_animal(animal_id: str):
                                                                      exclude_id=animal_id):
         raise tag_conflict(merged["ear_tag"], merged["species"])
     check_parents(ctx, patch, animal_id)
+    if patch.get("barn_id") and existing.get("status") in LEFT_STATUSES:
+        raise ApiError(422, "This animal is no longer on the farm")
     if "barn_id" in patch or "species" in patch:
         check_barn(ctx, merged.get("barn_id"), merged["species"])
     updated = ctx.repo.update(path_of(ctx, "animals"), animal_id, patch) or existing
@@ -239,7 +251,21 @@ def change_status(animal_id: str):
     animal = get_animal_or_404(ctx, animal_id)
     change = body(StatusChange)
     status = change.status.value
+    current = animal.get("status", "active")
+    if current in LEFT_STATUSES and status not in ("active", current):
+        # Sold, dead or given: it cannot leave a second time (sold after dead ...). The same status again corrects
+        # it (a sale price or date: the one sale transaction is updated, never doubled); "active" undoes a mistake.
+        raise ApiError(409, "This animal is no longer on the farm")
     patch: dict = {"status": status, "status_date": change.date.isoformat(), "status_notes": change.notes}
+    if status in LEFT_STATUSES and current not in LEFT_STATUSES:
+        # It leaves its barn; the barn is remembered for that barn's figures (and for an undo).
+        patch["last_barn_id"] = animal.get("barn_id") or animal.get("last_barn_id")
+        patch["barn_id"] = None
+    elif status not in LEFT_STATUSES and current in LEFT_STATUSES:
+        # Back on the farm (undo): into its old barn when that barn still exists.
+        back = animal.get("last_barn_id")
+        patch["barn_id"] = back if back and ctx.repo.get(path_of(ctx, "barns"), back) else None
+        patch["last_barn_id"] = None
     patch["buyer"] = change.buyer if status == "sold" else None
     patch["sale_price"] = change.sale_price if status == "sold" else None
     patch["recipient"] = change.recipient if status in ("donated", "gifted") else None
@@ -328,6 +354,20 @@ def upload_photo(animal_id: str):
     if animal.get("photo_url") and animal["photo_url"] != url:
         _delete_photo(animal["photo_url"])  # the previous photo is no longer reachable from the app
     return out(render_one(ctx, updated))  # type: ignore[arg-type]
+
+
+@bp.get("/animals/<animal_id>/costs")
+def get_costs(animal_id: str):
+    """GET /v1/animals/<id>/costs - purchase price, every expense shared with the animal (its share), the total
+    and, once sold, the gain or loss (managers and the owner)."""
+    from app.routers.finance import farm_currency, tx_label
+
+    ctx = get_ctx()
+    animal = get_animal_or_404(ctx, animal_id)
+    c = costs.animal_costs(ctx.repo, ctx.farm_id, animal)
+    lines = [CostLine.model_validate({**line, "label": tx_label(line, request_lang())}) for line in c.pop("lines")]
+    return out(AnimalCostsOut.model_validate({**c, "expenses": lines,
+                                              "currency": farm_currency(ctx.repo, ctx.farm_id)}))
 
 
 @bp.get("/animals/<animal_id>/family")

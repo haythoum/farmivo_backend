@@ -26,7 +26,7 @@ BREEDS: dict[str, list[tuple[str, str, str]]] = {
         ("Crossbred", "Croisé", "مهجّن"),
     ],
     "sheep": [
-        ("Barbarine", "Barbarine", "البربرين (ذات الذيل العريض)"),
+        ("Barbarine", "Barbarine", "بربري أو عربي"),
         ("Queue Fine de l'Ouest", "Queue Fine de l'Ouest", "الغربي ذو الذيل الرفيع"),
         ("Noire de Thibar", "Noire de Thibar", "السوداء التيبارية"),
         ("Sicilo-Sarde", "Sicilo-Sarde", "الصقلي السرديني"),

@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     mail_from_email: str = "contact@quadralens.tn"
     mail_from_name: str = "Farmivo"
     mail_timeout: float = 10
+    # Admin web dashboard (/admin): its password (user "admin"). Empty = the dashboard is off.
+    admin_password: str | None = None
+    # By default /admin answers only requests from the server itself (reach it through an SSH tunnel). True opens it
+    # to the network: only behind HTTPS.
+    admin_allow_remote: bool = False
     cors_origins: str = ""
     environment: str = "development"
 

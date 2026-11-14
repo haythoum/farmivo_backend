@@ -251,8 +251,22 @@ MESSAGES: dict[str, dict[str, str]] = {
     "err.move_not_on_farm": {"en": "Only animals on the farm can be moved ({tag})",
                               "fr": "Seuls les animaux présents sur la ferme peuvent être déplacés ({tag})",
                               "ar": "يمكن نقل الحيوانات الموجودة في المزرعة فقط ({tag})"},
+    "err.no_longer_on_farm": {"en": "This animal is no longer on the farm",
+                               "fr": "Cet animal n'est plus sur la ferme", "ar": "هذا الحيوان لم يعد في المزرعة"},
+    "err.choose_other_barn": {"en": "Choose another barn", "fr": "Choisissez un autre bâtiment",
+                               "ar": "اختر حظيرة أخرى"},
+    "err.choose_barn": {"en": "Choose the barn", "fr": "Choisissez le bâtiment", "ar": "اختر الحظيرة"},
+    "err.recent_login": {"en": "Enter your password again to confirm",
+                         "fr": "Saisissez à nouveau votre mot de passe pour confirmer",
+                         "ar": "أدخل كلمة المرور مرة أخرى للتأكيد"},
+    "err.not_your_farm": {"en": "You are not an active member of this farm",
+                          "fr": "Vous n'êtes pas membre actif de cette ferme", "ar": "لست عضوًا نشطًا في هذه المزرعة"},
     "err.barn_name": {"en": "A barn named '{name}' already exists", "fr": "Un bâtiment nommé '{name}' existe déjà",
                       "ar": "توجد حظيرة باسم '{name}' بالفعل"},
+    "tx.purchase": {"en": "Purchase of {animal}", "fr": "Achat de {animal}", "ar": "شراء {animal}"},
+    "tx.sale": {"en": "Sale of {animal}", "fr": "Vente de {animal}", "ar": "بيع {animal}"},
+    "tx.sale_to": {"en": "Sale of {animal} to {buyer}", "fr": "Vente de {animal} à {buyer}",
+                   "ar": "بيع {animal} إلى {buyer}"},
     "err.barn_mixed": {"en": "{n} animals of another species are in this barn",
                        "fr": "{n} animaux d'une autre espèce sont dans ce bâtiment",
                        "ar": "يوجد {n} من حيوانات نوع آخر في هذه الحظيرة"},
@@ -345,6 +359,24 @@ def _patterns() -> list[tuple[re.Pattern, str]]:
     return out
 
 
+# Species names inside error texts ("Barn 'Fold' is for sheep, not cattle"), so no English word is left.
+SPECIES_NAMES = {
+    "cattle": ("cattle", "bovins", "أبقار"), "sheep": ("sheep", "ovins", "أغنام"), "goat": ("goats", "caprins", "ماعز"),
+    "pig": ("pigs", "porcs", "خنازير"), "horse": ("horses", "chevaux", "خيول"), "chicken": ("chickens", "poules", "دجاج"),
+    "duck": ("ducks", "canards", "بط"), "rabbit": ("rabbits", "lapins", "أرانب"), "dog": ("dogs", "chiens", "كلاب"),
+    "cat": ("cats", "chats", "قطط"), "other": ("other", "autres", "أخرى"),
+}
+
+
+def _species_words(value: str, lang: str) -> str:
+    """"sheep, goat" -> "أغنام، ماعز" when every part is a species code; other values unchanged."""
+    parts = [p.strip() for p in value.split(",")]
+    if not all(p in SPECIES_NAMES for p in parts):
+        return value
+    i = LANGS.index(lang) if lang in LANGS else 0
+    return ("، " if lang == "ar" else ", ").join(SPECIES_NAMES[p][i] for p in parts)
+
+
 def translate_text(text: str, lang: str) -> str:
     """Translate one English error text the API produces; unknown texts are returned unchanged."""
     if lang == DEFAULT or not isinstance(text, str):
@@ -352,7 +384,7 @@ def translate_text(text: str, lang: str) -> str:
     for pattern, key in _patterns():
         match = pattern.match(text)
         if match:
-            return t(key, lang, **match.groupdict())
+            return t(key, lang, **{k: _species_words(v, lang) for k, v in match.groupdict().items()})
     return text
 
 

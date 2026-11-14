@@ -8,7 +8,8 @@ Storage (repository paths, see docs/DATA_MODEL.md):
   ``email_verified`` once the email code was confirmed. No ``farm_id`` means the user has no farm yet.
 - ``farms/<farm_id>``: ``owner_uid`` and the ``invite_code`` people use to ask to join.
 
-A person belongs to at most one farm at a time. Accounts created before memberships existed (a ``users``
+A person can belong to several farms (own some, work in others); ``users/<uid>.farm_id`` is the farm they are
+working in now and :func:`switch_farm` changes it. Accounts created before memberships existed (a ``users``
 document pointing at a farm they own, but no member record) are turned into an active owner the first time
 they are seen; see :func:`resolve`.
 """
@@ -35,6 +36,7 @@ class Identity:
     email: str | None = None
     name: str | None = None
     email_verified: bool = False
+    auth_time: int | None = None  # when the user last typed their password (token claim, seconds since 1970)
 
 
 @dataclass
@@ -188,7 +190,7 @@ def resolve(repo: Repository, identity: Identity) -> Membership:
 
 
 def me_payload(identity: Identity, membership: Membership, email_verified: bool = False,
-               name: str | None = None) -> dict:
+               name: str | None = None, farms_count: int = 0) -> dict:
     """The body of GET /v1/me (and of the onboarding calls)."""
     farm = membership.farm
     return {
@@ -199,6 +201,7 @@ def me_payload(identity: Identity, membership: Membership, email_verified: bool 
         "status": membership.status,
         "role": membership.role,
         "farm": {"id": farm["id"], "name": farm.get("name")} if farm and membership.status != "none" else None,
+        "farms_count": farms_count,
     }
 
 
@@ -225,10 +228,9 @@ def label(member: dict) -> str:
 def create_farm(repo: Repository, identity: Identity, data: dict) -> Membership:
     """Create a farm with the caller as its active owner. 409 if the caller already has or awaits a farm."""
     current = resolve(repo, identity)
-    if current.status == "active":
-        raise ApiError(409, "You already belong to a farm")
-    if current.status == "pending":
+    if current.status == "pending" and not my_farms(repo, identity.uid, active_only=True):
         raise ApiError(409, "You already asked to join a farm. Cancel that request first")
+    # Already in a farm: one more farm (the user switches between them).
     farm = repo.create("farms", {
         **data,
         "currency": (data.get("currency") or "USD").upper(),
@@ -251,8 +253,6 @@ def request_to_join(repo: Repository, notifier: Notifier, identity: Identity, co
     409 if the caller is already an active member somewhere.
     """
     current = resolve(repo, identity)
-    if current.status == "active":
-        raise ApiError(409, "You already belong to a farm. Leave it first")
     recent_failures = _recent_join_failures(repo, identity.uid)
     if len(recent_failures) >= MAX_JOIN_FAILURES_PER_HOUR:
         raise ApiError(429, "Too many wrong codes. Try again in an hour", code="too_many_attempts")
@@ -263,6 +263,9 @@ def request_to_join(repo: Repository, notifier: Notifier, identity: Identity, co
         if repo.update("users", identity.uid, fields) is None:
             repo.set("users", identity.uid, fields)
         raise ApiError(404, "No farm with this code")
+    already = repo.get(members_path(farm["id"]), identity.uid)
+    if already and already.get("status") == "active":
+        raise ApiError(409, "You already belong to this farm")
     if current.status == "pending" and current.farm and current.farm["id"] != farm["id"]:
         repo.delete(members_path(current.farm["id"]), identity.uid)
     stamp = now_iso()
@@ -270,7 +273,8 @@ def request_to_join(repo: Repository, notifier: Notifier, identity: Identity, co
         "uid": identity.uid, "email": identity.email, "name": user_name(repo, identity), "role": "worker", "status": "pending",
         "requested_at": stamp, "decided_at": None, "decided_by": None,
     })
-    set_user(repo, identity.uid, farm["id"], "pending")
+    if current.status != "active":
+        set_user(repo, identity.uid, farm["id"], "pending")  # in a farm already: stay there until accepted
     who = label(member)
     notify_farm(
         repo, notifier, farm,
@@ -282,6 +286,8 @@ def request_to_join(repo: Repository, notifier: Notifier, identity: Identity, co
         channel=MEMBERS_CHANNEL,
         subject_uid=identity.uid,
     )
+    if current.status == "active":
+        return current  # the request waits; GET /me/farms lists it
     return Membership("pending", farm, member)
 
 
@@ -310,6 +316,29 @@ def leave(repo: Repository, identity: Identity) -> Membership:
     return Membership("none")
 
 
+def my_farms(repo: Repository, uid: str, active_only: bool = False) -> list[dict]:
+    """The user's farms: active memberships (with the role) and pending requests, by farm name."""
+    current = (repo.get("users", uid) or {}).get("farm_id")
+    out = []
+    for m in repo.group_list("members", [("uid", "==", uid)]):
+        if m.get("status") not in ("active", "pending") or (active_only and m["status"] != "active"):
+            continue
+        farm = repo.get("farms", m.get("parent_id") or "")
+        if farm:
+            out.append({"id": farm["id"], "name": farm.get("name"), "status": m["status"],
+                        "role": m.get("role") if m["status"] == "active" else None, "current": farm["id"] == current})
+    return sorted(out, key=lambda f: (f["status"] != "active", (f["name"] or "").lower()))
+
+
+def switch_farm(repo: Repository, identity: Identity, farm_id: str) -> Membership:
+    """Work in another of the user's farms (an active membership, else 403)."""
+    member = repo.get(members_path(farm_id), identity.uid)
+    if not member or member.get("status") != "active" or not repo.get("farms", farm_id):
+        raise ApiError(403, "You are not an active member of this farm")
+    set_user(repo, identity.uid, farm_id, "active")
+    return resolve(repo, identity)
+
+
 # ------------------------------------------------------------------ managing members (manager or owner)
 
 def _get_member(repo: Repository, farm_id: str, uid: str) -> dict:
@@ -333,7 +362,8 @@ def approve(repo: Repository, notifier: Notifier, farm: dict, uid: str, role: st
                                {"status": "active", "role": role, "decided_at": now_iso(), "decided_by": decided_by})
     if member is None:
         raise ApiError(409, "This person is not waiting for approval")
-    set_user(repo, uid, farm["id"], "active")
+    if (repo.get("users", uid) or {}).get("status") != "active":
+        set_user(repo, uid, farm["id"], "active")  # working elsewhere already: the new farm is in their list
     resolve_join_requests(repo, farm["id"], uid)
     # Stored as the new member's personal notification (they can now read the farm's list) and pushed with its id.
     notify_farm(repo, notifier, farm, title_key="push.approved.title", body_key="push.approved.body",
@@ -351,7 +381,8 @@ def reject(repo: Repository, notifier: Notifier, farm: dict, uid: str, decided_b
                                {"status": "rejected", "decided_at": now_iso(), "decided_by": decided_by})
     if member is None:
         raise ApiError(409, "This person is not waiting for approval")
-    set_user(repo, uid, farm["id"], "rejected")
+    if (repo.get("users", uid) or {}).get("farm_id") == farm["id"]:
+        set_user(repo, uid, farm["id"], "rejected")
     resolve_join_requests(repo, farm["id"], uid)
     # The person is not a member, so nothing is stored in the farm's list: push only (no notification_id).
     push_to_users(repo, notifier, [uid], "push.rejected.title", "push.rejected.body", {"farm": farm.get("name", "")},
@@ -375,7 +406,8 @@ def remove(repo: Repository, farm_id: str, uid: str) -> None:
     if member["role"] == "owner" and member["status"] == "active":
         raise ApiError(409, "The owner cannot be removed")
     repo.delete(members_path(farm_id), uid)
-    set_user(repo, uid, None, None)
+    if (repo.get("users", uid) or {}).get("farm_id") == farm_id:
+        set_user(repo, uid, None, None)  # their next request falls back to another farm of theirs, if any
     resolve_join_requests(repo, farm_id, uid)
 
 

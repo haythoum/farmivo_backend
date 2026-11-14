@@ -46,6 +46,27 @@ def update_farm():
     return out(render_farm(ctx, farm))
 
 
+RECENT_LOGIN_SECONDS = 300  # deleting a farm needs the password typed again in the last 5 minutes
+
+
+@bp.delete("/farm")
+def delete_farm():
+    """DELETE /v1/farm - the owner deletes the farm they work in, with every record and photo (204). The app asks
+    for the password first (Firebase re-authentication): the token must come from a sign-in of the last 5
+    minutes, else 403 recent_login_required. Members keep their account; the farm leaves their list."""
+    import time
+
+    from app.deps import get_photo_store
+    from app.services.account import delete_farm as remove
+
+    ctx = get_ctx()
+    auth_time = get_identity().auth_time
+    if not auth_time or time.time() - float(auth_time) > RECENT_LOGIN_SECONDS:
+        raise ApiError(403, "Enter your password again to confirm", code="recent_login_required")
+    remove(ctx.repo, get_photo_store(), ctx.repo.get("farms", ctx.farm_id))
+    return no_content()
+
+
 @bp.post("/devices")
 def register_device():
     """Register (or refresh) the FCM token of this phone so it receives pushes.

@@ -66,3 +66,14 @@ The apps cannot delete a farm yet (planned, with an admin dashboard). On the ser
 - `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.delete_farm` lists the farms (id, name, owner, members, animals); `--find <text>` searches name, id or member email.
 - `... -m scripts.delete_farm <farm_id> --dry-run` shows what the farm holds; without `--dry-run` it asks to type the farm name, then deletes the farm, every record under it (including barns) and the animal photos. Members keep their sign-in and get "create or join a farm" in the app. No undo: `mongodump` first if in doubt.
 - Fixed at the same time: deleting an account that owns a farm now also deletes the farm's barns (they were left behind); a test checks that every farm collection used in the code is deleted.
+
+## 14 Nov 2026 release
+
+- Several farms per account (`GET /me/farms`, `POST /me/farm`), owner deletes a farm with the password (`DELETE /farm`).
+- Barns for several species (`species_list`), deleting a barn moves its animals (`?move_to=`).
+- Animals that leave the farm leave their barn (`last_barn_id`), cannot be sold / given twice.
+- Expenses for a whole barn or chosen animals (shared), `GET /animals/{id}/costs`, `GET /finance/bilan`.
+- Purchase / sale descriptions in the reader's language (`label`), species names translated in error texts, Barbarine in Arabic: "بربري أو عربي".
+- Mongo: records stored with a chosen id under a farm (members) now have the `_id` `<farm>/<id>`, so one person can be a member of several farms; older records are still read and upgraded when written.
+- Admin web dashboard: see docs/ADMIN.md.
+- Deploy: `git pull`, then once `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.upgrade_2026_11_14`, then `sudo supervisorctl restart farmivo`.

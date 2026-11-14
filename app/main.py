@@ -63,6 +63,9 @@ def create_app(overrides: dict | None = None) -> Flask:
     app.register_blueprint(health.reminders_bp, url_prefix=API_PREFIX)
     app.register_blueprint(growth.growth_bp, url_prefix=API_PREFIX)
     app.register_blueprint(legal.bp)  # public pages: /privacy, /terms, /support, /delete-account
+    from app.admin.views import bp as admin_bp
+
+    app.register_blueprint(admin_bp, url_prefix="/admin")  # admin dashboard (off without FARMIVO_ADMIN_PASSWORD)
     return app
 
 

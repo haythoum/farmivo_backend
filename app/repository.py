@@ -254,6 +254,10 @@ class MongoRepository:
     ``users/<uid>/devices`` -> collection ``devices`` with a ``user_id`` field,
     ``farms`` / ``users`` -> collections ``farms`` / ``users``. The record id is the Mongo ``_id``.
     So in the shell: ``db.animals.find({farm_id: "..."})``.
+
+    A record stored with a chosen id under a parent (``set("farms/f1/members", uid)``) gets the Mongo ``_id``
+    ``"f1/<uid>"`` and keeps ``doc_id: <uid>``: the same person can be a member of several farms. Records from
+    before (``_id`` = the id alone) are still found, and replaced by the new form on their next ``set``.
     """
 
     def __init__(self, db: Any, prefix: str = "") -> None:
@@ -273,14 +277,29 @@ class MongoRepository:
         return collection, parent
 
     @staticmethod
+    def _composite(parent: dict, doc_id: str) -> str:
+        return "/".join(list(parent.values()) + [doc_id]) if parent else doc_id
+
+    def _raw_id(self, collection: Any, parent: dict, doc_id: str) -> Any:
+        """The Mongo _id of record ``doc_id`` under ``parent``: the composite form, else the older plain one."""
+        if parent:
+            composite = self._composite(parent, doc_id)
+            if collection.find_one({"_id": composite, **parent}) is not None:
+                return composite
+        if collection.find_one({"_id": doc_id, **parent}) is not None:
+            return doc_id
+        return None
+
+    @staticmethod
     def _out(raw: dict, parent: dict) -> dict:
-        doc = {k: v for k, v in raw.items() if k != "_id" and k not in parent}
-        doc["id"] = raw["_id"]
+        doc = {k: v for k, v in raw.items() if k not in ("_id", "doc_id") and k not in parent}
+        doc["id"] = raw.get("doc_id", raw["_id"])
         return doc
 
     def get(self, path: str, doc_id: str) -> dict | None:
         collection, parent = self._locate(path)
-        raw = collection.find_one({"_id": doc_id, **parent})
+        raw_id = self._raw_id(collection, parent, doc_id)
+        raw = collection.find_one({"_id": raw_id, **parent}) if raw_id is not None else None
         return self._out(raw, parent) if raw else None
 
     def list(self, path, filters=None, order_by=None, desc=False, limit=None) -> list[dict]:
@@ -299,6 +318,8 @@ class MongoRepository:
 
     def create(self, path: str, data: dict, doc_id: str | None = None) -> dict:
         collection, parent = self._locate(path)
+        if doc_id and parent:
+            return self.set(path, doc_id, data)
         doc_id = doc_id or uuid.uuid4().hex
         stamp = now_iso()
         collection.insert_one({**data, **parent, "_id": doc_id, "created_at": stamp, "updated_at": stamp})
@@ -306,28 +327,40 @@ class MongoRepository:
 
     def update(self, path: str, doc_id: str, data: dict) -> dict | None:
         collection, parent = self._locate(path)
-        res = collection.update_one({"_id": doc_id, **parent}, {"$set": {**data, "updated_at": now_iso()}})
-        return self.get(path, doc_id) if res.matched_count else None
+        raw_id = self._raw_id(collection, parent, doc_id)
+        if raw_id is None:
+            return None
+        collection.update_one({"_id": raw_id, **parent}, {"$set": {**data, "updated_at": now_iso()}})
+        return self.get(path, doc_id)
 
     def set(self, path: str, doc_id: str, data: dict) -> dict:
         collection, parent = self._locate(path)
-        existing = collection.find_one({"_id": doc_id}, {"created_at": 1})
-        created = (existing or {}).get("created_at") or now_iso()
-        collection.replace_one(
-            {"_id": doc_id},
-            {**data, **parent, "_id": doc_id, "created_at": created, "updated_at": now_iso()},
-            upsert=True,
-        )
+        raw_id = self._composite(parent, doc_id)
+        existing = collection.find_one({"_id": raw_id}, {"created_at": 1})
+        legacy = collection.find_one({"_id": doc_id, **parent}) if parent else None
+        created = (existing or legacy or {}).get("created_at") or now_iso()
+        record = {**data, **parent, "_id": raw_id, "created_at": created, "updated_at": now_iso()}
+        if parent:
+            record["doc_id"] = doc_id
+        collection.replace_one({"_id": raw_id}, record, upsert=True)
+        if legacy is not None:
+            collection.delete_one({"_id": doc_id, **parent})  # the older plain-id form of this record
         return self.get(path, doc_id)  # type: ignore[return-value]
 
     def delete(self, path: str, doc_id: str) -> bool:
         collection, parent = self._locate(path)
-        return collection.delete_one({"_id": doc_id, **parent}).deleted_count > 0
+        raw_id = self._raw_id(collection, parent, doc_id)
+        if raw_id is None:
+            return False
+        return collection.delete_one({"_id": raw_id, **parent}).deleted_count > 0
 
     def update_where(self, path: str, doc_id: str, expected: dict, data: dict) -> dict | None:
         collection, parent = self._locate(path)
+        raw_id = self._raw_id(collection, parent, doc_id)
+        if raw_id is None:
+            return None
         # One atomic update_one: the filter includes the expected values (works on MongoDB 3.6).
-        query = {**expected, **parent, "_id": doc_id}
+        query = {**expected, **parent, "_id": raw_id}
         res = collection.update_one(query, {"$set": {**data, "updated_at": now_iso()}})
         return self.get(path, doc_id) if res.matched_count else None
 
@@ -338,8 +371,8 @@ class MongoRepository:
         for raw in self._db[self._prefix + name].find(query):
             # farm sub-collections carry farm_id, user sub-collections user_id (see _locate)
             parent_key = "farm_id" if "farm_id" in raw else ("user_id" if "user_id" in raw else None)
-            doc = {k: v for k, v in raw.items() if k not in ("_id", parent_key)}
-            doc["id"], doc["parent_id"] = raw["_id"], raw.get(parent_key) if parent_key else None
+            doc = {k: v for k, v in raw.items() if k not in ("_id", "doc_id", parent_key)}
+            doc["id"], doc["parent_id"] = raw.get("doc_id", raw["_id"]), raw.get(parent_key) if parent_key else None
             docs.append(doc)
         return apply_query(docs, rest)
 
