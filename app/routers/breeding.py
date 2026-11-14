@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.deps import Ctx, get_ctx
 from app.errors import ApiError
-from app.routers.animals import ear_tag_taken, render_one, tag_conflict
+from app.routers.animals import ear_tag_taken, farm_code_for, render_one, tag_conflict
 from app.routers.crud import build_crud_blueprint, path_of
 from app.schemas import (
     ON_FARM_STATUSES,
@@ -137,7 +137,7 @@ def record_birth(breeding_id: str):
 
     dam = ctx.repo.get(path_of(ctx, "animals"), breeding["dam_id"]) or {}
     species = dam.get("species", "other")
-    tags = [o.ear_tag for o in req.offspring]
+    tags = [o.ear_tag for o in req.offspring if o.ear_tag]  # empty: the newborn's farm number
     if len(set(tags)) != len(tags):
         raise ApiError(422, "Duplicate ear tags in request")
     for tag in tags:  # check everything first so a conflict creates nothing
@@ -155,6 +155,7 @@ def record_birth(breeding_id: str):
     for kid in req.offspring:
         data = {
             "ear_tag": kid.ear_tag,
+            "farm_code": None,
             "name": kid.name,
             "species": species,
             "breed": dam.get("breed"),
@@ -170,6 +171,9 @@ def record_birth(breeding_id: str):
             "photo_url": None,
             "barn_id": dam.get("barn_id"),  # newborns stay with their mother
         }
+        # Its own farm number, of its birth year; the link to the mother is mother_id (family tracking).
+        data["farm_code"] = farm_code_for(ctx, data)
+        data["ear_tag"] = data["ear_tag"] or data["farm_code"]
         animal = ctx.repo.create(path_of(ctx, "animals"), data)
         created.append(animal)
         if kid.birth_weight_kg:

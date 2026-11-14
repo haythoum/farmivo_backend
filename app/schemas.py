@@ -265,8 +265,9 @@ class InviteCodeOut(BaseModel):
 
 # ------------------------------------------------------------------- animals
 class AnimalBase(Strict):
-    """Animal fields a client may send. date_of_birth cannot be in the future."""
-    ear_tag: str = Field(min_length=1, max_length=40)
+    """Animal fields a client may send. date_of_birth cannot be in the future. An empty ear tag gets the animal's
+    farm number (app/animal_codes.py, e.g. 01-0007/26); an official national number can be typed instead."""
+    ear_tag: str | None = Field(default=None, max_length=40)
     name: str | None = Field(default=None, max_length=80)
     species: Species
     breed: str | None = Field(default=None, max_length=80)
@@ -291,6 +292,11 @@ class AnimalBase(Strict):
             raise ValueError(f"age_class '{self.age_class}' does not exist for {self.species.value}")
         return self
 
+    @field_validator("ear_tag")
+    @classmethod
+    def _blank_tag_is_none(cls, v: str | None) -> str | None:
+        return (v or "").strip() or None
+
     @field_validator("date_of_birth")
     @classmethod
     def _dob_not_future(cls, v: Date | None) -> Date | None:
@@ -311,6 +317,7 @@ AnimalUpdate = make_partial(AnimalBase, "AnimalUpdate")
 class AnimalOut(Record):
     """Animal as returned, with computed age fields."""
     ear_tag: str
+    farm_code: str | None = None  # the farm number the app gave it (= ear_tag unless a national number was typed)
     name: str | None = None
     species: Species
     breed: str | None = None
@@ -537,8 +544,8 @@ class BreedingOut(BreedingBase, Record):
 
 
 class OffspringIn(Strict):
-    """One newborn in a birth request."""
-    ear_tag: str = Field(min_length=1, max_length=40)
+    """One newborn in a birth request (empty ear tag: its farm number)."""
+    ear_tag: str | None = Field(default=None, max_length=40)
     name: str | None = Field(default=None, max_length=80)
     sex: Sex
     birth_weight_kg: float | None = Field(default=None, gt=0, lt=5000)

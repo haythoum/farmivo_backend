@@ -306,3 +306,65 @@ def test_animal_card_and_sales_list(make_client):
     assert bilan["sales_result"] == 100
     assert [(s["ear_tag"], s["sale_price"], s["total_cost"], s["result"]) for s in bilan["sold"]] == [("E1", 850, 750, 100)]
     assert other["id"] not in [s["id"] for s in bilan["sold"]]
+
+
+# ------------------------------------------------------------------ farm numbers (01-0007/26)
+
+def test_empty_ear_tag_gets_the_farm_number(make_client):
+    from app.utils import today
+    yy = today().year % 100
+    c = farm_client(make_client)
+    a = c.post("/v1/animals", json={"species": "sheep", "sex": "female"}).json
+    b = c.post("/v1/animals", json={"ear_tag": "  ", "species": "sheep", "sex": "female"}).json
+    cow = c.post("/v1/animals", json={"species": "cattle", "sex": "female"}).json
+    assert (a["ear_tag"], a["farm_code"]) == (f"01-0001/{yy}", f"01-0001/{yy}")
+    assert b["ear_tag"] == f"01-0002/{yy}" and cow["ear_tag"] == f"02-0001/{yy}"
+    # an official national number is kept as the ear tag, the farm number stays next to it
+    n = c.post("/v1/animals", json={"ear_tag": "TN-123456", "species": "sheep", "sex": "male"}).json
+    assert (n["ear_tag"], n["farm_code"]) == ("TN-123456", f"01-0003/{yy}")
+    # emptied later: the farm number is the ear tag again
+    assert c.patch(f"/v1/animals/{n['id']}", json={"ear_tag": ""}).json["ear_tag"] == f"01-0003/{yy}"
+    # search finds it by its farm number
+    assert [x["id"] for x in c.get("/v1/animals", query_string={"q": "01-0003"}).json] == [n["id"]]
+
+
+def test_farm_number_year_is_birth_year_or_purchase_year(make_client):
+    c = farm_client(make_client)
+    born = c.post("/v1/animals", json={"species": "goat", "sex": "female", "origin": "born_on_farm",
+                                       "date_of_birth": "2024-03-01", "date_added": "2026-01-10"}).json
+    bought = c.post("/v1/animals", json={"species": "goat", "sex": "female", "origin": "purchased",
+                                         "date_of_birth": "2022-03-01", "date_added": "2025-06-01"}).json
+    assert born["farm_code"] == "03-0001/24" and bought["farm_code"] == "03-0001/25"
+
+
+def test_newborns_get_farm_numbers_and_their_mother(make_client):
+    from app.utils import today
+    yy = today().year % 100
+    c = farm_client(make_client)
+    ewe = add(c, "E1", species="sheep", sex="female", date_added="2025-01-01")  # its farm number is of 2025
+    br = c.post("/v1/breedings", json={"dam_id": ewe["id"], "mating_date": today().replace(day=1).isoformat()}).json
+    r = c.post(f"/v1/breedings/{br['id']}/births", json={"birth_date": today().isoformat(),
+                                                         "offspring": [{"sex": "female"}, {"sex": "male"}]})
+    assert r.status_code == 201, r.json
+    kids = r.json["offspring"]
+    assert [k["ear_tag"] for k in kids] == [f"01-0001/{yy}", f"01-0002/{yy}"]
+    assert {k["mother_id"] for k in kids} == {ewe["id"]}
+
+
+def test_upgrade_script_numbers_existing_animals_in_arrival_order(make_client, repo):
+    from scripts.upgrade_2026_11_14 import number_animals
+
+    c = farm_client(make_client)
+    farm_id = c.get("/v1/farm").json["id"]
+    path = f"farms/{farm_id}/animals"
+    late = add(c, "B", date_added="2025-05-01")
+    early = add(c, "A", date_added="2025-02-01")
+    for a in (late, early):  # as stored before farm numbers existed
+        repo.update(path, a["id"], {"farm_code": None})
+    repo.delete(f"farms/{farm_id}/counters", "sheep-2025")
+    assert number_animals(repo) == 2 and number_animals(repo) == 0
+    assert repo.get(path, early["id"])["farm_code"] == "01-0001/25"
+    assert repo.get(path, late["id"])["farm_code"] == "01-0002/25"
+    assert repo.get(path, early["id"])["ear_tag"] == "A"  # ear tags never change
+    nxt = add(c, "C", date_added="2025-09-01")
+    assert nxt["farm_code"] == "01-0003/25"  # new animals continue the numbering

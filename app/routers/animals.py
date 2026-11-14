@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.deps import Ctx, get_ctx, get_photo_store
 from app.errors import ApiError, validation_error
 from app.routers.crud import clean, get_animal_or_404, path_of
-from app import age_classes, breeds, costs
+from app import age_classes, animal_codes, breeds, costs
 from app.i18n import request_lang
 from app.schemas import (
     AnimalCostsOut,
@@ -116,6 +116,12 @@ def sync_purchase(ctx: Ctx, animal: dict) -> dict:
     return animal
 
 
+def farm_code_for(ctx: Ctx, animal: dict) -> str:
+    """A new farm number for the animal (app/animal_codes.py), never an ear tag already used for its species."""
+    return animal_codes.new_code(ctx.repo, ctx.farm_id, animal,
+                                 taken=lambda code: ear_tag_taken(ctx, code, animal.get("species")))
+
+
 def check_parents(ctx: Ctx, data: dict, animal_id: str | None = None) -> None:
     """Validate mother_id/father_id: must exist, have the right sex and not be the animal itself (404/422)."""
     for field, expected_sex in (("mother_id", "female"), ("father_id", "male")):
@@ -161,7 +167,7 @@ def list_animals():
     if q:
         needle = q.lower()
         rows = [
-            r for r in rows if any(needle in (r.get(f) or "").lower() for f in ("ear_tag", "name", "breed"))
+            r for r in rows if any(needle in (r.get(f) or "").lower() for f in ("ear_tag", "farm_code", "name", "breed"))
         ]
     barns = barn_names(ctx)
     return out([render_animal(r, barns) for r in rows[:limit]])
@@ -172,9 +178,12 @@ def create_animal():
     """POST /v1/animals - create an animal (409 if the ear tag is taken)."""
     ctx = get_ctx()
     animal = body(AnimalCreate)
-    if ear_tag_taken(ctx, animal.ear_tag, animal.species.value):
+    if animal.ear_tag and ear_tag_taken(ctx, animal.ear_tag, animal.species.value):
         raise tag_conflict(animal.ear_tag, animal.species.value)
     data = animal.model_dump(mode="json")
+    # Every animal gets its farm number (01-0007/26); with no ear tag typed, it is the ear tag too.
+    data["farm_code"] = farm_code_for(ctx, data)
+    data["ear_tag"] = data.get("ear_tag") or data["farm_code"]
     data["photo_url"] = None  # photos only come from POST /animals/<id>/photo (no arbitrary outside URLs)
     check_parents(ctx, data)
     check_barn(ctx, data.get("barn_id"), data["species"])
@@ -219,6 +228,13 @@ def update_animal(animal_id: str):
     ctx = get_ctx()
     existing = get_animal_or_404(ctx, animal_id)
     patch = body(AnimalUpdate).model_dump(mode="json", exclude_unset=True)
+    given_code = None
+    if "ear_tag" in patch and not (patch["ear_tag"] or "").strip():
+        # Ear tag emptied: the animal's farm number becomes its ear tag again.
+        given_code = existing.get("farm_code") or farm_code_for(ctx, {**existing, **patch})
+        patch["ear_tag"] = given_code
+    elif "ear_tag" in patch:
+        patch["ear_tag"] = patch["ear_tag"].strip()
     for required in ("ear_tag", "species", "sex"):
         if required in patch and patch[required] is None:
             raise ApiError(422, f"{required} cannot be null")
@@ -240,6 +256,8 @@ def update_animal(animal_id: str):
         raise ApiError(422, "This animal is no longer on the farm")
     if "barn_id" in patch or "species" in patch:
         check_barn(ctx, merged.get("barn_id"), merged["species"])
+    if given_code and not existing.get("farm_code"):
+        patch["farm_code"] = given_code
     updated = ctx.repo.update(path_of(ctx, "animals"), animal_id, patch) or existing
     if {"purchase_price", "origin", "date_added", "name", "ear_tag"} & patch.keys():
         updated = sync_purchase(ctx, updated)

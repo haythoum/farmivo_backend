@@ -26,7 +26,7 @@ log = logging.getLogger("farmivo.account")
 # farm collection used in app/ is listed here, so a new one cannot be forgotten when a farm is deleted.
 FARM_COLLECTIONS = (
     "animals", "barns", "vaccinations", "treatments", "vet_visits", "illnesses", "reminders", "breedings",
-    "weights", "production", "feedings", "transactions", "notifications", "members",
+    "weights", "production", "feedings", "transactions", "notifications", "members", "counters",
 )
 
 

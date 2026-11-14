@@ -112,6 +112,11 @@ class Repository(Protocol):
         must not both succeed (approving the same request, recording the same birth)."""
         ...
 
+    def increment(self, path: str, doc_id: str, field: str = "value") -> int:
+        """Atomically add 1 to ``field`` of a record (created at 0 if missing) and return the new value. Used for
+        numbers that must never be handed out twice (the animals' farm numbers)."""
+        ...
+
     def group_list(self, name: str, filters: list[Filter] | None = None) -> list[dict]:
         """Records of every sub-collection called ``name`` (e.g. all farms' ``members``) matching the filters.
         Each record also carries ``parent_id``: the id of the record the collection belongs to (the farm)."""
@@ -121,7 +126,19 @@ class Repository(Protocol):
 class InMemoryRepository:
     """Dictionary-backed repository for tests and the demo seeder's dry run."""
     def __init__(self) -> None:
+        import threading
+
         self._data: dict[str, dict[str, dict]] = {}
+        self._lock = threading.Lock()
+
+    def increment(self, path: str, doc_id: str, field: str = "value") -> int:
+        with self._lock:
+            col = self._col(path)
+            stamp = now_iso()
+            doc = col.setdefault(doc_id, {"created_at": stamp})
+            doc[field] = int(doc.get(field) or 0) + 1
+            doc["updated_at"] = stamp
+            return doc[field]
 
     def _col(self, path: str) -> dict[str, dict]:
         return self._data.setdefault(path, {})
@@ -240,6 +257,24 @@ class FirestoreRepository:
             return True
 
         return self.get(path, doc_id) if run(self._db.transaction()) else None
+
+    def increment(self, path: str, doc_id: str, field: str = "value") -> int:
+        from google.cloud import firestore
+
+        ref = self._db.collection(path).document(doc_id)
+
+        @firestore.transactional
+        def run(transaction) -> int:
+            snap = ref.get(transaction=transaction)
+            value = int((snap.to_dict() or {}).get(field) or 0) + 1 if snap.exists else 1
+            stamp = now_iso()
+            if snap.exists:
+                transaction.update(ref, {field: value, "updated_at": stamp})
+            else:
+                transaction.set(ref, {field: value, "created_at": stamp, "updated_at": stamp})
+            return value
+
+        return run(self._db.transaction())
 
     def group_list(self, name: str, filters: list[Filter] | None = None) -> list[dict]:
         docs = [{**self._to_dict(s), "parent_id": s.reference.parent.parent.id}
@@ -363,6 +398,21 @@ class MongoRepository:
         query = {**expected, **parent, "_id": raw_id}
         res = collection.update_one(query, {"$set": {**data, "updated_at": now_iso()}})
         return self.get(path, doc_id) if res.matched_count else None
+
+    def increment(self, path: str, doc_id: str, field: str = "value") -> int:
+        collection, parent = self._locate(path)
+        raw_id = self._composite(parent, doc_id)
+        stamp = now_iso()
+        on_insert = {**parent, "created_at": stamp}
+        if parent:
+            on_insert["doc_id"] = doc_id
+        # One atomic find_one_and_update with upsert (MongoDB 3.6+): two requests never get the same value.
+        doc = collection.find_one_and_update(
+            {"_id": raw_id},
+            {"$inc": {field: 1}, "$set": {"updated_at": stamp}, "$setOnInsert": on_insert},
+            upsert=True, return_document=True,  # pymongo ReturnDocument.AFTER
+        )
+        return int(doc[field])
 
     def group_list(self, name: str, filters: list[Filter] | None = None) -> list[dict]:
         query = {f: v for f, op, v in filters or [] if op == "=="}

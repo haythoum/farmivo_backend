@@ -5,6 +5,9 @@
 
 Animals that already left the farm (sold, dead, given ...) still sit in their barn: they leave it now, and the
 barn is remembered as ``last_barn_id`` (it counts in that barn's balance sheet), like animals that leave from now on.
+
+Animals created before farm numbers existed get theirs (``farm_code``, e.g. 01-0007/26), in the order they arrived
+on the farm; their ear tags do not change. Animals added afterwards continue the numbering.
 """
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ import sys
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app import animal_codes  # noqa: E402
 from app.repository import Repository, farm_path  # noqa: E402
 from app.schemas import LEFT_STATUSES  # noqa: E402
 
@@ -30,6 +34,25 @@ def upgrade(repo: Repository) -> int:
     return moved
 
 
+def number_animals(repo: Repository) -> int:
+    """Gives a farm number to every animal that has none; returns how many got one."""
+    given = 0
+    for farm in repo.list("farms"):
+        path = farm_path(farm["id"], "animals")
+        animals = repo.list(path)
+        tags: dict[str, set[str]] = {}
+        for a in animals:
+            tags.setdefault(a.get("species") or "other", set()).add(a.get("ear_tag") or "")
+        todo = [a for a in animals if not a.get("farm_code")]
+        todo.sort(key=lambda a: (animal_codes.code_year(a), a.get("date_added") or "", a.get("created_at") or ""))
+        for a in todo:
+            species = a.get("species") or "other"
+            code = animal_codes.new_code(repo, farm["id"], a, taken=lambda c, sp=species: c in tags.get(sp, set()))
+            repo.update(path, a["id"], {"farm_code": code})
+            given += 1
+    return given
+
+
 def main() -> None:
     from flask import Flask
 
@@ -40,6 +63,7 @@ def main() -> None:
     with Flask(__name__).app_context():
         repo = MongoRepository(_mongo_db(), get_settings().mongo_prefix)
         print(f"animals that had left the farm, taken out of their barn: {upgrade(repo)}")
+        print(f"animals that got their farm number: {number_animals(repo)}")
 
 
 if __name__ == "__main__":
