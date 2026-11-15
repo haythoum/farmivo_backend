@@ -317,8 +317,9 @@ def test_sync_script_replaces_old_birth_reminders_of_pending_matings(client, rep
 
 def test_breed_list_and_label(client):
     fr = client.get("/v1/breeds", headers={"Accept-Language": "fr"}).json
-    assert fr["sheep"][0] == {"name": "Barbarine", "label": "Barbarine"}
-    assert {"name": "Holstein", "label": "Prim'Holstein"} in fr["cattle"] and "other" not in fr
+    assert {k: fr["sheep"][0][k] for k in ("name", "label")} == {"name": "Barbarine", "label": "Barbarine"}
+    assert fr["sheep"][0]["look"] == {"body": "#F4F1EA", "head": "#7A4E2D", "mark": "tail", "spot": "#7A4E2D"}
+    assert any(b["name"] == "Holstein" and b["label"] == "Prim'Holstein" for b in fr["cattle"]) and "other" not in fr
     cow = add(client, species="cattle", breed="Holstein").json
     assert cow["breed"] == "Holstein" and cow["breed_label"] == "Holstein"
     ar = client.get(f"/v1/animals/{cow['id']}", headers={"Accept-Language": "ar"}).json
