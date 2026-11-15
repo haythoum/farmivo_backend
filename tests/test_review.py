@@ -25,7 +25,7 @@ def test_update_where_only_succeeds_once():
 
 def test_second_birth_on_same_breeding_is_refused(client, cow):
     bull = client.post("/v1/animals", json={"ear_tag": "B1", "species": "cattle", "sex": "male"}).json
-    b = client.post("/v1/breedings", json={"dam_id": cow["id"], "sire_id": bull["id"], "mating_date": iso(-10)}).json
+    b = client.post("/v1/breedings", json={"dam_id": cow["id"], "sire_id": bull["id"], "mating_date": iso(-280)}).json
     one = client.post(f"/v1/breedings/{b['id']}/births", json={"birth_date": iso(), "offspring": [{"ear_tag": "K1", "sex": "male"}]})
     assert one.status_code == 201
     two = client.post(f"/v1/breedings/{b['id']}/births", json={"birth_date": iso(), "offspring": [{"ear_tag": "K2", "sex": "male"}]})

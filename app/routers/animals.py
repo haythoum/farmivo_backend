@@ -88,7 +88,8 @@ def check_barn(ctx: Ctx, barn_id: str | None, species: str | None) -> None:
         raise ApiError(404, "Barn not found")
     allowed = costs.barn_species(barn)
     if allowed and species and species not in allowed:
-        raise ApiError(422, f"Barn '{barn.get('name')}' is for {', '.join(allowed)}, not {species}")
+        raise ApiError(422, f"Barn '{barn.get('name')}' only takes {', '.join(allowed)}, not {species}. Check the species "
+                            f"of the animal, edit the barn to allow {species}, or choose or create another barn")
 
 
 def sync_purchase(ctx: Ctx, animal: dict) -> dict:
@@ -124,21 +125,20 @@ def farm_code_for(ctx: Ctx, animal: dict) -> str:
 
 def check_parents(ctx: Ctx, data: dict, animal_id: str | None = None) -> None:
     """Validate mother_id/father_id: must exist, have the right sex and not be the animal itself (404/422)."""
-    for field, expected_sex in (("mother_id", "female"), ("father_id", "male")):
+    for field, expected_sex, who in (("mother_id", "female", "mother"), ("father_id", "male", "father")):
         parent_id = data.get(field)
         if not parent_id:
             continue
         if parent_id == animal_id:
-            raise ApiError(422, f"{field} cannot be the animal itself")
+            raise ApiError(422, f"An animal cannot be its own {who}")
         parent = ctx.repo.get(path_of(ctx, "animals"), parent_id)
         if not parent:
-            raise ApiError(404, f"{field} animal not found")
+            raise ApiError(404, f"The {who} was not found on this farm")
         if parent.get("sex") != expected_sex:
-            raise ApiError(422, f"{field} must reference a {expected_sex} animal")
+            raise ApiError(422, f"The {who} must be a {expected_sex} animal. Choose another animal")
         species = data.get("species")
         if species and parent.get("species") and parent["species"] != species:
-            raise ApiError(422, f"The {'mother' if field == 'mother_id' else 'father'} must be of the same species "
-                                f"as the animal ({species})")
+            raise ApiError(422, f"The {who} must be of the same species as the animal ({species})")
 
 
 @bp.get("/animals")
@@ -237,7 +237,7 @@ def update_animal(animal_id: str):
         patch["ear_tag"] = patch["ear_tag"].strip()
     for required in ("ear_tag", "species", "sex"):
         if required in patch and patch[required] is None:
-            raise ApiError(422, f"{required} cannot be null")
+            raise ApiError(422, f"{required} cannot be empty")
     merged = {**clean(existing, AnimalBase), **patch}
     if ("species" in patch and patch["species"] != existing.get("species")
             and existing.get("age_class") and "age_class" not in patch):

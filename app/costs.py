@@ -8,8 +8,10 @@ Rules (agreed with the farm, November 2026):
   ``purchase_tx_id``) for the cash view; the balance sheet counts the animal's price, never that transaction.
 - A ``purchase_animal`` expense entered by hand (20 sheep bought in one go, or the purchase of an animal deleted
   since) is capital too: it goes to "purchases", shared between its animals when it names them.
-- An expense can be shared between animals (``animal_ids``, or ``animal_id`` for one): each animal carries an
-  equal share. An expense of a barn with no animals, or of the whole farm, stays an operating expense.
+- An expense is carried by animals (``animal_ids``, or ``animal_id`` for one): chosen animals, else the barn's
+  animals, else every animal on the farm (app/routers/finance.py). Each carries an equal share, except feed, shared
+  by age (``weights``: 0-6 months 0.5, 6-12 months 1, 1 year and older 1.5). With no animal to carry it (an empty
+  farm or barn) it stays an operating expense.
 - An animal still on the farm is worth its purchase price plus the expenses booked on it.
 - An animal that died or was given away (deceased, sacrificed, donated, gifted) is lost: its purchase price moves
   from capital to expenses ("dead / given animals").
@@ -46,10 +48,41 @@ def tx_animals(tx: dict) -> list[str]:
     return ids
 
 
-def share_of(tx: dict) -> float | None:
-    """Amount per animal when the transaction is shared between animals, else None."""
+def feed_weights(animals: list[dict], on_date: str) -> list[float]:
+    """Feed is eaten by age: 0-6 months 0.5, 6-12 months 1, 1 year and older 1.5 (unknown age: grown, 1.5).
+    One weight per animal, in order."""
+    from app.utils import age_parts, parse_date
+
+    out = []
+    for a in animals:
+        _, months, _ = age_parts(parse_date(a.get("date_of_birth")), parse_date(on_date))
+        out.append(1.5 if months is None or months >= 12 else 1.0 if months >= 6 else 0.5)
+    return out
+
+
+def shares(tx: dict) -> dict[str, float]:
+    """What each animal of the transaction carries: equal parts, or by ``weights`` (feed by age)."""
     ids = tx_animals(tx)
-    return round(float(tx["amount"]) / len(ids), 2) if ids else None
+    if not ids:
+        return {}
+    amount = float(tx["amount"])
+    weights = tx.get("weights") or []
+    if len(weights) != len(ids) or sum(weights) <= 0:
+        weights = [1.0] * len(ids)
+    total = sum(weights)
+    out: dict[str, float] = {}
+    for animal_id, w in zip(ids, weights):
+        out[animal_id] = out.get(animal_id, 0.0) + amount * w / total
+    return out
+
+
+def share_of(tx: dict) -> float | None:
+    """Amount per animal when the transaction is shared equally between animals, else None (by age: each
+    animal's file shows its own part)."""
+    ids = tx_animals(tx)
+    if not ids or len(set(tx.get("weights") or [1])) > 1:
+        return None
+    return round(float(tx["amount"]) / len(ids), 2)
 
 
 def _bought_price(animal: dict) -> float:
@@ -76,7 +109,7 @@ def animal_cost_lines(repo: Repository, farm_id: str, animal_id: str, skip: set[
             continue
         lines.append({
             "transaction_id": tx["id"], "date": tx["date"], "category": tx["category"],
-            "description": tx.get("description"), "amount": round(float(tx["amount"]) / len(ids), 2),
+            "description": tx.get("description"), "amount": round(shares(tx)[animal_id], 2),
             "total_amount": float(tx["amount"]), "shared_with": len(ids),
         })
     lines.sort(key=lambda line: line["date"], reverse=True)
@@ -164,25 +197,25 @@ def bilan(repo: Repository, farm_id: str, barn_id: str | None = None) -> dict:
                 continue  # counted from the animal's price
             # Entered by hand: capital, shared between its animals when it names them.
             if ids:
-                mine = [i for i in ids if i in by_id] if barn_id else ids
+                parts = shares(tx)
+                mine = [i for i in parts if i in by_id] if barn_id else list(parts)
                 if not mine:
                     continue
-                share = amount / len(ids)
-                purchases_total += share * len(mine)
+                purchases_total += sum(parts[i] for i in mine)
                 purchases_count += len(mine)
                 for i in mine:
-                    hand_bought[i] = hand_bought.get(i, 0.0) + share
+                    hand_bought[i] = hand_bought.get(i, 0.0) + parts[i]
             elif not barn_id or tx.get("barn_id") == barn_id:
                 purchases_total += amount
             continue
         if ids:
-            share = amount / len(ids)
-            mine = [i for i in ids if i in by_id] if barn_id else ids
+            parts = shares(tx)
+            mine = [i for i in parts if i in by_id] if barn_id else list(parts)
             if not mine:
                 continue
-            part = share * len(mine)
+            part = sum(parts[i] for i in mine)
             for i in mine:
-                animal_expenses[i] = animal_expenses.get(i, 0.0) + share
+                animal_expenses[i] = animal_expenses.get(i, 0.0) + parts[i]
         elif barn_id and tx.get("barn_id") != barn_id:
             continue
         else:

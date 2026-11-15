@@ -41,7 +41,7 @@ def _range_filters(field: str, start: date, end: date) -> list[tuple[str, str, o
 def build_rows(ctx: Ctx, kind: ReportKind, start: date, end: date) -> tuple[list[str], list[dict]]:
     """Column names and rows of one report for a date range (herd ignores the range)."""
     if kind == ReportKind.herd:
-        columns = ["ear_tag", "farm_code", "name", "species", "breed", "sex", "date_of_birth", "age_label", "age_class_label",
+        columns = ["ear_tag", "farm_code", "name", "species", "color", "breed", "sex", "date_of_birth", "age_label", "age_class_label",
                    "barn_name", "date_added", "purchase_price", "status", "status_date"]
         barns = barn_names(ctx)
         rows = [render_animal(a, barns).model_dump(mode="json")

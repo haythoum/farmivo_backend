@@ -161,9 +161,9 @@ def test_whole_barn_and_chosen_animals_expenses_and_animal_costs(make_client):
     assert {(l["category"], l["amount"], l["shared_with"]) for l in costs["expenses"]} == {("feed", 150, 2), ("veterinary", 80, 1)}
     status(c, a1, "sold", sale_price=1000)
     assert c.get(f"/v1/animals/{a1['id']}/costs").json["result"] == 170
-    # emptying the animals of a one-animal expense clears it (animal_id included)
+    # emptying the animals of a barn expense shares it by the barn's animals on the farm (a1 was sold)
     cleared = c.patch(f"/v1/transactions/{vet['id']}", json={"animal_ids": []}).json
-    assert cleared["animal_ids"] == [] and cleared["animal_id"] is None
+    assert cleared["whole_barn"] and cleared["animal_ids"] == [a2["id"]] and cleared["animal_id"] == a2["id"]
     c.patch(f"/v1/transactions/{vet['id']}", json={"animal_ids": [a1["id"]]})
     # a later whole-barn edit of the amount keeps the same animals
     edited = c.patch(f"/v1/transactions/{feed['id']}", json={"amount": 400}).json
@@ -176,7 +176,7 @@ def test_bilan_example_and_dead_animal(make_client):
     fold = c.post("/v1/barns", json={"name": "Fold"}).json
     sheep = [add(c, f"S{i}", barn_id=fold["id"], purchase_price=500) for i in range(4)]  # 2 000 of capital
     expense(c, 400, barn_id=fold["id"], whole_barn=True)  # 100 each
-    expense(c, 50, "utilities")  # farm-wide, no animal
+    expense(c, 50, "utilities")  # farm-wide, no animal: shared by the 4 animals on the farm (12.5 each)
     status(c, sheep[0], "sold", sale_price=900)
     status(c, sheep[1], "deceased")
     b = c.get("/v1/finance/bilan").json
@@ -185,12 +185,12 @@ def test_bilan_example_and_dead_animal(make_client):
     assert b["expenses_by_category"] == {"feed": 400, "utilities": 50}
     assert (b["operating_expenses"], b["expenses_total"]) == (450, 950)
     assert (b["sales_total"], b["sales_count"], b["cash_in"]) == (900, 1, 900)
-    assert (b["herd_count"], b["herd_value"]) == (2, 1200)  # 2 x (500 + 100)
-    assert b["profit"] == round(900 + 1200 - 1500 - 950, 2)
+    assert (b["herd_count"], b["herd_value"]) == (2, 1225)  # 2 x (500 + 100 + 12.5)
+    assert b["profit"] == round(900 + 1225 - 1500 - 950, 2)
     # the purchase_animal transactions are capital, never counted as expenses
     assert "purchase_animal" not in b["expenses_by_category"]
     fb = c.get(f"/v1/finance/bilan?barn_id={fold['id']}").json
-    assert fb["expenses_by_category"] == {"feed": 400} and fb["herd_count"] == 2 and fb["sales_count"] == 1
+    assert fb["expenses_by_category"] == {"feed": 400, "utilities": 50} and fb["herd_count"] == 2 and fb["sales_count"] == 1
     assert c.get("/v1/finance/bilan?barn_id=nope").status_code == 404
 
 
@@ -338,11 +338,13 @@ def test_farm_number_year_is_birth_year_or_purchase_year(make_client):
 
 
 def test_newborns_get_farm_numbers_and_their_mother(make_client):
+    from datetime import timedelta
+
     from app.utils import today
     yy = today().year % 100
     c = farm_client(make_client)
     ewe = add(c, "E1", species="sheep", sex="female", date_added="2025-01-01")  # its farm number is of 2025
-    br = c.post("/v1/breedings", json={"dam_id": ewe["id"], "mating_date": today().replace(day=1).isoformat()}).json
+    br = c.post("/v1/breedings", json={"dam_id": ewe["id"], "mating_date": (today() - timedelta(days=148)).isoformat()}).json
     r = c.post(f"/v1/breedings/{br['id']}/births", json={"birth_date": today().isoformat(),
                                                          "offspring": [{"sex": "female"}, {"sex": "male"}]})
     assert r.status_code == 201, r.json

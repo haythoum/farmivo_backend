@@ -106,24 +106,17 @@ MESSAGES: dict[str, dict[str, str]] = {
                           "ar": "الأم (الأنثى) غير موجودة"},
     "err.sire_not_found": {"en": "Sire (male) not found", "fr": "Père (mâle) introuvable",
                            "ar": "الأب (الذكر) غير موجود"},
-    "err.dam_female": {"en": "dam_id must reference a female animal", "fr": "La mère doit être une femelle",
-                       "ar": "يجب أن تكون الأم أنثى"},
-    "err.sire_male": {"en": "sire_id must reference a male animal", "fr": "Le père doit être un mâle",
-                      "ar": "يجب أن يكون الأب ذكرًا"},
-    "err.parent_not_found": {"en": "{field} animal not found", "fr": "Animal introuvable ({field})",
-                             "ar": "الحيوان غير موجود ({field})"},
-    "err.parent_self": {"en": "{field} cannot be the animal itself",
-                        "fr": "{field} ne peut pas être l'animal lui-même",
-                        "ar": "{field} لا يمكن أن يكون الحيوان نفسه"},
-    "err.parent_sex": {"en": "{field} must reference a {sex} animal", "fr": "{field} doit être un animal {sex}",
-                       "ar": "{field} يجب أن يكون حيوانًا {sex}"},
+    "err.dam_female": {"en": 'The mother of a mating must be a female. Choose a female animal', "fr": "La mère d'un accouplement doit être une femelle. Choisissez une femelle", "ar": 'يجب أن تكون الأم في التزاوج أنثى. اختر أنثى'},
+    "err.sire_male": {"en": 'The father of a mating must be a male. Choose a male animal', "fr": "Le père d'un accouplement doit être un mâle. Choisissez un mâle", "ar": 'يجب أن يكون الأب في التزاوج ذكرًا. اختر ذكرًا'},
+    "err.parent_not_found": {"en": 'The {parent} was not found on this farm', "fr": 'Le parent ({parent}) est introuvable dans cette ferme', "ar": 'لم يتم العثور على {parent} في هذه المزرعة'},
+    "err.parent_self": {"en": 'An animal cannot be its own {parent}', "fr": 'Un animal ne peut pas être son propre parent ({parent})', "ar": 'لا يمكن أن يكون الحيوان {parent} لنفسه'},
+    "err.parent_sex": {"en": 'The {parent} must be a {sex} animal. Choose another animal', "fr": 'Le parent ({parent}) doit être un animal {sex}. Choisissez un autre animal', "ar": 'يجب أن يكون {parent} حيوانًا {sex}. اختر حيوانًا آخر'},
     "err.ear_tag_used": {"en": "Ear tag '{tag}' is already used on this farm",
                          "fr": "La boucle '{tag}' est déjà utilisée dans cette ferme",
                          "ar": "رقم الأذن '{tag}' مستخدم بالفعل في هذه المزرعة"},
     "err.duplicate_tags": {"en": "Duplicate ear tags in request", "fr": "Numéros de boucle en double",
                            "ar": "أرقام أذن مكررة في الطلب"},
-    "err.cannot_be_null": {"en": "{field} cannot be null", "fr": "{field} ne peut pas être vide",
-                           "ar": "{field} لا يمكن أن يكون فارغًا"},
+    "err.cannot_be_null": {"en": '{field} cannot be empty', "fr": '{field} : ce champ ne peut pas être vide', "ar": '{field}: لا يمكن ترك هذا الحقل فارغًا'},
     "err.delivered_by_birth": {"en": "Record the birth to mark a pregnancy as delivered",
                                "fr": "Enregistrez la mise bas pour marquer la gestation comme terminée",
                                "ar": "سجّل الولادة لتحديد الحمل كمكتمل"},
@@ -133,12 +126,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "err.birth_recorded": {"en": "A birth was already recorded for this breeding",
                            "fr": "Une mise bas est déjà enregistrée pour cette saillie",
                            "ar": "تم تسجيل ولادة لهذا التزاوج بالفعل"},
-    "err.birth_before_mating": {"en": "birth_date cannot be before the mating date",
-                                "fr": "La date de naissance ne peut pas précéder la saillie",
-                                "ar": "لا يمكن أن يكون تاريخ الولادة قبل تاريخ التزاوج"},
-    "err.birth_future": {"en": "birth_date cannot be in the future",
-                         "fr": "La date de naissance ne peut pas être dans le futur",
-                         "ar": "لا يمكن أن يكون تاريخ الولادة في المستقبل"},
+    "err.birth_before_mating": {"en": 'The birth date is before the mating date. Check both dates', "fr": "La date de mise bas est avant la date d'accouplement. Vérifiez les deux dates", "ar": 'تاريخ الولادة يسبق تاريخ التزاوج. تحقّق من التاريخين'},
+    "err.birth_future": {"en": 'The birth date cannot be in the future. Enter the day the young were born', "fr": 'La date de mise bas ne peut pas être dans le futur. Indiquez le jour de la naissance', "ar": 'لا يمكن أن يكون تاريخ الولادة في المستقبل. أدخل اليوم الذي وُلدت فيه الصغار'},
     "err.date_range": {"en": "date_from must not be after date_to",
                        "fr": "La date de début doit précéder la date de fin",
                        "ar": "يجب أن يسبق تاريخ البداية تاريخ النهاية"},
@@ -247,9 +236,7 @@ MESSAGES: dict[str, dict[str, str]] = {
                             "fr": "La boucle '{tag}' est déjà utilisée pour un autre animal de cette espèce ({species})",
                             "ar": "رقم الأذن '{tag}' مستخدم بالفعل لحيوان آخر من نفس النوع ({species})"},
     "err.barn_not_found": {"en": "Barn not found", "fr": "Bâtiment introuvable", "ar": "الحظيرة غير موجودة"},
-    "err.barn_species": {"en": "Barn '{name}' is for {barn}, not {species}",
-                         "fr": "Le bâtiment '{name}' est réservé à : {barn} (pas {species})",
-                         "ar": "الحظيرة '{name}' مخصّصة لـ {barn} وليس {species}"},
+    "err.barn_species": {"en": "Barn '{name}' only takes {barn}, not {species}. Check the species of the animal, edit the barn to allow {species}, or choose or create another barn", "fr": "Le bâtiment '{name}' n'accepte que : {barn}, pas : {species}. Vérifiez l'espèce de l'animal, modifiez le bâtiment pour accepter : {species}, ou choisissez ou créez un autre bâtiment", "ar": "الحظيرة '{name}' مخصّصة لـ {barn} فقط وليست لـ {species}. تحقّق من نوع الحيوان، أو عدّل الحظيرة لتقبل {species}، أو اختر حظيرة أخرى أو أنشئ حظيرة جديدة"},
     "err.move_not_on_farm": {"en": "Only animals on the farm can be moved ({tag})",
                               "fr": "Seuls les animaux présents sur la ferme peuvent être déplacés ({tag})",
                               "ar": "يمكن نقل الحيوانات الموجودة في المزرعة فقط ({tag})"},
@@ -258,12 +245,37 @@ MESSAGES: dict[str, dict[str, str]] = {
     "err.mate_species": {"en": "The father must be of the same species as the mother ({species})",
                          "fr": "Le père doit être de la même espèce que la mère ({species})",
                          "ar": "يجب أن يكون الأب من نوع الأم نفسه ({species})"},
-    "err.parent_species": {"en": "The {parent} must be of the same species as the animal ({species})",
-                           "fr": "Le parent ({parent}) doit être de la même espèce que l'animal ({species})",
-                           "ar": "يجب أن يكون الوالد ({parent}) من نوع الحيوان نفسه ({species})"},
+    "err.parent_species": {"en": 'The {parent} must be of the same species as the animal ({species})', "fr": "Le parent ({parent}) doit être de la même espèce que l'animal ({species})", "ar": 'يجب أن يكون {parent} من نوع الحيوان نفسه ({species})'},
     "err.mate_not_on_farm": {"en": "Only animals on the farm can be mated ({tag})",
                              "fr": "Seuls les animaux présents sur la ferme peuvent être accouplés ({tag})",
                              "ar": "لا يمكن تسجيل تزاوج إلا لحيوانات موجودة في المزرعة ({tag})"},
+    "val.dob_future": {"en": 'Value error, The date of birth cannot be in the future', "fr": 'La date de naissance ne peut pas être dans le futur', "ar": 'لا يمكن أن يكون تاريخ الميلاد في المستقبل'},
+    "val.name_empty": {"en": 'Value error, The name cannot be empty', "fr": 'Le nom ne peut pas être vide', "ar": 'لا يمكن أن يكون الاسم فارغًا'},
+    "val.next_due": {"en": 'Value error, The next due date cannot be before the date given', "fr": "La prochaine échéance ne peut pas être avant la date d'administration", "ar": 'لا يمكن أن يكون الموعد القادم قبل تاريخ الإعطاء'},
+    "val.bool": {"en": 'Input should be a valid boolean', "fr": 'Choisissez oui ou non', "ar": 'اختر نعم أو لا'},
+    "val.le": {"en": 'Input should be less than or equal to {n}', "fr": 'Doit être inférieur ou égal à {n}', "ar": 'يجب أن يكون أصغر من أو يساوي {n}'},
+    "val.int": {"en": 'Input should be a valid integer', "fr": 'Nombre entier invalide', "ar": 'يجب إدخال عدد صحيح'},
+    "val.date_iso": {"en": 'Input should be a valid date (YYYY-MM-DD)', "fr": 'Date invalide (AAAA-MM-JJ)', "ar": 'تاريخ غير صالح (سنة-شهر-يوم)'},
+    "val.one_of": {"en": 'Input should be one of: {values}', "fr": 'Valeur attendue parmi : {values}', "ar": 'يجب أن تكون القيمة إحدى: {values}'},
+    "val.lt": {"en": 'Input should be less than {n}', "fr": 'Doit être inférieur à {n}', "ar": 'يجب أن يكون أصغر من {n}'},
+    "val.enum": {"en": 'Input should be {values}', "fr": 'Valeur attendue : {values}', "ar": 'القيمة المتوقعة: {values}'},
+    "msg.field_problem": {"en": '{field}: {problem}', "fr": '{field} : {problem}', "ar": '{field}: {problem}'},
+    "err.birds_no_mating": {"en": '{species} lay eggs: they are not mated in Farmivo. Record their eggs in Production', "fr": "Les {species} pondent des œufs : pas d'accouplement dans Farmivo. Enregistrez leurs œufs dans Production", "ar": '{species} تبيض ولا يُسجَّل لها تزاوج في Farmivo. سجّل بيضها في قسم الإنتاج'},
+    "err.mating_future": {"en": 'The mating date cannot be in the future', "fr": "La date d'accouplement ne peut pas être dans le futur", "ar": 'لا يمكن أن يكون تاريخ التزاوج في المستقبل'},
+    "err.mating_before_birth": {"en": 'The mating date is before {tag} was born ({dob}). Check both dates', "fr": "La date d'accouplement est avant la naissance de {tag} ({dob}). Vérifiez les deux dates", "ar": 'تاريخ التزاوج يسبق ميلاد {tag} ({dob}). تحقّق من التاريخين'},
+    "err.too_young_female": {"en": '{tag} is too young to be mated: a female ({species}) can be mated from {age}, and she was {real} old on the mating date. Check her date of birth or the mating date', "fr": "{tag} est trop jeune pour être accouplée : une femelle ({species}) peut l'être à partir de {age}, elle avait {real} à la date d'accouplement. Vérifiez sa date de naissance ou la date d'accouplement", "ar": '{tag} صغيرة جدًا على التزاوج: يمكن تزويج الأنثى ({species}) ابتداءً من عمر {age}، وكان عمرها {real} في تاريخ التزاوج. تحقّق من تاريخ ميلادها أو من تاريخ التزاوج'},
+    "err.too_young_male": {"en": '{tag} is too young to be a father: a male ({species}) can mate from {age}, and he was {real} old on the mating date. Check his date of birth or choose another male', "fr": "{tag} est trop jeune pour être père : un mâle ({species}) peut saillir à partir de {age}, il avait {real} à la date d'accouplement. Vérifiez sa date de naissance ou choisissez un autre mâle", "ar": '{tag} صغير جدًا ليكون فحلًا: يمكن للذكر ({species}) التزاوج ابتداءً من عمر {age}، وكان عمره {real} في تاريخ التزاوج. تحقّق من تاريخ ميلاده أو اختر ذكرًا آخر'},
+    "err.already_pregnant": {"en": "{tag} already has a mating of {date} that is not closed. Record its birth, a miscarriage or 'not pregnant' on it first", "fr": "{tag} a déjà un accouplement du {date} non clôturé. Enregistrez d'abord sa mise bas, un avortement ou « non gestante »", "ar": 'لدى {tag} تزاوج بتاريخ {date} لم يُغلق بعد. سجّل أولًا الولادة أو الإجهاض أو «غير حامل» لذلك التزاوج'},
+    "err.pregnant_then": {"en": '{tag} was pregnant on that date (mating of {date}, ended {end}). Check the mating date', "fr": "{tag} était gestante à cette date (accouplement du {date}, terminé le {end}). Vérifiez la date d'accouplement", "ar": 'كانت {tag} حاملًا في ذلك التاريخ (تزاوج {date}، انتهى في {end}). تحقّق من تاريخ التزاوج'},
+    "err.later_pregnancy": {"en": '{tag} has a later mating ({date}): an open mating cannot be dated before it. Check the mating date', "fr": '{tag} a un accouplement plus récent ({date}) : un accouplement en cours ne peut pas être daté avant. Vérifiez la date', "ar": 'لدى {tag} تزاوج لاحق ({date})، فلا يمكن أن يكون تزاوج قائم بتاريخ أسبق منه. تحقّق من تاريخ التزاوج'},
+    "err.expected_window": {"en": 'For a mating on {date}, the expected birth date must be between {start} and {end} ({species}: pregnancy of {max} at most)', "fr": 'Pour un accouplement le {date}, la mise bas prévue doit être entre le {start} et le {end} ({species} : gestation de {max} au plus)', "ar": 'لتزاوج بتاريخ {date} يجب أن يكون تاريخ الولادة المتوقع بين {start} و{end} ({species}: مدة الحمل {max} على الأكثر)'},
+    "err.confirmed_date": {"en": 'The pregnancy cannot be confirmed before the mating date or in the future', "fr": "La gestation ne peut pas être confirmée avant l'accouplement ni dans le futur", "ar": 'لا يمكن تأكيد الحمل قبل تاريخ التزاوج أو في المستقبل'},
+    "err.miscarriage_needs": {"en": 'Enter the date of the miscarriage and why it happened', "fr": "Indiquez la date de l'avortement et sa cause", "ar": 'أدخل تاريخ الإجهاض وسببه'},
+    "err.miscarriage_window": {"en": 'The miscarriage date must be today or up to 14 days ago ({start} to {end}), and not before the mating', "fr": "La date de l'avortement doit être aujourd'hui ou au plus 14 jours avant ({start} au {end}), et pas avant l'accouplement", "ar": 'يجب أن يكون تاريخ الإجهاض اليوم أو خلال 14 يومًا الماضية (من {start} إلى {end})، وليس قبل تاريخ التزاوج'},
+    "err.birth_window": {"en": 'Please check the dates: a birth on {birth} is {days} days after the mating of {date}, but a pregnancy of {species} lasts from {min} to {max} at most. Check the mating date and the birth date, or record a miscarriage', "fr": "Vérifiez les dates : une mise bas le {birth} tombe {days} jours après l'accouplement du {date}, or une gestation ({species}) dure de {min} à {max} au plus. Vérifiez la date d'accouplement et la date de mise bas, ou enregistrez un avortement", "ar": 'يرجى التحقّق من التواريخ: ولادة في {birth} تأتي بعد {days} يومًا من تزاوج {date}، بينما يدوم حمل {species} من {min} إلى {max} على الأكثر. تحقّق من تاريخ التزاوج وتاريخ الولادة، أو سجّل إجهاضًا'},
+    "err.litter_max": {"en": '{species} have at most {n} young at once. Check the number of young', "fr": '{species} : au plus {n} petits par mise bas. Vérifiez le nombre de petits', "ar": '{species}: لا يتجاوز عدد الصغار {n} في الولادة الواحدة. تحقّق من عدد الصغار'},
+    "err.birth_not_pregnant": {"en": "This mating is marked 'not pregnant'. Change its status before recording a birth", "fr": "Cet accouplement est marqué « non gestante ». Changez son statut avant d'enregistrer une mise bas", "ar": 'هذا التزاوج مسجّل «غير حامل». غيّر حالته قبل تسجيل الولادة'},
+    "err.birth_miscarried": {"en": 'This mating ended with a miscarriage. A birth cannot be recorded on it', "fr": "Cet accouplement s'est terminé par un avortement. Aucune mise bas ne peut y être enregistrée", "ar": 'انتهى هذا التزاوج بإجهاض، فلا يمكن تسجيل ولادة عليه'},
     "err.choose_other_barn": {"en": "Choose another barn", "fr": "Choisissez un autre bâtiment",
                                "ar": "اختر حظيرة أخرى"},
     "err.choose_barn": {"en": "Choose the barn", "fr": "Choisissez le bâtiment", "ar": "اختر الحظيرة"},
@@ -289,9 +301,9 @@ MESSAGES: dict[str, dict[str, str]] = {
                          "ar": "يرجى الانتظار {seconds} ثانية قبل الطلب مرة أخرى"},
     "err.email_invalid": {"en": "Enter a valid email address", "fr": "Saisissez une adresse e-mail valide",
                           "ar": "أدخل بريدًا إلكترونيًا صالحًا"},
-    "val.age_class": {"en": "Value error, age_class '{key}' does not exist for {species}",
-                      "fr": "Classe d'âge '{key}' inconnue pour : {species}",
-                      "ar": "فئة العمر '{key}' غير موجودة لهذا النوع: {species}"},
+    "val.age_class": {"en": "Value error, age_class '{age_class}' does not exist for {species}",
+                      "fr": "Classe d'âge '{age_class}' inconnue pour : {species}",
+                      "ar": "فئة العمر '{age_class}' غير موجودة لهذا النوع: {species}"},
     "val.date_future": {"en": "Value error, date cannot be in the future", "fr": "La date ne peut pas être dans le futur",
                         "ar": "لا يمكن أن يكون التاريخ في المستقبل"},
     "reminder.pregnancy_check": {"en": "Pregnancy check", "fr": "Contrôle de gestation", "ar": "فحص الحمل"},
@@ -365,7 +377,16 @@ def _patterns() -> list[tuple[re.Pattern, str]]:
         if not key.startswith(("err.", "val.")):
             continue
         parts = re.split(r"\{(\w+)\}", entry["en"])
-        regex = "".join(re.escape(p) if i % 2 == 0 else f"(?P<{p}>.+?)" for i, p in enumerate(parts))
+        seen: set[str] = set()
+        regex = ""
+        for i, part in enumerate(parts):
+            if i % 2 == 0:
+                regex += re.escape(part)
+            elif part in seen:
+                regex += f"(?P={part})"  # the same placeholder twice: the same words
+            else:
+                seen.add(part)
+                regex += f"(?P<{part}>.+?)"
         out.append((re.compile(f"^{regex}$"), key))
     return out
 
@@ -379,8 +400,79 @@ SPECIES_NAMES = {
 }
 
 
+# Other words that appear inside error texts: parents, sexes and the fields of the forms.
+WORDS = {
+    "mother": ("mother", "la mère", "الأم"), "father": ("father", "le père", "الأب"),
+    "female": ("female", "femelle", "أنثى"), "male": ("male", "mâle", "ذكر"),
+}
+# Field names (the "loc" of a validation error) as the forms show them.
+FIELD_NAMES = {
+    "ear_tag": ("Ear tag", "Boucle", "رقم الأذن"), "name": ("Name", "Nom", "الاسم"),
+    "species": ("Species", "Espèce", "النوع"), "sex": ("Sex", "Sexe", "الجنس"), "breed": ("Breed", "Race", "السلالة"),
+    "color": ("Colour", "Couleur", "اللون"),
+    "date_of_birth": ("Date of birth", "Date de naissance", "تاريخ الميلاد"),
+    "date_added": ("Arrival date", "Date d'arrivée", "تاريخ الوصول"), "date": ("Date", "Date", "التاريخ"),
+    "amount": ("Amount", "Montant", "المبلغ"), "category": ("Category", "Catégorie", "الفئة"),
+    "purchase_price": ("Purchase price", "Prix d'achat", "سعر الشراء"), "sale_price": ("Sale price", "Prix de vente", "سعر البيع"),
+    "mating_date": ("Mating date", "Date d'accouplement", "تاريخ التزاوج"),
+    "birth_date": ("Birth date", "Date de mise bas", "تاريخ الولادة"),
+    "expected_birth_date": ("Expected birth date", "Mise bas prévue", "تاريخ الولادة المتوقع"),
+    "pregnancy_confirmed_date": ("Pregnancy confirmed on", "Gestation confirmée le", "تأكيد الحمل في"),
+    "miscarriage_date": ("Miscarriage date", "Date de l'avortement", "تاريخ الإجهاض"),
+    "miscarriage_reason": ("Reason for the miscarriage", "Cause de l'avortement", "سبب الإجهاض"),
+    "weight_kg": ("Weight (kg)", "Poids (kg)", "الوزن (كغ)"), "quantity_kg": ("Quantity (kg)", "Quantité (kg)", "الكمية (كغ)"),
+    "quantity": ("Quantity", "Quantité", "الكمية"), "address": ("Address", "Adresse", "العنوان"),
+    "next_due_date": ("Next due date", "Prochaine échéance", "الموعد القادم"),
+    "date_given": ("Date given", "Date d'administration", "تاريخ الإعطاء"),
+    "offspring": ("Young", "Petits", "الصغار"), "birth_weight_kg": ("Birth weight (kg)", "Poids à la naissance (kg)", "الوزن عند الولادة (كغ)"),
+    "description": ("Description", "Description", "الوصف"), "notes": ("Notes", "Notes", "ملاحظات"),
+}
+
+
+_UNIT = re.compile(r"(\d+) (months?|years?|days?)")
+_UNITS = {"month": ("month", "months", "mois", "mois"), "year": ("year", "years", "an", "ans"),
+          "day": ("day", "days", "jour", "jours")}
+_AR_UNITS = {"month": ("شهر", "شهران", "أشهر", "شهرًا"), "year": ("سنة", "سنتان", "سنوات", "سنة"),
+             "day": ("يوم", "يومان", "أيام", "يومًا")}
+
+
+def _durations(value: str, lang: str) -> str | None:
+    """"5 months 10 days" in ``lang`` ("5 أشهر و10 أيام"); None when ``value`` is not only durations."""
+    found = _UNIT.findall(value)
+    if not found or _UNIT.sub("", value).strip():
+        return None
+    out = []
+    for n, unit in found:
+        k, num = unit.rstrip("s"), int(n)
+        if lang == "fr":
+            out.append(f"{num} {_UNITS[k][2] if num == 1 else _UNITS[k][3]}")
+        elif lang == "ar":
+            one, two, few, many = _AR_UNITS[k]
+            out.append(one if num == 1 else two if num == 2 else f"{num} {few}" if num <= 10 else f"{num} {many}")
+        else:
+            out.append(f"{num} {_UNITS[k][0] if num == 1 else _UNITS[k][1]}")
+    return (" و" if lang == "ar" else " ").join(out)
+
+
+def field_name(field: str, lang: str) -> str:
+    """A form field's name in ``lang`` ("date_of_birth" -> "تاريخ الميلاد"); unknown fields as written."""
+    names = FIELD_NAMES.get(field)
+    if not names:
+        return field.replace("_", " ").capitalize()
+    return names[LANGS.index(lang) if lang in LANGS else 0]
+
+
 def _species_words(value: str, lang: str) -> str:
-    """"sheep, goat" -> "أغنام، ماعز" when every part is a species code; other values unchanged."""
+    """"sheep, goat" -> "أغنام، ماعز" when every part is a species code; parents, sexes and field names in
+    ``lang`` too; other values unchanged."""
+    i = LANGS.index(lang) if lang in LANGS else 0
+    durations = _durations(value, lang)
+    if durations is not None:
+        return durations
+    if value in WORDS:
+        return WORDS[value][i]
+    if value in FIELD_NAMES:
+        return FIELD_NAMES[value][i]
     parts = [p.strip() for p in value.split(",")]
     if not all(p in SPECIES_NAMES for p in parts):
         return value
@@ -389,14 +481,32 @@ def _species_words(value: str, lang: str) -> str:
 
 
 def translate_text(text: str, lang: str) -> str:
-    """Translate one English error text the API produces; unknown texts are returned unchanged."""
-    if lang == DEFAULT or not isinstance(text, str):
+    """Translate one English error text the API produces; unknown texts are returned unchanged. pydantic's
+    "Value error, " prefix never reaches the reader."""
+    if not isinstance(text, str):
         return text
-    for pattern, key in _patterns():
-        match = pattern.match(text)
-        if match:
-            return t(key, lang, **{k: _species_words(v, lang) for k, v in match.groupdict().items()})
-    return text
+    if lang != DEFAULT:
+        for candidate in (text, "Value error, " + text.removeprefix("Value error, ")):
+            for pattern, key in _patterns():
+                match = pattern.match(candidate)
+                if match:
+                    return t(key, lang, **{k: _species_words(v, lang) for k, v in match.groupdict().items()})
+    return text.removeprefix("Value error, ")
+
+
+def readable_message(detail, lang: str) -> str:
+    """One sentence for the apps to show: the text itself, or for a list of field errors the first one as
+    "<field as the form names it>: <problem>" ("تاريخ الميلاد: لا يمكن أن يكون تاريخ الميلاد في المستقبل")."""
+    if isinstance(detail, str):
+        return translate_text(detail, lang)
+    if isinstance(detail, list) and detail and isinstance(detail[0], dict):
+        first = detail[0]
+        problem = translate_text(str(first.get("msg", "")), lang)
+        loc = [str(x) for x in first.get("loc") or [] if not isinstance(x, int) and x not in ("body", "query")]
+        if not loc:
+            return problem
+        return t("msg.field_problem", lang, field=field_name(loc[-1], lang), problem=problem)
+    return t("err.bad_request", lang)
 
 
 def translate_detail(detail, lang: str):

@@ -44,6 +44,7 @@ def build_crud_blueprint(
     after_write: Hook | None = None,
     after_delete: Hook | None = None,
     enrich: Callable[[dict], dict] | None = None,
+    list_filter: Callable[[Ctx, list[dict]], list[dict]] | None = None,
 ) -> Blueprint:
     """Build a Blueprint with list/create/get/update/delete routes for one farm collection, with optional hooks."""
     bp = Blueprint(name, __name__)
@@ -69,8 +70,11 @@ def build_crud_blueprint(
         if date_field and date_to:
             filters.append((date_field, "<=", date_to.isoformat()))
         rows = ctx.repo.list(
-            path_of(ctx, collection), filters, order_by=date_field or "created_at", desc=True, limit=limit
+            path_of(ctx, collection), filters, order_by=date_field or "created_at", desc=True,
+            limit=None if list_filter else limit,
         )
+        if list_filter:
+            rows = list_filter(ctx, rows)[:limit]
         return out([render(r) for r in rows])
 
     @bp.post("")

@@ -278,9 +278,9 @@ def test_moving_the_mating_date_moves_the_suggested_birth(client):
     moved = client.patch(f"/v1/breedings/{b['id']}", json={"mating_date": iso(-10)}).json
     assert moved["expected_birth_date"] == iso(-10 + 283)
     # a date typed by the farmer is kept
-    client.patch(f"/v1/breedings/{b['id']}", json={"expected_birth_date": iso(200)})
+    assert client.patch(f"/v1/breedings/{b['id']}", json={"expected_birth_date": iso(255)}).status_code == 200
     kept = client.patch(f"/v1/breedings/{b['id']}", json={"mating_date": iso(-12)}).json
-    assert kept["expected_birth_date"] == iso(200)
+    assert kept["expected_birth_date"] == iso(255)
     assert client.post("/v1/breedings", json={"dam_id": cow["id"], "mating_date": iso(),
                                               "pregnancy_status": "delivered"}).status_code == 422
 

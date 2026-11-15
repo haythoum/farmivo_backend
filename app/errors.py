@@ -12,7 +12,7 @@ from flask import Flask, jsonify
 from pydantic import ValidationError
 from werkzeug.exceptions import HTTPException
 
-from app.i18n import request_lang, t, translate_detail, translate_text
+from app.i18n import readable_message, request_lang, t, translate_detail, translate_text
 
 
 class ApiError(Exception):
@@ -35,7 +35,11 @@ def register_error_handlers(app: Flask) -> None:
     """Make every error (ApiError, HTTP errors, unexpected exceptions) answer JSON {"detail": ...}."""
     @app.errorhandler(ApiError)
     def _api_error(exc: ApiError):
-        payload = {"detail": translate_detail(exc.detail, request_lang())}
+        lang = request_lang()
+        payload = {"detail": translate_detail(exc.detail, lang)}
+        if isinstance(exc.detail, list):
+            # The apps show "message": one readable sentence, the field named as the form names it.
+            payload["message"] = readable_message(exc.detail, lang)
         if exc.code:
             payload["code"] = exc.code
         payload.update(exc.extra)

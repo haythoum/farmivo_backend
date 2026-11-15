@@ -107,7 +107,7 @@ def update_barn(barn_id: str):
     existing = _get_or_404(ctx, barn_id)
     patch = body(BarnUpdate).model_dump(mode="json", exclude_unset=True)
     if "name" in patch and patch["name"] is None:
-        raise ApiError(422, "name cannot be null")
+        raise ApiError(422, "name cannot be empty")
     base = {**clean(existing, BarnBase), "species_list": costs.barn_species(existing)}
     if "species" in patch and "species_list" not in patch:  # older apps send one species (or null = any)
         patch["species_list"] = [patch["species"]] if patch["species"] else []

@@ -86,6 +86,15 @@ class PregnancyStatus(str, Enum):
     aborted = "aborted"
 
 
+class AnimalColor(str, Enum):
+    """Coat colour, as farmers name it in Tunisia."""
+    sardi = "sardi"   # صردي: white, black around the eyes and muzzle
+    adraa = "adraa"   # أدرع: dark head and neck, light body
+    white = "white"   # أبيض
+    brown = "brown"   # بني
+    other = "other"   # لون آخر
+
+
 class MatingMethod(str, Enum):
     """Natural mating or artificial insemination."""
     natural = "natural"
@@ -210,7 +219,7 @@ class NameIn(Strict):
     def _trim(cls, v: str) -> str:
         v = " ".join(v.split())
         if not v:
-            raise ValueError("Name must not be empty")
+            raise ValueError("The name cannot be empty")
         return v
 
 
@@ -272,6 +281,7 @@ class AnimalBase(Strict):
     species: Species
     breed: str | None = Field(default=None, max_length=80)
     sex: Sex
+    color: AnimalColor | None = None
     date_of_birth: Date | None = None
     date_added: Date = Field(default_factory=today)
     origin: Origin = Origin.purchased
@@ -301,7 +311,7 @@ class AnimalBase(Strict):
     @classmethod
     def _dob_not_future(cls, v: Date | None) -> Date | None:
         if v and v > today():
-            raise ValueError("date_of_birth cannot be in the future")
+            raise ValueError("The date of birth cannot be in the future")
         return v
 
 
@@ -322,6 +332,7 @@ class AnimalOut(Record):
     species: Species
     breed: str | None = None
     sex: Sex
+    color: str | None = None
     date_of_birth: Date | None = None
     date_added: Date | None = None
     origin: Origin = Origin.purchased
@@ -432,7 +443,7 @@ class VaccinationBase(Strict):
     @model_validator(mode="after")
     def _due_after_given(self) -> "VaccinationBase":
         if self.next_due_date and self.next_due_date < self.date_given:
-            raise ValueError("next_due_date cannot be before date_given")
+            raise ValueError("The next due date cannot be before the date given")
         return self
 
 
@@ -531,6 +542,9 @@ class BreedingBase(Strict):
     pregnancy_status: PregnancyStatus = PregnancyStatus.pending
     pregnancy_confirmed_date: Date | None = None
     expected_birth_date: Date | None = None
+    # A lost pregnancy ("aborted"): when it was seen (today or up to 14 days ago) and why.
+    miscarriage_date: Date | None = None
+    miscarriage_reason: str | None = Field(default=None, max_length=500)
     notes: str | None = Field(default=None, max_length=1000)
 
 
@@ -684,6 +698,11 @@ class TransactionOut(TransactionBase, Record):
     label: str | None = None
     barn_name: str | None = None
     share: float | None = None
+    # An expense for no animal in particular is shared by the whole farm's animals (whole_farm) or the barn's.
+    whole_farm: bool = False
+    # Feed is shared by age (0-6 months 0.5, 6-12 months 1, 1 year and older 1.5): one weight per animal_ids
+    # entry; empty = equal shares.
+    weights: list[float] = []
 
 
 class CostLine(BaseModel):

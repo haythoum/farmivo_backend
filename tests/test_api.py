@@ -62,8 +62,8 @@ def test_run_reminders_pushes_once(client, cow, repo, notifier):
 
 def test_breeding_and_birth(client, cow):
     bull = client.post("/v1/animals", json={"ear_tag": "B1", "species": "cattle", "sex": "male"}).json
-    b = client.post("/v1/breedings", json={"dam_id": cow["id"], "sire_id": bull["id"], "mating_date": iso(-10)}).json
-    assert b["expected_birth_date"] == iso(-10 + 283)
+    b = client.post("/v1/breedings", json={"dam_id": cow["id"], "sire_id": bull["id"], "mating_date": iso(-280)}).json
+    assert b["expected_birth_date"] == iso(-280 + 283)
     r = client.post(f"/v1/breedings/{b['id']}/births",
                     json={"birth_date": iso(), "offspring": [{"ear_tag": "C2", "sex": "female", "birth_weight_kg": 35}]})
     assert r.status_code == 201

@@ -48,24 +48,46 @@ def tx_label(tx: dict, lang: str) -> str | None:
     return text
 
 
+def _snapshot(ctx: Ctx, barn_id: str | None) -> list[str]:
+    """The animals on the farm now (in ``barn_id``, or anywhere): an expense saved for a barn or the farm is
+    shared by the animals there when it is saved, and keeps them."""
+    filters = [("barn_id", "==", barn_id)] if barn_id else None
+    return [a["id"] for a in ctx.repo.list(path_of(ctx, "animals"), filters) if a.get("status") in ON_FARM_STATUSES]
+
+
+def _shared(data: dict) -> bool:
+    """An expense that its animals carry (not the purchase of an animal, never an income)."""
+    return data.get("type") == "expense" and data.get("category") != costs.PURCHASE_CATEGORY
+
+
 def _prepare(ctx: Ctx, data: dict) -> dict:
-    """Check the barn and the animals of a transaction; for a whole barn, take its animals on the farm now.
-    One animal (animal_id) and a list (animal_ids) are kept in step."""
+    """Check the barn and the animals of a transaction. An expense is always carried by animals:
+    - chosen animals (``animal_ids``; ``animal_id`` = one, kept in step);
+    - the whole barn (``whole_barn``, or a barn and no animal): its animals on the farm;
+    - the whole farm (no barn, no animal): every animal on the farm (``whole_farm``).
+    With no animal to carry it, it stays a farm expense (operating). Feed is shared by age (``weights``)."""
     barn_id = data.get("barn_id")
     if barn_id and not ctx.repo.get(path_of(ctx, "barns"), barn_id):
         raise ApiError(404, "Barn not found")
-    if data.get("whole_barn"):
-        if not barn_id:
-            raise ApiError(422, "Choose the barn")
-        data["animal_ids"] = [a["id"] for a in ctx.repo.list(path_of(ctx, "animals"), [("barn_id", "==", barn_id)])
-                              if a.get("status") in ON_FARM_STATUSES]
     ids = list(dict.fromkeys(data.get("animal_ids") or []))
     if not ids and data.get("animal_id"):
         ids = [data["animal_id"]]
-    for animal_id in ids:
-        get_animal_or_404(ctx, animal_id)
+    data["whole_farm"] = False
+    if data.get("whole_barn"):
+        if not barn_id:
+            raise ApiError(422, "Choose the barn")
+        ids = _snapshot(ctx, barn_id)
+    elif _shared(data) and not ids:
+        if barn_id:
+            data["whole_barn"] = True
+        else:
+            data["whole_farm"] = True
+        ids = _snapshot(ctx, barn_id)
+    animals = [get_animal_or_404(ctx, animal_id) for animal_id in ids]
     data["animal_ids"] = ids
     data["animal_id"] = ids[0] if len(ids) == 1 else None
+    data["weights"] = costs.feed_weights(animals, data["date"]) if _shared(data) and data.get("category") == "feed" \
+        and len(ids) > 1 else []
     return data
 
 
@@ -75,12 +97,14 @@ def _before_update(ctx: Ctx, existing: dict, merged: dict) -> dict:
     sent = request.get_json(silent=True) or {}
     if "animal_ids" in sent and "animal_id" not in sent:
         merged = {**merged, "animal_id": None}  # the list decides (an emptied list clears the one animal too)
-    # A whole-barn expense keeps the animals it was shared between unless the barn changed.
-    if merged.get("whole_barn") and merged.get("barn_id") == existing.get("barn_id") and existing.get("animal_ids"):
-        merged = {**merged, "whole_barn": False, "animal_ids": existing["animal_ids"]}
-        merged = _prepare(ctx, merged)
-        merged["whole_barn"] = True
-        return merged
+    shared_by_all = existing.get("whole_barn") or existing.get("whole_farm")
+    same_scope = all(merged.get(k) == existing.get(k) for k in ("barn_id", "date", "type", "category"))
+    if shared_by_all and not sent.get("animal_ids") and not sent.get("animal_id"):
+        if same_scope and existing.get("animal_ids") and bool(merged.get("whole_barn")) == bool(existing.get("whole_barn")):
+            # Same barn (or farm), same date: it keeps the animals it was shared between when it was saved.
+            return {**merged, "animal_ids": existing["animal_ids"], "animal_id": existing.get("animal_id"),
+                    "whole_farm": existing.get("whole_farm", False), "weights": existing.get("weights") or []}
+        merged = {**merged, "animal_ids": [], "animal_id": None}  # shared again, by the new barn / date
     return _prepare(ctx, merged)
 
 
@@ -93,6 +117,16 @@ def _enrich(record: dict) -> dict:
             "share": costs.share_of(record) if len(costs.tx_animals(record)) > 1 else None}
 
 
+def _barn_filter(ctx: Ctx, rows: list[dict]) -> list[dict]:
+    """?barn_id=: the entries of one barn: booked on it, or carried by its animals (now or when they left)."""
+    barn_id = q_str("barn_id")
+    if not barn_id:
+        return rows
+    mine = {a["id"] for a in ctx.repo.list(path_of(ctx, "animals"))
+            if a.get("barn_id") == barn_id or (not a.get("barn_id") and a.get("last_barn_id") == barn_id)}
+    return [r for r in rows if r.get("barn_id") == barn_id or any(i in mine for i in costs.tx_animals(r))]
+
+
 transactions = build_crud_blueprint(
     name="transactions",
     collection="transactions",
@@ -103,6 +137,7 @@ transactions = build_crud_blueprint(
     before_create=_prepare,
     before_update=_before_update,
     enrich=_enrich,
+    list_filter=_barn_filter,
 )
 bp.register_blueprint(transactions, url_prefix="/transactions")
 
