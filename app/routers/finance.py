@@ -97,14 +97,28 @@ def _before_update(ctx: Ctx, existing: dict, merged: dict) -> dict:
     sent = request.get_json(silent=True) or {}
     if "animal_ids" in sent and "animal_id" not in sent:
         merged = {**merged, "animal_id": None}  # the list decides (an emptied list clears the one animal too)
+    chose_animals = bool(sent.get("animal_ids") or sent.get("animal_id"))
+    same_barn = merged.get("barn_id") == existing.get("barn_id") and merged.get("type") == existing.get("type")
     shared_by_all = existing.get("whole_barn") or existing.get("whole_farm")
-    same_scope = all(merged.get(k) == existing.get(k) for k in ("barn_id", "date", "type", "category"))
-    if shared_by_all and not sent.get("animal_ids") and not sent.get("animal_id"):
-        if same_scope and existing.get("animal_ids") and bool(merged.get("whole_barn")) == bool(existing.get("whole_barn")):
-            # Same barn (or farm), same date: it keeps the animals it was shared between when it was saved.
-            return {**merged, "animal_ids": existing["animal_ids"], "animal_id": existing.get("animal_id"),
-                    "whole_farm": existing.get("whole_farm", False), "weights": existing.get("weights") or []}
-        merged = {**merged, "animal_ids": [], "animal_id": None}  # shared again, by the new barn / date
+    if not chose_animals and same_barn and not shared_by_all and not existing.get("animal_ids") \
+            and not merged.get("whole_barn"):
+        # An expense saved before expenses were shared (no animal): it stays a farm expense when it is edited, so
+        # earlier balance sheets do not change.
+        return {**merged, "animal_ids": [], "animal_id": None}
+    if shared_by_all and not chose_animals and same_barn and existing.get("animal_ids") \
+            and bool(merged.get("whole_barn")) == bool(existing.get("whole_barn")):
+        # Same barn (or farm): it keeps the animals it was shared by when it was saved; a new category or date
+        # only weighs them again (feed by age).
+        kept = {**merged, "animal_ids": existing["animal_ids"], "animal_id": existing.get("animal_id"),
+                "whole_farm": existing.get("whole_farm", False)}
+        if merged.get("category") == existing.get("category") and merged.get("date") == existing.get("date"):
+            return {**kept, "weights": existing.get("weights") or []}
+        animals = [ctx.repo.get(path_of(ctx, "animals"), i) or {} for i in kept["animal_ids"]]
+        kept["weights"] = costs.feed_weights(animals, kept["date"]) \
+            if _shared(kept) and kept.get("category") == "feed" and len(animals) > 1 else []
+        return kept
+    if shared_by_all and not chose_animals:
+        merged = {**merged, "animal_ids": [], "animal_id": None}  # another barn: shared by its animals
     return _prepare(ctx, merged)
 
 

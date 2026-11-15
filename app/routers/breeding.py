@@ -59,31 +59,45 @@ def _check_period(ctx: Ctx, data: dict, dam: dict, breeding_id: str | None) -> N
                                 f"before it. Check the mating date")
 
 
+def _changed(data: dict, existing: dict | None, *keys: str) -> bool:
+    """A new record, or one of ``keys`` differs from the stored record."""
+    return existing is None or any(data.get(k) != existing.get(k) for k in keys)
+
+
 def _check_dates(data: dict, dam: dict, existing: dict | None) -> None:
     """Dates a mating can have: not in the future, after the mother's birth, an expected birth inside the
-    species' pregnancy, a confirmation between mating and today, a miscarriage seen today or up to 14 days ago."""
+    species' pregnancy, a confirmation between mating and today, a miscarriage seen today or up to 14 days ago.
+    Each is checked when its own fields change, so an older record can still be edited (its notes, say)."""
     species = dam.get("species")
     mating = parse_date(data["mating_date"])
-    if mating > today():
-        raise ApiError(422, "The mating date cannot be in the future")
-    dob = parse_date(dam.get("date_of_birth"))
-    if dob and mating < dob:
-        raise ApiError(422, f"The mating date is before {dam.get('ear_tag')} was born ({dob.isoformat()}). "
-                            f"Check both dates")
+    if _changed(data, existing, "mating_date", "dam_id"):
+        if mating > today():
+            raise ApiError(422, "The mating date cannot be in the future")
+        dob = parse_date(dam.get("date_of_birth"))
+        if dob and mating < dob:
+            raise ApiError(422, f"The mating date is before {dam.get('ear_tag')} was born ({dob.isoformat()}). "
+                                f"Check both dates")
     expected = parse_date(data.get("expected_birth_date"))
     first, last = rules.earliest_birth(species, mating), rules.latest_birth(species, mating)
-    if expected and first and last and not first <= expected <= last:
+    if expected and first and last and _changed(data, existing, "mating_date", "dam_id", "expected_birth_date") \
+            and not first <= expected <= last:
         raise ApiError(422, f"For a mating on {mating.isoformat()}, the expected birth date must be between "
                             f"{first.isoformat()} and {last.isoformat()} ({species}: pregnancy of "
                             f"{rules.gestation_text(species)} at most)")
     confirmed = parse_date(data.get("pregnancy_confirmed_date"))
-    if confirmed and (confirmed < mating or confirmed > today()):
+    if confirmed and _changed(data, existing, "pregnancy_confirmed_date", "mating_date") \
+            and (confirmed < mating or confirmed > today()):
         raise ApiError(422, "The pregnancy cannot be confirmed before the mating date or in the future")
     if data.get("pregnancy_status") == "aborted":
+        # Checked when the miscarriage is recorded or its date / reason change; a miscarriage recorded before
+        # these fields existed keeps saving (its other fields can be edited).
+        if not _changed(data, existing, "pregnancy_status", "miscarriage_date", "miscarriage_reason"):
+            return
         lost = parse_date(data.get("miscarriage_date"))
         if not lost or not (data.get("miscarriage_reason") or "").strip():
             raise ApiError(422, "Enter the date of the miscarriage and why it happened")
-        changed = not existing or existing.get("miscarriage_date") != data.get("miscarriage_date")
+        legacy = existing is not None and existing.get("pregnancy_status") == "aborted" and not existing.get("miscarriage_date")
+        changed = not legacy and _changed(data, existing, "miscarriage_date", "pregnancy_status")
         oldest = today() - timedelta(days=rules.MISCARRIAGE_MAX_DAYS_AGO)
         if lost > today() or lost < mating or (changed and lost < oldest):
             raise ApiError(422, f"The miscarriage date must be today or up to 14 days ago ({oldest.isoformat()} to "
@@ -105,7 +119,7 @@ def _validate_parents(ctx: Ctx, data: dict, new: bool = False, existing: dict | 
     if dam.get("sex") != "female":
         raise ApiError(422, "The mother of a mating must be a female. Choose a female animal")
     species = dam.get("species")
-    if species in rules.BIRDS:
+    if species in rules.BIRDS and _changed(data, existing, "dam_id", "mating_date"):
         raise ApiError(422, f"{species} lay eggs: they are not mated in Farmivo. Record their eggs in Production")
     if new and dam.get("status") not in ON_FARM_STATUSES:
         raise ApiError(422, f"Only animals on the farm can be mated ({dam.get('ear_tag')})")
@@ -113,6 +127,10 @@ def _validate_parents(ctx: Ctx, data: dict, new: bool = False, existing: dict | 
     relevant = new or any(data.get(k) != (existing or {}).get(k)
                           for k in ("dam_id", "sire_id", "mating_date", "pregnancy_status"))
     mating = parse_date(data["mating_date"])
+    dob = parse_date(dam.get("date_of_birth"))
+    if relevant and dob and mating < dob:  # clearer than "she was -3 months old"
+        raise ApiError(422, f"The mating date is before {dam.get('ear_tag')} was born ({dob.isoformat()}). "
+                            f"Check both dates")
     if rule and relevant:
         age = _too_young(dam, mating, rule.female_min_months)
         if age is not None:

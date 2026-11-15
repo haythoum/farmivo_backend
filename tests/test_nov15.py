@@ -227,3 +227,39 @@ def test_every_message_the_api_writes_is_translated():
     allowed = {"Unsupported filter operator", "Wrong code. 7 attempt7 left"}
     missing = [m for m in missing if not any(a in m for a in allowed)]
     assert not missing, "\n".join(missing)
+
+
+# ------------------------------------------------------------------ review fixes
+
+def test_an_old_miscarriage_can_still_be_edited(make_client, repo):
+    c = farm_client(make_client)
+    ewe = add(c, "E1", sex="female", date_of_birth=years_ago(2))
+    b = mate(c, ewe, when=-60).json
+    farm_id = c.get("/v1/farm").json["id"]
+    repo.update(f"farms/{farm_id}/breedings", b["id"], {"pregnancy_status": "aborted"})  # as stored before
+    assert c.patch(f"/v1/breedings/{b['id']}", json={"notes": "checked"}).status_code == 200
+    old = (today() - timedelta(days=40)).isoformat()
+    r = c.patch(f"/v1/breedings/{b['id']}", json={"miscarriage_date": old, "miscarriage_reason": "Fall"})
+    assert r.status_code == 200 and r.json["miscarriage_date"] == old
+
+
+def test_an_old_farm_expense_stays_a_farm_expense_when_edited(make_client, repo):
+    c = farm_client(make_client)
+    a = add(c, "S1")
+    farm_id = c.get("/v1/farm").json["id"]
+    tx = repo.create(f"farms/{farm_id}/transactions", {"type": "expense", "category": "utilities", "amount": 50,
+                                                       "date": d(-30), "animal_ids": [], "whole_barn": False})
+    edited = c.patch(f"/v1/transactions/{tx['id']}", json={"description": "Water"}).json
+    assert edited["animal_ids"] == [] and not edited["whole_farm"]
+    # a new date of a whole-farm feed expense keeps its animals
+    feed = expense(c, 30, "feed")
+    add(c, "S2")
+    moved = c.patch(f"/v1/transactions/{feed['id']}", json={"date": d(-2)}).json
+    assert moved["animal_ids"] == [a["id"]]
+
+
+def test_mating_before_birth_is_said_clearly(make_client):
+    c = farm_client(make_client)
+    ewe = add(c, "E1", sex="female", date_of_birth=d(-30))
+    r = mate(c, ewe, when=-60)
+    assert r.status_code == 422 and "before E1 was born" in r.json["detail"]
