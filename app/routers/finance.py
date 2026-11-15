@@ -8,7 +8,7 @@ import re
 
 from flask import Blueprint
 
-from app import costs
+from app import costs, sales
 from app.deps import Ctx, get_ctx
 from app.errors import ApiError
 from app.i18n import request_lang, t
@@ -60,12 +60,14 @@ def _shared(data: dict) -> bool:
     return data.get("type") == "expense" and data.get("category") != costs.PURCHASE_CATEGORY
 
 
-def _prepare(ctx: Ctx, data: dict) -> dict:
+def _prepare(ctx: Ctx, data: dict, tx_id: str | None = None) -> dict:
     """Check the barn and the animals of a transaction. An expense is always carried by animals:
     - chosen animals (``animal_ids``; ``animal_id`` = one, kept in step);
     - the whole barn (``whole_barn``, or a barn and no animal): its animals on the farm;
     - the whole farm (no barn, no animal): every animal on the farm (``whole_farm``).
-    With no animal to carry it, it stays a farm expense (operating). Feed is shared by age (``weights``)."""
+    With no animal to carry it, it stays a farm expense (operating). Feed is shared by age (``weights``).
+    A sale of animals (app/sales.py) only takes animals on the farm (or already sold by this same entry,
+    ``tx_id``)."""
     barn_id = data.get("barn_id")
     if barn_id and not ctx.repo.get(path_of(ctx, "barns"), barn_id):
         raise ApiError(404, "Barn not found")
@@ -84,6 +86,11 @@ def _prepare(ctx: Ctx, data: dict) -> dict:
             data["whole_farm"] = True
         ids = _snapshot(ctx, barn_id)
     animals = [get_animal_or_404(ctx, animal_id) for animal_id in ids]
+    if sales.is_sale(data):
+        gone = sales.cannot_sell(ctx.repo, ctx.farm_id, {"animal_ids": ids}, tx_id)
+        if gone:
+            raise ApiError(409, f"{gone.get('farm_code') or gone.get('ear_tag') or gone.get('name') or '?'} is no longer "
+                                "on the farm: it cannot be sold. Take it out of this sale")
     data["animal_ids"] = ids
     data["animal_id"] = ids[0] if len(ids) == 1 else None
     data["weights"] = costs.feed_weights(animals, data["date"]) if _shared(data) and data.get("category") == "feed" \
@@ -100,7 +107,7 @@ def _before_update(ctx: Ctx, existing: dict, merged: dict) -> dict:
     chose_animals = bool(sent.get("animal_ids") or sent.get("animal_id"))
     same_barn = merged.get("barn_id") == existing.get("barn_id") and merged.get("type") == existing.get("type")
     shared_by_all = existing.get("whole_barn") or existing.get("whole_farm")
-    if not chose_animals and same_barn and not shared_by_all and not existing.get("animal_ids") \
+    if not chose_animals and same_barn and not shared_by_all and not costs.tx_animals(existing) \
             and not merged.get("whole_barn"):
         # An expense saved before expenses were shared (no animal): it stays a farm expense when it is edited, so
         # earlier balance sheets do not change.
@@ -119,7 +126,17 @@ def _before_update(ctx: Ctx, existing: dict, merged: dict) -> dict:
         return kept
     if shared_by_all and not chose_animals:
         merged = {**merged, "animal_ids": [], "animal_id": None}  # another barn: shared by its animals
-    return _prepare(ctx, merged)
+    return _prepare(ctx, merged, existing["id"])
+
+
+def _after_write(ctx: Ctx, record: dict) -> None:
+    """A sale of animals: the animals are sold with it (app/sales.py)."""
+    sales.sync(ctx.repo, ctx.farm_id, record)
+
+
+def _after_delete(ctx: Ctx, record: dict) -> None:
+    """A deleted sale: its animals are back on the farm."""
+    sales.sync(ctx.repo, ctx.farm_id, record, deleted=True)
 
 
 def _enrich(record: dict) -> dict:
@@ -150,6 +167,8 @@ transactions = build_crud_blueprint(
     date_field="date",
     before_create=_prepare,
     before_update=_before_update,
+    after_write=_after_write,
+    after_delete=_after_delete,
     enrich=_enrich,
     list_filter=_barn_filter,
 )
@@ -205,6 +224,9 @@ def finance_bilan():
     if barn_id and not ctx.repo.get(path_of(ctx, "barns"), barn_id):
         raise ApiError(404, "Barn not found")
     data = costs.bilan(ctx.repo, ctx.farm_id, barn_id)
+    lang = request_lang()
+    for sale in data["sales"]:
+        sale["label"] = tx_label(sale, lang)
     return out(BilanOut.model_validate({**data, "currency": farm_currency(ctx.repo, ctx.farm_id)}))
 
 

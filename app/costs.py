@@ -150,6 +150,10 @@ def animal_costs(repo: Repository, farm_id: str, animal: dict) -> dict:
     }
 
 
+def r2(value: float) -> float:
+    return round(value, 2)
+
+
 def _in_barn(animal: dict, barn_id: str) -> bool:
     """The animal is in the barn, or was in it when it left the farm."""
     return animal.get("barn_id") == barn_id or (not animal.get("barn_id") and animal.get("last_barn_id") == barn_id)
@@ -180,10 +184,13 @@ def bilan(repo: Repository, farm_id: str, barn_id: str | None = None) -> dict:
     expenses_by: dict[str, float] = {}
     sales_total = other_income = 0.0
     sold_ids: set[str] = set()
+    sale_txs: dict[str, dict] = {}
     for tx in repo.list(farm_path(farm_id, "transactions")):
         amount = float(tx["amount"])
         ids = tx_animals(tx)
         if tx.get("type") == "income":
+            if tx.get("category") == SALE_CATEGORY:
+                sale_txs[tx["id"]] = tx
             if tx.get("category") == SALE_CATEGORY and ids:
                 if not barn_id or any(i in by_id for i in ids):
                     # Whole farm: a sale stays counted even when the animal was deleted since.
@@ -229,17 +236,39 @@ def bilan(repo: Repository, farm_id: str, barn_id: str | None = None) -> dict:
         elif a.get("status") in LOST_STATUSES:
             lost_purchases += hand_bought.get(a["id"], 0.0)
 
-    # Every sold animal still on record: what it cost, what it was sold for, the gain or loss.
+    # Every sold animal still on record: what it cost (purchase + its expenses), what it was sold for (its share of
+    # a sale of several animals: the average price), the gain or loss.
     sold = []
     for a in animals:
         if a.get("status") != "sold":
             continue
-        cost = _bought_price(a) + hand_bought.get(a["id"], 0.0) + animal_expenses.get(a["id"], 0.0)
+        bought = _bought_price(a) + hand_bought.get(a["id"], 0.0)
+        spent = animal_expenses.get(a["id"], 0.0)
         price = float(a.get("sale_price") or 0)
-        sold.append({"id": a["id"], "ear_tag": a.get("ear_tag"), "name": a.get("name"), "species": a.get("species"),
-                     "date": a.get("status_date"), "sale_price": round(price, 2), "total_cost": round(cost, 2),
-                     "result": round(price - cost, 2)})
+        sold.append({"id": a["id"], "ear_tag": a.get("ear_tag"), "farm_code": a.get("farm_code"), "name": a.get("name"),
+                     "species": a.get("species"), "date": a.get("status_date"), "sale_price": round(price, 2),
+                     "purchase_price": round(bought, 2), "expenses": round(spent, 2),
+                     "total_cost": round(bought + spent, 2), "result": round(price - bought - spent, 2),
+                     "transaction_id": a.get("sale_tx_id")})
     sold.sort(key=lambda x: x["date"] or "", reverse=True)
+
+    # The same animals by sale: one entry per sale (several animals sold together for one price are one sale).
+    by_sale: dict[str, dict] = {}
+    for item in sold:
+        key = item["transaction_id"] or item["id"]
+        tx = sale_txs.get(item["transaction_id"] or "", {})
+        sale = by_sale.setdefault(key, {
+            "transaction_id": item["transaction_id"], "date": tx.get("date") or item["date"],
+            "description": tx.get("description"), "category": SALE_CATEGORY, "amount": 0.0,
+            "total_cost": 0.0, "result": 0.0, "animals": []})
+        sale["animals"].append(item)
+        sale["amount"] = r2(sale["amount"] + item["sale_price"])
+        sale["total_cost"] = r2(sale["total_cost"] + item["total_cost"])
+        sale["result"] = r2(sale["result"] + item["result"])
+    sales_list = sorted(by_sale.values(), key=lambda s: s["date"] or "", reverse=True)
+    for sale in sales_list:
+        sale["count"] = len(sale["animals"])
+        sale["average_price"] = r2(sale["amount"] / sale["count"])
 
     operating = sum(expenses_by.values())
     capital = purchases_total - lost_purchases
@@ -255,6 +284,6 @@ def bilan(repo: Repository, farm_id: str, barn_id: str | None = None) -> dict:
         "sales_total": r(sales_total), "sales_count": len(sold_ids), "other_income": r(other_income),
         "cash_in": r(cash_in),
         "herd_count": herd_count, "herd_value": r(herd_value),
-        "sold": sold, "sales_result": r(sum(x["result"] for x in sold)),
+        "sold": sold, "sales": sales_list, "sales_result": r(sum(x["result"] for x in sold)),
         "profit": r(cash_in + herd_value - capital - expenses_total),
     }

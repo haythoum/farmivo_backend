@@ -82,3 +82,9 @@ The apps cannot delete a farm yet (planned, with an admin dashboard). On the ser
 
 - Real breed photos in the breed list instead of drawn icons: `GET /breeds` gives each breed a `photo` (`{url, credit, generic}`), served by `GET /breeds/photo/<species>/<file>.jpg`. The photos are downloaded once on the server from Wikipedia / Wikimedia Commons (freely licensed photos only, author and licence kept in `credits.json` and shown in the apps). Breeds without a free photo (crossbreds, local types, some Maghreb breeds) show the species' photo until a farmer's own photo is copied in (see app/breed_photos.py).
 - Deploy: `git pull`, then once `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.fetch_breed_photos` (needs internet from the server; prints which breeds got a photo), then `sudo supervisorctl restart farmivo`.
+
+## 16 Nov 2026 release
+
+- Sales of several animals together (one "Animal sale" entry naming its animals, one price): the animals now leave the farm as sold, each at the average price, out of their barn (app/sales.py); editing or deleting the entry moves them accordingly. Before, they stayed on the farm.
+- The balance sheet lists every sale (`sales`): date, description, number of animals, price, average price, and per animal its purchase price, its expenses, its total cost and its result.
+- Deploy: `git pull`, then once `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.upgrade_2026_11_16` (sells the animals of the sales entered before; safe to run again), then `sudo supervisorctl restart farmivo`.

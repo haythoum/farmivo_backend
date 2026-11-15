@@ -343,6 +343,7 @@ class AnimalOut(Record):
     status_date: Date | None = None
     buyer: str | None = None        # sold: who bought it
     sale_price: float | None = None  # sold: the price (also an income transaction)
+    sale_tx_id: str | None = None    # sold: its sale entry (alone, or with other animals: app/sales.py)
     recipient: str | None = None    # donated / gifted: who received it
     status_notes: str | None = None
     photo_url: str | None = None
@@ -737,12 +738,31 @@ class SoldAnimal(BaseModel):
     """One sold animal in the balance sheet's sales section."""
     id: str
     ear_tag: str | None = None
+    farm_code: str | None = None
     name: str | None = None
     species: str | None = None
     date: Date | None = None
-    sale_price: float
+    sale_price: float      # its price; in a sale of several animals, its share (the average price)
+    purchase_price: float = 0  # what it cost to buy (0 when born on the farm)
+    expenses: float = 0    # its share of the expenses (feed, vet ...)
     total_cost: float      # purchase + its expenses
     result: float          # sale_price - total_cost
+    transaction_id: str | None = None  # the sale entry
+
+
+class SaleOut(BaseModel):
+    """One sale in the balance sheet: the animals sold together in one entry (or one animal sold alone)."""
+    transaction_id: str | None = None
+    date: Date | None = None
+    label: str | None = None   # the entry's description in the reader's language
+    description: str | None = None
+    category: str = "animal_sale"
+    count: int                 # animals sold
+    amount: float              # the price of the sale
+    average_price: float       # amount / count: each animal's price
+    total_cost: float          # what the animals cost
+    result: float              # amount - total_cost
+    animals: list[SoldAnimal]
 
 
 class BilanOut(BaseModel):
@@ -771,6 +791,7 @@ class BilanOut(BaseModel):
     herd_count: int
     herd_value: float      # purchase price + expenses of the animals still on the farm
     sold: list[SoldAnimal] = []  # newest first (sold animals deleted since are not listed)
+    sales: list[SaleOut] = []    # the same animals by sale, newest first
     sales_result: float = 0      # sum of the sold animals' gains and losses
     profit: float
 
