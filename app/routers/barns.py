@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from flask import Blueprint
+import re
+
+from flask import Blueprint, request, send_from_directory
 from pydantic import ValidationError
 
-from app import age_classes, breeds, costs
+from app import age_classes, breed_photos, breeds, costs
 from app.deps import Ctx, get_ctx
 from app.errors import ApiError, validation_error
 from app.i18n import request_lang
@@ -162,4 +164,16 @@ def list_breeds():
     """GET /v1/breeds - per species, the breeds offered in the apps' breed list ({name, label}; name is what the
     animal stores, label is in the request's language). The apps also let the farmer type another breed."""
     get_ctx()
-    return out(breeds.catalog(request_lang()))
+    return out(breeds.catalog(request_lang(), request.url_root))
+
+
+@bp.get("/breeds/photo/<species>/<file>")
+def breed_photo(species: str, file: str):
+    """GET /v1/breeds/photo/<species>/<file>.jpg - a breed's photo (app/breed_photos.py). Public: the apps' image
+    loaders fetch it without the sign-in header; it holds nothing about any farm."""
+    if not re.fullmatch(r"[a-z]+", species) or not re.fullmatch(r"[a-z0-9_-]+\.jpg", file):
+        raise ApiError(404, "Photo not found")
+    folder = breed_photos.photos_dir() / species
+    if not (folder / file).is_file():
+        raise ApiError(404, "Photo not found")
+    return send_from_directory(folder, file, mimetype="image/jpeg", max_age=7 * 86400)

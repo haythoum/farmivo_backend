@@ -95,6 +95,7 @@ MESSAGES: dict[str, dict[str, str]] = {
                          "ar": "تعذّر إرسال البريد الإلكتروني. حاول لاحقًا"},
     # ---------------------------------------------------------------- errors: records
     "err.animal_not_found": {"en": "Animal not found", "fr": "Animal introuvable", "ar": "الحيوان غير موجود"},
+    "err.photo_not_found": {"en": "Photo not found", "fr": "Photo introuvable", "ar": "الصورة غير موجودة"},
     "err.record_not_found": {"en": "Record not found", "fr": "Enregistrement introuvable", "ar": "السجل غير موجود"},
     "err.breeding_not_found": {"en": "Breeding record not found", "fr": "Saillie introuvable",
                                "ar": "سجل التزاوج غير موجود"},

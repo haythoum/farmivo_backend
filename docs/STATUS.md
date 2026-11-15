@@ -77,3 +77,8 @@ The apps cannot delete a farm yet (planned, with an admin dashboard). On the ser
 - Mongo: records stored with a chosen id under a farm (members) now have the `_id` `<farm>/<id>`, so one person can be a member of several farms; older records are still read and upgraded when written.
 - Admin web dashboard: see docs/ADMIN.md.
 - Deploy: `git pull`, then once `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.upgrade_2026_11_14`, then `sudo supervisorctl restart farmivo`.
+
+## 15 Nov 2026 release (second part)
+
+- Real breed photos in the breed list instead of drawn icons: `GET /breeds` gives each breed a `photo` (`{url, credit, generic}`), served by `GET /breeds/photo/<species>/<file>.jpg`. The photos are downloaded once on the server from Wikipedia / Wikimedia Commons (freely licensed photos only, author and licence kept in `credits.json` and shown in the apps). Breeds without a free photo (crossbreds, local types, some Maghreb breeds) show the species' photo until a farmer's own photo is copied in (see app/breed_photos.py).
+- Deploy: `git pull`, then once `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.fetch_breed_photos` (needs internet from the server; prints which breeds got a photo), then `sudo supervisorctl restart farmivo`.

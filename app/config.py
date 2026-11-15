@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     mail_from_email: str = "contact@quadralens.tn"
     mail_from_name: str = "Farmivo"
     mail_timeout: float = 10
+    # Real breed photos for the apps' breed list (app/breed_photos.py; filled by scripts/fetch_breed_photos.py).
+    breed_photos_dir: str = "data/breed_photos"
     # Admin web dashboard (/admin): its password (user "admin"). Empty = the dashboard is off.
     admin_password: str | None = None
     # By default /admin answers only requests from the server itself (reach it through an SSH tunnel). True opens it

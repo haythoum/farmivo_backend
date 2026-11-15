@@ -8,3 +8,5 @@ serviceAccountKey.json
 *-firebase-adminsdk-*.json
 .firebase/
 firebase-debug.log
+# Breed photos are downloaded on the server (scripts/fetch_breed_photos.py), not kept in git.
+data/breed_photos/
