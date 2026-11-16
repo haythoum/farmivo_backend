@@ -291,6 +291,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "tx.sale": {"en": "Sale of {animal}", "fr": "Vente de {animal}", "ar": "بيع {animal}"},
     "tx.sale_to": {"en": "Sale of {animal} to {buyer}", "fr": "Vente de {animal} à {buyer}",
                    "ar": "بيع {animal} إلى {buyer}"},
+    "err.sold_with_others": {
+        "en": "This animal was sold together with other animals in one sale: change the price or the date in Finance, in that sale's entry",
+        "fr": "Cet animal a été vendu avec d'autres en une seule vente : changez le prix ou la date dans Finances, dans l'écriture de cette vente",
+        "ar": "بيع هذا الحيوان مع حيوانات أخرى في عملية بيع واحدة: غيّر السعر أو التاريخ من المالية، في عملية البيع هذه"},
     "err.cannot_sell": {"en": "{animal} is no longer on the farm: it cannot be sold. Take it out of this sale",
                         "fr": "{animal} n'est plus à la ferme : il ne peut pas être vendu. Retirez-le de cette vente",
                         "ar": "{animal} لم يعد في الضيعة: لا يمكن بيعه. احذفه من هذا البيع"},

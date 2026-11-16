@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.deps import Ctx, get_ctx, get_photo_store
 from app.errors import ApiError, validation_error
 from app.routers.crud import clean, get_animal_or_404, path_of
-from app import age_classes, animal_codes, breeds, costs
+from app import age_classes, animal_codes, breeds, costs, sales
 from app.i18n import request_lang
 from app.schemas import (
     AnimalCostsOut,
@@ -294,7 +294,22 @@ def change_status(animal_id: str):
     tx_path = path_of(ctx, "transactions")
     tx_id = animal.get("sale_tx_id")
     existing_tx = ctx.repo.get(tx_path, tx_id) if tx_id else None
-    if status == "sold" and change.sale_price:
+    together = existing_tx is not None and len(costs.tx_animals(existing_tx)) > 1
+    if together and status == "sold":
+        # Sold with other animals for one price (app/sales.py): the price and date belong to the sale entry.
+        raise ApiError(409, "This animal was sold together with other animals in one sale: change the price or the "
+                            "date in Finance, in that sale's entry")
+    if together:
+        # Undone (or marked dead, given ...): it leaves that sale; the sale keeps the other animals at their price.
+        ids = costs.tx_animals(existing_tx)
+        share = sales.prices(existing_tx)[animal_id]
+        rest = {**existing_tx, "animal_ids": [i for i in ids if i != animal_id], "animal_id": None,
+                "amount": round(float(existing_tx["amount"]) - share, 2)}
+        ctx.repo.update(tx_path, tx_id, {"animal_ids": rest["animal_ids"], "animal_id": None, "amount": rest["amount"]})
+        for other, price in sales.prices(rest).items():
+            ctx.repo.update(path_of(ctx, "animals"), other, {"sale_price": price})
+        patch["sale_tx_id"] = None
+    elif status == "sold" and change.sale_price:
         label = animal.get("name") or animal.get("ear_tag")
         fields = {
             "type": "income",

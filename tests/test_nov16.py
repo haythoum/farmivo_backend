@@ -142,3 +142,24 @@ def test_animals_marked_sold_without_price_get_it_from_the_sale(make_client, rep
     d = add(c, "S3")
     status(c, d, "sold", date="2026-11-14")
     assert sale(c, 300, [d]).status_code == 201 and get(c, d)["sale_price"] == 300
+
+
+def test_an_animal_sold_with_others_is_corrected_in_the_sale_entry(make_client):
+    c = farm_client(make_client)
+    fold = c.post("/v1/barns", json={"name": "Fold"}).json
+    a, b, d = (add(c, f"S{i}", barn_id=fold["id"]) for i in range(3))
+    tx = sale(c, 900, [a, b, d]).json
+    r = c.post(f"/v1/animals/{a['id']}/status", json={"status": "sold", "sale_price": 500, "date": "2026-11-10"})
+    assert r.status_code == 409 and "in that sale's entry" in r.json["detail"]
+    # undone: out of the sale, the others keep their price, the entry loses its share
+    r = c.post(f"/v1/animals/{a['id']}/status", json={"status": "active"})
+    assert r.status_code == 200, r.json
+    back = get(c, a)
+    assert (back["status"], back["barn_id"], back["sale_tx_id"]) == ("active", fold["id"], None)
+    entry = c.get(f"/v1/transactions/{tx['id']}").json
+    assert entry["amount"] == 600 and sorted(entry["animal_ids"]) == sorted([b["id"], d["id"]])
+    assert get(c, b)["sale_price"] == 300 and get(c, d)["status"] == "sold"
+    # marked dead after all: out of the sale too
+    c.post(f"/v1/animals/{b['id']}/status", json={"status": "active"})
+    assert c.post(f"/v1/animals/{d['id']}/status", json={"status": "deceased"}).status_code == 409  # only from the farm
+    assert c.get(f"/v1/transactions/{tx['id']}").json["amount"] == 300
