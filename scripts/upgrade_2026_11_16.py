@@ -7,6 +7,10 @@ Animals sold together in one finance entry (an "Animal sale" income that names i
 until now. They are sold now with their entry (app/sales.py): status "sold" on the entry's date, each at its share
 of the price (the average), out of their barn. Animals that left the farm otherwise (dead, sold alone) are left as
 they are.
+
+    ... -m scripts.upgrade_2026_11_16 --check
+
+only shows what it finds (database, farms, each sale entry and the state of its animals) and changes nothing.
 """
 from __future__ import annotations
 
@@ -30,6 +34,30 @@ def upgrade(repo: Repository) -> int:
     return changed
 
 
+def check(repo: Repository) -> list[str]:
+    """What the upgrade would look at, as lines to print (no passwords, nothing changed)."""
+    lines = []
+    farms = repo.list("farms")
+    lines.append(f"farms: {len(farms)}")
+    for farm in farms:
+        txs = repo.list(farm_path(farm["id"], "transactions"))
+        animals = {a["id"]: a for a in repo.list(farm_path(farm["id"], "animals"))}
+        lines.append(f"farm {farm.get('name')!r}: {len(animals)} animals, {len(txs)} entries, "
+                     f"{sum(1 for t in txs if t.get('type') == 'income')} income entries")
+        for tx in txs:
+            if tx.get("type") != "income":
+                continue
+            ids = sales.costs.tx_animals(tx)
+            lines.append(f"  {tx.get('date')} {tx.get('category')!r} {tx.get('amount')} {tx.get('description')!r}: "
+                         f"{len(ids)} animal(s) named, barn={tx.get('barn_id')!r}, whole_barn={tx.get('whole_barn')!r}")
+            for animal_id in ids:
+                a = animals.get(animal_id)
+                lines.append(f"    - {animal_id}: " + ("deleted" if not a else
+                             f"{a.get('farm_code') or a.get('ear_tag')} status={a.get('status')!r} "
+                             f"sale_tx_id={a.get('sale_tx_id')!r} sale_price={a.get('sale_price')!r}"))
+    return lines
+
+
 def main() -> None:
     from flask import Flask
 
@@ -37,8 +65,15 @@ def main() -> None:
     from app.deps import _mongo_db
     from app.repository import MongoRepository
 
+    settings = get_settings()
     with Flask(__name__).app_context():
-        repo = MongoRepository(_mongo_db(), get_settings().mongo_prefix)
+        repo = MongoRepository(_mongo_db(), settings.mongo_prefix)
+        if "--check" in sys.argv:
+            print(f"database: {settings.mongo_db!r} on {settings.mongo_host}:{settings.mongo_port}, "
+                  f"user {'set' if settings.mongo_user or settings.mongo_uri else 'NOT set'}, "
+                  f"collection prefix {settings.mongo_prefix!r}")
+            print("\n".join(check(repo)))
+            return
         print(f"animals sold with their sale entry: {upgrade(repo)}")
 
 

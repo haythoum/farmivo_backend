@@ -111,3 +111,13 @@ def test_upgrade_sells_the_animals_of_old_bulk_sales(make_client, repo):
     assert upgrade(repo) == 2
     assert get(c, a)["status"] == "sold" and get(c, b)["sale_price"] == 450
     assert upgrade(repo) == 0
+
+
+def test_upgrade_check_lists_sales_and_their_animals(make_client, repo):
+    from scripts.upgrade_2026_11_16 import check
+
+    c = farm_client(make_client)
+    a = add(c, "S1")
+    sale(c, 500, [a], description="Market")
+    text = "\n".join(check(repo))
+    assert "farms: 1" in text and "'animal_sale' 500" in text and "status='sold'" in text
