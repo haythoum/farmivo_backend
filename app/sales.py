@@ -8,7 +8,8 @@ The sale is the transaction; the animals follow it (since 16 Nov 2026):
   ``sale_tx_id`` = the transaction, and it leaves its barn (``last_barn_id`` keeps it for that barn's figures);
 - changing the price or the date of the entry changes them on the animals; an animal taken out of the entry, or
   every animal of a deleted entry, comes back on the farm (into its old barn when it still exists);
-- an animal that already left the farm (sold in another sale, dead, given) cannot be sold (checked before saving).
+- an animal that already left the farm (sold in another sale, dead, given) cannot be sold (checked before saving);
+  an animal marked "sold" by hand without a price and without a sale entry can: the sale gives it its price.
 
 A single animal sold from its profile (POST /animals/<id>/status) books its own entry the same way
 (``sale_tx_id``); editing that entry in the finance list keeps the animal in step too.
@@ -36,11 +37,16 @@ def prices(tx: dict) -> dict[str, float]:
     return {animal_id: (base + (1 if n < extra else 0)) / 100 for n, animal_id in enumerate(ids)}
 
 
+def sold_without_price(animal: dict) -> bool:
+    """Marked "sold" by hand with no price and no sale entry: a sale entry may still give it its price."""
+    return animal.get("status") == "sold" and not animal.get("sale_tx_id") and not animal.get("sale_price")
+
+
 def cannot_sell(repo: Repository, farm_id: str, tx: dict, tx_id: str | None = None) -> dict | None:
     """The first animal of the sale that already left the farm otherwise (not by this same entry), or None."""
     for animal_id in costs.tx_animals(tx):
         animal = repo.get(farm_path(farm_id, "animals"), animal_id)
-        if not animal or animal.get("status") in ON_FARM_STATUSES:
+        if not animal or animal.get("status") in ON_FARM_STATUSES or sold_without_price(animal):
             continue
         if tx_id and animal.get("sale_tx_id") == tx_id:
             continue
@@ -79,7 +85,7 @@ def sync(repo: Repository, farm_id: str, tx: dict, deleted: bool = False) -> int
             for reminder in repo.list(farm_path(farm_id, "reminders"),
                                       [("animal_id", "==", animal_id), ("status", "==", "pending")]):
                 repo.update(farm_path(farm_id, "reminders"), reminder["id"], {"status": "done"})
-        elif animal.get("sale_tx_id") != tx["id"]:
+        elif animal.get("sale_tx_id") != tx["id"] and not sold_without_price(animal):
             continue  # it left the farm otherwise (refused before saving; kept as it is for older entries)
         if any(animal.get(k) != v for k, v in patch.items()):
             repo.update(path, animal_id, patch)

@@ -121,3 +121,24 @@ def test_upgrade_check_lists_sales_and_their_animals(make_client, repo):
     sale(c, 500, [a], description="Market")
     text = "\n".join(check(repo))
     assert "farms: 1" in text and "'animal_sale' 500" in text and "status='sold'" in text
+
+
+def test_animals_marked_sold_without_price_get_it_from_the_sale(make_client, repo):
+    from scripts.upgrade_2026_11_16 import check, upgrade
+
+    c = farm_client(make_client)
+    a, b = add(c, "S1"), add(c, "S2")
+    status(c, a, "sold", date="2026-11-14")  # marked by hand, no price
+    farm_id = c.get("/v1/farm").json["id"]
+    first = repo.create(f"farms/{farm_id}/transactions", {"type": "income", "category": "animal_sale", "amount": 900,
+                                                          "date": "2026-11-15", "animal_ids": [a["id"], b["id"]]})
+    repo.create(f"farms/{farm_id}/transactions", {"type": "income", "category": "animal_sale", "amount": 700,
+                                                  "date": "2026-11-15", "animal_ids": [b["id"]]})
+    assert "is in 2 sale entries" in "\n".join(check(repo))
+    assert upgrade(repo) == 2
+    sold_a, sold_b = get(c, a), get(c, b)
+    assert (sold_a["sale_price"], sold_a["sale_tx_id"], sold_b["sale_tx_id"]) == (450, first["id"], first["id"])
+    # and a new sale can give a price to an animal marked sold without one
+    d = add(c, "S3")
+    status(c, d, "sold", date="2026-11-14")
+    assert sale(c, 300, [d]).status_code == 201 and get(c, d)["sale_price"] == 300

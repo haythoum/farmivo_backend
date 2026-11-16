@@ -5,8 +5,9 @@
 
 Animals sold together in one finance entry (an "Animal sale" income that names its animals) stayed on the farm
 until now. They are sold now with their entry (app/sales.py): status "sold" on the entry's date, each at its share
-of the price (the average), out of their barn. Animals that left the farm otherwise (dead, sold alone) are left as
-they are.
+of the price (the average), out of their barn. Animals already marked "sold" by hand without a price get their
+price from the entry. Animals that left the farm otherwise (dead, sold alone with a price, or in an earlier sale
+entry) are left as they are; --check lists animals named in several sale entries (their money counted twice).
 
     ... -m scripts.upgrade_2026_11_16 --check
 
@@ -55,6 +56,17 @@ def check(repo: Repository) -> list[str]:
                 lines.append(f"    - {animal_id}: " + ("deleted" if not a else
                              f"{a.get('farm_code') or a.get('ear_tag')} status={a.get('status')!r} "
                              f"sale_tx_id={a.get('sale_tx_id')!r} sale_price={a.get('sale_price')!r}"))
+        named: dict[str, list[dict]] = {}
+        for tx in txs:
+            if sales.is_sale(tx):
+                for animal_id in sales.costs.tx_animals(tx):
+                    named.setdefault(animal_id, []).append(tx)
+        for animal_id, in_sales in named.items():
+            if len(in_sales) > 1:
+                a = animals.get(animal_id) or {}
+                lines.append(f"  ! {a.get('farm_code') or a.get('ear_tag') or animal_id} is in {len(in_sales)} sale entries: "
+                             + ", ".join(f"{t.get('date')} {t.get('amount')} {t.get('description')!r}" for t in in_sales)
+                             + " -> its money is counted in each; take it out of the wrong entries in the app")
     return lines
 
 
