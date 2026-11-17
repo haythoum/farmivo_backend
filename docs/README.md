@@ -17,7 +17,7 @@ Start here. The three repositories each have a `docs/` folder; this one (backend
 | [BRANDING.md](BRANDING.md) | Logo files, colour palette, where "Powered by Quadralens" appears |
 | [APP_FLOWS.md](APP_FLOWS.md) | Screen-by-screen guide: what each action calls and what comes back (real example responses), plus the "everything is 404" checklist |
 | [STATUS.md](STATUS.md) | What is done, release notes with their deploy steps, what was **not** verified, known gaps, suggested next steps |
-| [ADMIN.md](ADMIN.md) | The admin web dashboard |
+| [ADMIN.md](ADMIN.md) | The admin web dashboard **<http://51.83.71.157:8000/admin>**: activity, app versions, problems, farms and users (support), breed photos, announcements; how to turn it on |
 | [REVIEW_2026-11-03.md](REVIEW_2026-11-03.md) | Backend review of 3 November 2026: every finding, fixed or not, with severity |
 
 Per app: [Android docs](https://github.com/haythoum/farmivo_android/tree/feature/initial-app/docs) · [iOS docs](https://github.com/haythoum/farmivo_ios/tree/feature/initial-app/docs)
@@ -36,3 +36,14 @@ The UI mockup (7 screens) is the "Farmivo App Mockup" artifact in Claude; its sc
 | 5. Home (barns, counts, alerts, finance tile, reports, notifications) | `routers/dashboard.py`, `reports.py`, `notifications.py` | `DashboardFragment`, Reports/Notifications | `HomeView`, `ReportsView`, `NotificationsView` |
 | Finance (expenses shared by animals, balance sheet per barn, sales with each animal's result) | `routers/finance.py`, `costs.py`, `sales.py` | `FinanceFragment` | `FinanceView`, `SaleDetailSheet` |
 | 6. Farm members (create or join a farm, approval, roles) | `routers/members.py`, `services/membership.py`, `permissions.py` | `FarmSetupActivity`, `WaitingActivity`, `MembersFragment` | `FarmSetupView`, `WaitingView`, `MembersView` |
+| Offline: lists kept on the phone, changes sent when the internet is back | (normal API) | `data/Offline` | `Core/Networking/OfflineStore` |
+| For sale (Eid, market): price, note, share to WhatsApp | `for_sale`, `asking_price`, `sale_note`, `?for_sale=true`, `latest_weight_kg` in `routers/animals.py` | `ui/ForSale`, `AnimalsFragment` (chip) | `ForSale` (`WorkKit.swift`), `AnimalsView` |
+| Several animals at once: move, vaccinate, weigh, sell; a whole barn | `POST /vaccinations/bulk` (`health.py`), `POST /weights/bulk` (`growth.py`), `POST /animals/move` | `ui/BulkWork`, `AnimalsFragment` selection | `BulkWork`, `WeighingSheet`, `MoveManySheet` (`WorkKit.swift`) |
+| Feed stock (sacks in / out, feed expense, low stock warning) | `routers/feed_stock.py` | `ui/FeedStockFragment` | `Feeding/Views/FeedStockView` |
+| Monthly finance summary (PDF) | `GET /finance/month-report` (`month_report.py`) | `ui/MonthReport` (print to PDF) | `MonthReportSheet`, `PDFMaker` |
+| Announcements from Farmivo | `routers/support.py`, admin › Announcements | `ui/Announcements` | `Announcements` (`WorkKit.swift`) |
+| Admin dashboard, problems log, app versions | `app/admin/`, `app/ops.py` | sends `X-Farmivo-*` headers (`ApiClient.appHeaders`) | sends `X-Farmivo-*` headers (`APIClient.appHeaders`) |
+
+## Builds (GitHub Actions)
+
+Each app repository has `.github/workflows/build.yml`: every push of code builds the app and runs its unit tests (Android: APK `farmivo-debug-apk` to download from the run; iOS: simulator build and `FarmivoTests` on a Mac). The result also goes to the branch `ci-status` (`android.txt` / `ios.txt`: commit, success or failure, errors, end of the log): a report branch only, never merged or built. Pushes that change only docs do not start a build.

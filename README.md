@@ -5,6 +5,8 @@ Flask (served by gunicorn under supervisor) + MongoDB (data) + photos in GridFS 
 
 API contract: [docs/API.md](docs/API.md). Full documentation: [docs/](docs/README.md).
 
+**Admin dashboard:** <http://51.83.71.157:8000/admin> (user `admin`; turn it on with `FARMIVO_ADMIN_PASSWORD` and `FARMIVO_ADMIN_ALLOW_REMOTE=true` in `.env`, see [docs/ADMIN.md](docs/ADMIN.md)).
+
 ## Run locally
 ```bash
 python -m venv .venv && source .venv/bin/activate

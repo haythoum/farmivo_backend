@@ -1360,3 +1360,101 @@ GET /v1/healthz
 4. Real phones cannot use `10.0.2.2` or `localhost`; use the server's address.
 5. Calling the API by hand: get a token with Firebase REST (`POST https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=<Web API key>` with `{"email","password","returnSecureToken":true}`), then `curl -H "Authorization: Bearer <idToken>" http://YOUR_SERVER:8000/v1/farm`.
 6. On the server: `supervisorctl status farmivo` and `tail -n 50 /var/log/farmivo/*.log` show the real error (for example a MongoDB login problem).
+
+## 17. Working without internet (both apps)
+
+Every list and page the app reads is kept on the phone. Without a connection:
+
+- Opening a screen shows what was saved last time, with the message **"No internet: showing what was saved on your phone."** once per offline spell.
+- Adding, changing or deleting a record (animal, vaccination, treatment, vet visit, illness, reminder, mating, weight, milk, feeding, money entry, barn, feed sacks, notification read) keeps the change in an outbox and shows **"No internet: saved on your phone. It will be sent as soon as the internet is back."** The screen gets the sent data back with a temporary id `offline-…`.
+- When the connection comes back (Android network callback / iOS `NWPathMonitor`), when the app is opened again, or before the next change, the outbox is sent **in order** with the normal calls below. A record created offline gets its real id from the server and later changes naming it are sent with that id.
+- A change the server refuses (for example a weight for an animal deleted meanwhile on another phone) is dropped and named: **"1 change(s) saved without internet could not be recorded: • Animal not found"**. On 401, 429 or 5xx the outbox waits for the next try.
+- Not possible offline (they need the server at once): photos, sign-in and sign-up, creating or joining a farm, members, the monthly PDF.
+
+Every request also carries the app's details, kept by the server for the admin dashboard:
+```http
+X-Farmivo-Platform: android
+X-Farmivo-Version: 3.1.0 (6)
+X-Farmivo-OS: Android 14
+X-Farmivo-Device: samsung SM-A155F
+```
+
+## 18. For sale (Eid al-Adha, market)
+
+Animal page › More › **Offer for sale**: asking price and a note for buyers.
+```http
+PATCH /v1/animals/<id>
+Content-Type: application/json
+
+{"for_sale": true, "asking_price": 1200, "sale_note": "Ready for Eid"}
+```
+→ `200` the animal with `for_sale: true` (an amber "For sale" pill; the list row shows 🏷 1 200). **Not for sale any more** sends `{"for_sale": false}`. An animal that leaves the farm (sold, dead …) answers `for_sale: false` by itself.
+
+Animals › chip **🏷 For sale N**:
+```http
+GET /v1/animals?for_sale=true
+```
+→ the animals on the farm offered for sale, each with `latest_weight_kg` / `latest_weight_date` (last weighing).
+
+**Share (WhatsApp …)**: the app reads the animal again (`GET /v1/animals/<id>`, for its last weight) and opens WhatsApp (Android: WhatsApp directly or another app; iOS: the share sheet) with its photo and:
+```
+🐑 Barbarine · ♀ Female · 2 y 1 m · 44.5 kg
+#02-0012 (Bella)
+💰 1 200 TND
+📝 Ready for Eid
+
+📍 Ferme Jamil · Farmivo
+```
+"Share all on WhatsApp" under the chip sends one message listing every animal for sale, with all the photos.
+
+## 19. Several animals at once
+
+Animals: long press (Android) or **Select** (iOS), then tap more animals; the bar shows **N chosen** with:
+
+| Action | Call |
+|---|---|
+| Move | `POST /v1/animals/move {"animal_ids": [...], "barn_id": "<barn>" or null}` (only barns that take every chosen species are offered) |
+| Vaccinate | `POST /v1/vaccinations/bulk {"animal_ids": [...], "vaccine_name": "Enterotoxemia", "date_given": "2026-11-15", "next_due_date": "2027-05-15"}` → `201 {"created": 3, "skipped": 0}` (one vaccination and one reminder per animal) |
+| Weigh | `POST /v1/weights/bulk {"date": "2026-11-12", "entries": [{"animal_id": "...", "weight_kg": 40}, ...]}` → `201 {"created": 3}` (empty boxes are left out) |
+| For sale | `PATCH /v1/animals/<id> {"for_sale": true}` for each |
+| Share | as in 18, all chosen animals in one message |
+| Sell (managers, owner) | opens the sale form with the animals in it; saved as in 11 ("Selling several animals together") |
+
+A barn's menu (⋮ / ⋯) adds **Vaccinate the whole barn** (`{"barn_id": "<barn>", "species": "sheep"?, ...}`: every animal on the farm in that barn, or one species of it when a species chip is on) and **Weighing session** (every animal on the farm in the barn).
+
+## 20. Feed stock (Me › Feed stock)
+
+```http
+POST /v1/feed-stock/items
+{"name": "Barley", "sack_kg": 50, "low_at": 3}
+```
+Tap the feed › **Sacks in (bought)**:
+```http
+POST /v1/feed-stock/moves
+{"feed_id": "<barley>", "direction": "in", "sacks": 10, "unit_price": 45, "supplier": "Coop", "date": "2026-11-10"}
+```
+→ `201 {"amount": 450, "transaction_id": "<expense>", ...}`: the **feed expense of 450 is added in Finance** by the server (shared by the animals like any feed expense); "The feed expense was added in Finance." Changing or deleting this line changes or deletes that expense; deleting the expense in Finance keeps the sacks.
+
+**Sacks out (used)** `{"direction": "out", "sacks": 8}` → `201 {"notice": "Stock running low: Barley, 2 sacks left. Time to buy more."}` when the stock reaches `low_at` (the owner and managers also get a push, once, when it crosses the line). More sacks out than in stock → `422 "Not enough in stock: 2 sacks left"`.
+
+`GET /v1/feed-stock` → the feeds with `balance` and `low`, the low ones first. Workers record sacks but never see or send prices (`403` if they send `unit_price`).
+
+## 21. Monthly finance summary (Finance › Monthly summary (PDF))
+
+The user picks a month (this one or the eleven before):
+```http
+GET /v1/finance/month-report?month=2026-10
+Accept-Language: fr
+```
+→ an HTML page (A4, right to left in Arabic): income, expenses and result next to the month before, totals by category, animals sold, every entry. Android hands it to the print screen ("Save as PDF"); iOS turns it into a PDF and opens the share sheet (Files, Mail, WhatsApp, Print). Managers and the owner.
+
+## 22. Announcements from Farmivo
+
+Written in the admin dashboard (Announcements). Each phone gets a push in its language; when the app opens:
+```http
+GET /v1/announcements
+```
+```json
+[{"id": "a1", "title": "Aid Mubarak", "body": "Mark your sheep for sale in Farmivo …", "sent_at": "2026-11-17T10:00:00+00:00"}]
+```
+The app shows each id once in a dialog (Android: bell icon; iOS: bell and the title) and remembers it.

@@ -40,6 +40,8 @@ flowchart LR
   FL -->|send push| FCM
   FCM -->|notification| A & I
   FL -->|Mailjet API: 6-digit sign-up code| MAIL[Mailjet]
+  ADM[Admin dashboard in a browser<br/>http://51.83.71.157:8000/admin] -->|basic auth| FL
+  GH[GitHub Actions] -->|build + tests on every push| A & I
 ```
 
 | Piece | Responsibility | Talks to |
@@ -50,6 +52,9 @@ flowchart LR
 | MongoDB | One collection per record type (`animals`, `vaccinations`, …) plus GridFS photos | API |
 | cron | Calls the reminder job once a day | API |
 | Mailjet | Delivers the 6-digit email code after sign-up (`MAILJET_API_KEY` / `_SECRET`; without it the code goes to the server log) | API |
+| Admin dashboard | <http://51.83.71.157:8000/admin>: activity, app versions, problems log, farms and users, breed photos, announcements ([ADMIN.md](ADMIN.md)) | API (same process), MongoDB, FCM |
+| GitHub Actions | Builds both apps and runs their tests on every code push; report on the `ci-status` branch | the app repositories |
+| Phone storage | Saved lists and the outbox of changes made offline (Android `files/offline/<uid>/`, iOS Application Support `offline/<uid>/`) | the app's own API client |
 
 ## 2. Deployment
 
@@ -78,6 +83,8 @@ flowchart TB
 | Database | MongoDB 3.6.18 on the same machine. PyMongo is pinned below 4.11 because newer versions refuse 3.6. |
 | Logs | `/var/log/farmivo.err.log` (the app's own log lines and tracebacks), `/var/log/farmivo.out.log` |
 | Health check | `curl http://51.83.71.157:8000/healthz` → `{"status":"ok"}` |
+| Admin dashboard | <http://51.83.71.157:8000/admin> (`FARMIVO_ADMIN_PASSWORD` of 12+ characters and `FARMIVO_ADMIN_ALLOW_REMOTE=true` in `.env`) |
+| Optional package | `Pillow` in the venv: breed photos uploaded in the dashboard in any format are resized (without it: JPEG only, kept as is) |
 | Full setup check | `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.check_setup` |
 
 **Releasing a new version:** on the server `cd /home/ubuntu/farmivo/farmivo_backend && git pull && sudo supervisorctl restart farmivo`, then the one-off steps named in the release notes of [STATUS.md](STATUS.md) (upgrade scripts, `scripts.fetch_breed_photos` once). Then build and publish both apps; the apps force users onto the newest version.
@@ -290,6 +297,47 @@ Public pages for the stores (no sign-in): `/privacy`, `/terms`, `/delete-account
 
 ---
 
+### 3.8 Working offline, then back online
+
+```mermaid
+sequenceDiagram
+  participant U as User (no signal)
+  participant App as App (OfflineStore / data/Offline)
+  participant API as Farmivo API
+  U->>App: open Animals
+  App--xAPI: GET /animals (no connection)
+  App-->>U: saved list + "No internet: showing what was saved" (once)
+  U->>App: add a weight
+  App--xAPI: POST /weights (no connection)
+  App->>App: outbox += {POST weights, body}
+  App-->>U: "Saved on your phone. It will be sent when the internet is back"
+  Note over App: network back / app opened / next change
+  App->>API: POST /weights (from the outbox, in order)
+  API-->>App: 201 (a record created offline: its real id replaces offline-… in later changes)
+  App-->>U: lists reload; a refused change (4xx) is named in a message
+```
+
+### 3.9 Feed bought, then running low
+
+```mermaid
+sequenceDiagram
+  participant M as Manager
+  participant API as feed_stock.py
+  participant F as finance._prepare
+  participant N as notify_farm (FCM)
+  M->>API: POST /feed-stock/moves {in, 10 sacks, 45 per sack}
+  API->>F: expense "feed" 450, shared by the animals on the farm
+  API-->>M: {amount 450, transaction_id}
+  M->>API: POST /feed-stock/moves {out, 8 sacks}
+  API->>API: balance 2 <= low_at 3 (crossed the line)
+  API->>N: push "Feed running low" to owner and managers (once)
+  API-->>M: {notice: "Stock running low: Barley, 2 sacks left"}
+```
+
+### 3.10 Announcement from the dashboard
+
+The admin writes it in /admin › Announcements (en/fr/ar) → saved in `announcements` → pushed to every phone in its language (`send_announcement`) → when an app opens, `GET /announcements` returns the last 30 days and the app shows each id once.
+
 ## 4. Screens, endpoints, code and collections
 
 Android: `farmivo_android/app/src/main/java/com/quadralens/farmivo/ui/`. iOS: `farmivo_ios/Farmivo/Features/`. Both apps use one generic list/form for record types, `RecordsFragment` + `FormDialog` and `RecordsListView` + `FormSheet`, configured by a registry (`Resources.java` / `Resources.swift`) that lists each type's path and fields.
@@ -314,6 +362,11 @@ Android: `farmivo_android/app/src/main/java/com/quadralens/farmivo/ui/`. iOS: `f
 | Finance: balance sheet, sales detail, entries | `HostActivity(FINANCE)` → `FinanceFragment` (+ `RecordsFragment(transactions)`) | `Finance/Views/FinanceView`, `SaleDetailSheet` | `GET /finance/bilan?barn_id=`, transactions CRUD `?barn_id=` | `finance_bilan`, `costs.bilan`, `_prepare`, `sales.sync` | transactions, animals, barns |
 | Reminders | `HostActivity(REMINDERS)` → `RecordsFragment(reminders)` | `RemindersScreen` (in `MoreView`) | `GET/POST /reminders`, `POST /reminders/<id>/done`, `DELETE /reminders/<id>` | `list_reminders`, `create_custom_reminder`, `mark_reminder_done`, `delete_custom_reminder` | reminders |
 | Notifications | `HostActivity(NOTIFICATIONS)` → `NotificationsFragment` | `Notifications/Views/NotificationsView` | `GET /notifications`, `/read`, `/read-all`, `DELETE` | notifications router | notifications |
+| For sale, share (WhatsApp) | `ForSale` (animal page menu, Animals chip "For sale") | `ForSale` in `WorkKit.swift` (animal page menu, Animals chip) | `PATCH /animals/<id>` (`for_sale`, `asking_price`, `sale_note`), `GET /animals?for_sale=true`, `GET /animals/<id>` | `update_animal`, `list_animals`, `latest_weights` | animals, weights |
+| Several animals: move, vaccinate, weigh, sell; barn menu | `AnimalsFragment` (long press, bar), `BulkWork` | `AnimalsView` (Select, bar), `BulkWork`, `WeighingSheet`, `MoveManySheet` | `POST /animals/move`, `POST /vaccinations/bulk`, `POST /weights/bulk`, `POST /transactions` | `move_animals`, `vaccinate_many`, `weighing_session`, `_prepare` | animals, vaccinations, reminders, weights, transactions |
+| Feed stock | `HostActivity(FEED)` → `FeedStockFragment` (Me › Feed stock) | `Feeding/Views/FeedStockView` (Me › Feed stock) | `GET /feed-stock`, `/feed-stock/items` and `/feed-stock/moves` CRUD | `stock`, `_check`, `sync_expense`, `_after_move_write` | feed_items, feed_moves, transactions, notifications |
+| Monthly summary (PDF) | `MonthReport` (Finance) | `MonthReportSheet`, `PDFMaker` (Finance) | `GET /finance/month-report?month=` | `month_report`, `month_report.render_html` | transactions, farms |
+| Announcements | `Announcements` (main screen) | `Announcements` (`MainTabView`) | `GET /announcements` | `list_announcements` | announcements |
 | Reports (tab 4) | `ReportsFragment` | `Reports/Views/ReportsView` | `GET /reports/<kind>?format=csv` → share sheet | `report`, `build_rows` | animals, vaccinations, transactions, production |
 | Me (tab 5): farm settings, my farms, language, sign out, delete account | `MoreFragment` | `More/Views/MoreView`, `Settings/Views/FarmSettingsView`, `DeleteAccountView` | `GET/PATCH /farm`, `GET /me/farms`, `DELETE /me` | `get_farm`, `update_farm`, `delete_account` | farms, users, members |
 | Sign out | `MoreFragment` → `fcm/DeviceRegistrar.unregisterAndSignOut` | `AuthStore.signOut` → `PushManager.unregisterDevice` | `DELETE /devices?token=` | `unregister_device` | devices |
@@ -352,6 +405,10 @@ Supporting app classes:
 | Language | `Accept-Language` per request; `users.lang` (last request); `devices.language` per phone; texts in `app/i18n.py` | sends `Accept-Language` and the device `language` | sends `Accept-Language` and the device `language` |
 | Push look | channels `farmivo_reminders` / `farmivo_members`, icon `ic_notification`, colour `#1F6F6B` (`app/services/notifier.py`) | creates both channels, ships `res/drawable/ic_notification` | APNs sound and mutable-content |
 | Process | `/etc/supervisor/conf.d/farmivo.conf` (template `deploy/supervisor/farmivo.conf`) | none | none |
+| Admin dashboard | `FARMIVO_ADMIN_PASSWORD` (12+ characters), `FARMIVO_ADMIN_ALLOW_REMOTE=true` → <http://51.83.71.157:8000/admin> | none | none |
+| App version reported | stored on `users` (`app_platform`, `app_version`, `os_version`, `device_model`, `last_seen`) | `versionName` / `versionCode` in `app/build.gradle` (3.1.0 / 6) → `X-Farmivo-Version` | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` (1.1.0 / 4) → `X-Farmivo-Version` |
+| Offline storage | none | `filesDir/offline/<uid>/` | Application Support `offline/<uid>/` |
+| Builds | none | `.github/workflows/build.yml` (JDK 17, Gradle 8.13) | `.github/workflows/build.yml` (macOS, Xcode, simulator) |
 | App id | none | `applicationId com.quadralens.farmivo` | bundle id `com.quadralens.farmivo` |
 
 ---

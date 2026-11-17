@@ -154,6 +154,12 @@ flowchart TD
 - **Languages:** English, French, Arabic (right to left, Western digits 1 2 3). Server texts arrive translated (Accept-Language).
 - **Pictures:** real breed photos from the server (Glide / AsyncImage, cached); line icons are tinted vector drawings; a few full-colour drawings (empty farm sheep, sales money, feed sack) keep their own colours.
 - **Push:** app registers its FCM token via `POST /devices` after login and on token refresh; removes it on sign-out.
+- **Offline layer** (inside the API client: `data/Offline` OkHttp interceptor, `OfflineStore` actor used by `APIClient.send`): every GET answer is kept on the phone per account and returned when there is no connection; changes to records go into an outbox replayed in order when the network is back (temporary `offline-…` ids replaced by real ones). Screens need no change for this.
+- **App headers:** every request carries `X-Farmivo-Platform`, `X-Farmivo-Version`, `X-Farmivo-OS`, `X-Farmivo-Device`; the server keeps them on the user (`app/ops.py`) for the dashboard's Apps page.
+- **Work on many animals:** selection in the Animals list (long press / Select) with a bottom bar; bulk endpoints for vaccinations and weights; a barn's menu works on the whole barn.
+- **Sharing:** Android share intents through a FileProvider (`${applicationId}.files`, WhatsApp first when installed); iOS `UIActivityViewController`.
+- **PDF:** the server makes the monthly summary page; Android prints it to PDF, iOS draws it (`PDFMaker`, `UIPrintPageRenderer`).
+- **Builds:** GitHub Actions in each app repo build and test every code push; the last result is on the `ci-status` branch.
 
 ## 4. Security model
 - Auth: Firebase ID tokens verified server-side on every call; no passwords reach the backend.

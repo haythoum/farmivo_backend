@@ -1,6 +1,11 @@
 # Admin dashboard (/admin)
 
-A web page for Quadralens to follow the apps and help the farmers. It is **off** until a password is set.
+**Link: <http://51.83.71.157:8000/admin>** (user `admin`, the password set in the server's `.env`).
+
+A web page for Quadralens to follow the apps and help the farmers. It is **off** until a password is set, and
+it answers from your PC only when `FARMIVO_ADMIN_ALLOW_REMOTE=true` is set too (below). Code:
+`app/admin/views.py` (overview, farms, users, delete) and `app/admin/pages.py` (activity, apps, problems, breed
+photos, announcements, support); the figures come from `app/ops.py`.
 
 | Page | What it shows / does |
 |---|---|

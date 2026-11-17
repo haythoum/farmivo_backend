@@ -109,11 +109,17 @@ Set your Team in Signing & Capabilities; add **Push Notifications** capability (
 | Add a breed, or its photo | `BREEDS` in `app/breeds.py`; its Wikipedia article in `SOURCES` of `app/breed_photos.py`, then `python -m scripts.fetch_breed_photos` |
 | Add a finance category | `TransactionCategory` in `schemas.py`, the apps' category lists and icons (`Resources.categoryIcon` on both), labels in the three languages |
 | Switch database | `FARMIVO_DB_BACKEND` |
+| Let a record type be saved offline | Android `Offline.QUEUEABLE`, iOS `OfflineStore.queueable` (path relative to /v1/) |
+| Add a page to the admin dashboard | A route on `bp` in `app/admin/pages.py` rendered with `_page`, a menu link in `PAGE` (`views.py`), forms with `_form_token` / `check_form`; document it in `docs/ADMIN.md` |
+| Record a new kind of problem | `ops.report("<kind>", message, **details)` and add the kind to `ops.KINDS` |
+| Add a Swift file to the iOS app | `python3 tools/add_swift_file.py Farmivo/<folder>/<File>.swift` (the folder must already be a group) |
+| Send a message to every user | Admin dashboard › Announcements |
 | Back up data | Atlas backups, or `mongodump --host <host> -u <user> -p --authenticationDatabase <auth db> --db farmivo` |
 
 ## 6. Testing
+- App builds: GitHub Actions (`.github/workflows/build.yml` in each app repo) builds and runs the unit tests on every code push; the APK is attached to the run; a short report goes to the `ci-status` branch (`git fetch origin ci-status && git show origin/ci-status:android.txt`).
 - Backend: `pytest` — API behaviour (auth, members, CRUD, reminders, breeding rules and births, finance: sharing, balance sheet, sales, photos, reports, translations) plus repository tests. The Mongo repository test uses `mongomock`.
-- Android / iOS: iOS has `FarmivoTests` (JSON decoding, formatting, error parsing). Android has no tests yet (see STATUS.md).
+- Android / iOS: Android unit tests in `app/src/test` (`SignUpRules`, formatting); iOS `FarmivoTests` (JSON decoding, formatting, error parsing, splash texts). Both run on GitHub Actions on every push.
 - Manual end-to-end checklist: register → add animal with photo → add vaccination with next due date → see the reminder → call the cron endpoint → receive the push → record a mating → record the birth → check the offspring exist and the dashboard changed → export a CSV report.
 
 ## 7. Troubleshooting
@@ -126,6 +132,10 @@ Set your Team in Signing & Capabilities; add **Push Notifications** capability (
 | Breed list without photos | `scripts.fetch_breed_photos` not run yet (or no internet from the server when it ran) |
 | `python-dotenv could not parse statement starting at line N` | Line N of `.env` is not `NAME=value` (make it a `#` comment); the other lines still load |
 | No push on iOS | APNs key not uploaded to Firebase, simulator used, or capability missing |
+| Admin dashboard answers 404 | `FARMIVO_ADMIN_PASSWORD` not set (the dashboard is off), or not restarted after editing `.env` |
+| Admin dashboard answers 403 from your PC | `FARMIVO_ADMIN_ALLOW_REMOTE=true` missing, or the password is shorter than 12 characters |
+| Admin "Apps" page empty | Nobody has opened the 18 Nov app versions yet (older apps do not send their version) |
+| A change made offline never arrives | It is still in the phone's outbox (no connection, or the server answered 5xx); it is sent when the app is opened online. A refused change is named in a message |
 | Reminders never notify | Daily job not scheduled, wrong `X-Cron-Secret`, or the device token was never registered |
 
 ## Demo data

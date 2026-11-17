@@ -5,9 +5,9 @@
 ## Delivered
 | Part | Branch | State |
 |---|---|---|
-| Backend (Flask + gunicorn/supervisor, MongoDB, optional MinIO photos, Firebase auth/push) | `feature/initial-api` | Running on the VPS. All feature areas, barns, farm numbers, breeding rules, costs and balance sheet, sales, breed photos, farm members with 4 roles and approval, several farms per account, email code (Mailjet), admin dashboard; 222 tests, docs |
-| Android (Java) | `feature/initial-app` | All feature areas; built and tested on phones by the team and the client |
-| iOS (SwiftUI) | `feature/initial-app` | All feature areas, same design as Android |
+| Backend (Flask + gunicorn/supervisor, MongoDB, optional MinIO photos, Firebase auth/push) | `feature/initial-api` | Running on the VPS. All feature areas, barns, farm numbers, breeding rules, costs and balance sheet, sales, breed photos, farm members with 4 roles and approval, several farms per account, email code (Mailjet), admin dashboard (<http://51.83.71.157:8000/admin>), problems log, feed stock, monthly PDF summary, announcements; 241 tests, docs |
+| Android (Java) | `feature/initial-app` | All feature areas, offline mode, for sale with WhatsApp sharing, work on many animals, feed stock, monthly PDF; version 3.1.0 (6); built on GitHub Actions on every push (APK in the run), used by the client |
+| iOS (SwiftUI) | `feature/initial-app` | All feature areas, same design and features as Android; version 1.1.0 (4); built and unit-tested on GitHub Actions (macOS) on every push |
 | UI mockup | Claude artifact "Farmivo App Mockup" | 15 screens: sign in, dashboard, animals, profile, health, breeding, growth; create account, email code, create or join a farm, waiting for approval, members, approve with a role |
 
 ## Be aware: what was NOT verified
@@ -21,7 +21,7 @@ The code was written in a sandbox with **no access to PyPI, the Android SDK/Mave
 - Email verification code: tested with a fake mailer (16 tests); real Mailjet delivery was never tried (tested with a fake Mailjet client).
 Plan for the first session: run `pytest`, build both apps, fix compile errors, then do the manual end-to-end checklist in DEVELOPMENT_GUIDE.md.
 
-**Since then (Nov 2026):** the backend runs on the VPS against real MongoDB 3.6 and Firebase; Android is built and used by the client. Changes are still written in a sandbox without the Android SDK or Swift compiler: the Java is checked for syntax, duplicate variables and lambda captures, the Swift for translations and documentation only, so **every release must be built in Android Studio and Xcode before it goes to the stores**.
+**Since then (Nov 2026):** since 17 Nov both apps are compiled and their unit tests run on GitHub Actions on every push (report on the `ci-status` branch); the iOS build passes with all 17 tests. What a compiler cannot see (how the screens look and behave on a phone) still needs the checklist in each app's `docs/FEATURE_CHECKLIST.md` (section L for the 18 Nov features). Before that: the backend runs on the VPS against real MongoDB 3.6 and Firebase; Android is built and used by the client. Changes are still written in a sandbox without the Android SDK or Swift compiler: the Java is checked for syntax, duplicate variables and lambda captures, the Swift for translations and documentation only, so **every release must be built in Android Studio and Xcode before it goes to the stores**.
 
 ## Backend bug review (membership after sign-in, notifications)
 
@@ -42,12 +42,14 @@ Full line-by-line review: [REVIEW_2026-11-03.md](REVIEW_2026-11-03.md). Fixed: g
 
 ## Known gaps / not built
 - Launch screens, dark-mode polish on Android custom screens. Server texts are translated (ar/fr/en); the apps' own strings are handled in the app repos.
-- Android: no unit/UI tests; notification tap opens the app, not the specific animal; photo EXIF rotation not applied.
-- iOS: notification tap does not deep-link; no offline cache.
-- No offline mode on either app (needs a connection).
+- Android: few unit tests (sign-up rules, formatting), no UI tests; notification tap opens the app, not the specific animal; photo EXIF rotation not applied.
+- iOS: notification tap does not deep-link.
+- Offline: lists and record changes work offline; photos, sign-in, farms and members need a connection; changes waiting to be sent do not show in the lists until sent.
 - Several farms per account are supported; a person works in one farm at a time (switch in Me > My farms).
 - A breed without a free photo on Wikimedia shows the species' photo until a farmer's own photo is copied to the server.
-- Finance: no budgets/recurring entries; reports are CSV only (no PDF).
+- Finance: no budgets/recurring entries; reports are CSV, plus the monthly finance summary as PDF.
+- No in-app feedback form and no crash reporting (Crashlytics), by choice; server errors are in the dashboard's Problems page.
+- The API and the dashboard still run on plain HTTP (HTTPS planned later).
 - Backend: no rate limiting, no audit log, no pagination beyond `limit`.
 - Mockup has no finance, reports, notifications or settings screens (the apps have them).
 
@@ -55,7 +57,7 @@ Full line-by-line review: [REVIEW_2026-11-03.md](REVIEW_2026-11-03.md). Fixed: g
 1. First build/test pass (above).
 2. Create the Firebase project, Atlas cluster, deploy backend, point apps at it.
 3. TestFlight / Play internal testing with one real farm.
-4. Deep links from notifications, offline cache, PDF reports (Arabic, French and English are done).
+4. Deep links from notifications.
 5. HTTPS: a domain in front of the API (deploy/nginx), then remove the plain-HTTP exceptions in the apps.
 
 ## 13 Nov 2026: barns, age by teeth, ear tags per species, statuses, pregnancy check, password reset
@@ -111,4 +113,7 @@ The apps cannot delete a farm yet (planned, with an admin dashboard). On the ser
 - **Work on a barn**: `POST /vaccinations/bulk` (a whole barn or chosen animals), `POST /weights/bulk` (weighing session); several animals moved with the existing `POST /animals/move`.
 - **Feed stock**: feeds in sacks, sacks in (with a price: the feed expense is booked) and out, low-stock warning (notice + push to managers once).
 - **Monthly finance summary**: `GET /finance/month-report?month=` (HTML in en/fr/ar that the apps save as PDF).
+- Apps: Android 3.1.0 (6), iOS 1.1.0 (4): offline mode, for sale + WhatsApp, several animals at once (move, vaccinate, weigh, sell), barn vaccination and weighing session, feed stock, monthly PDF, announcements. No in-app feedback and no Crashlytics (removed on request).
+- GitHub Actions builds both apps on every push (`ci-status` branch: last result).
+- Dashboard link: <http://51.83.71.157:8000/admin>.
 - Deploy: `git pull`, `sudo supervisorctl restart farmivo`. Optional: `/home/ubuntu/farmivo/venvfarmivo/bin/pip install Pillow` so uploaded breed photos of any format are resized (without it only JPEG is accepted, as is).
