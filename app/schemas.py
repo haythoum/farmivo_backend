@@ -344,6 +344,7 @@ class AnimalOut(Record):
     buyer: str | None = None        # sold: who bought it
     sale_price: float | None = None  # sold: the price (also an income transaction)
     sale_tx_id: str | None = None    # sold: its sale entry (alone, or with other animals: app/sales.py)
+    notice: str | None = None        # only after a save: a reminder to show (the barn is now over its capacity)
     recipient: str | None = None    # donated / gifted: who received it
     status_notes: str | None = None
     photo_url: str | None = None

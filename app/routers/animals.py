@@ -10,7 +10,7 @@ from app.deps import Ctx, get_ctx, get_photo_store
 from app.errors import ApiError, validation_error
 from app.routers.crud import clean, get_animal_or_404, path_of
 from app import age_classes, animal_codes, breeds, costs, sales
-from app.i18n import request_lang
+from app.i18n import request_lang, t
 from app.schemas import (
     AnimalCostsOut,
     CostLine,
@@ -65,6 +65,19 @@ def render_one(ctx: Ctx, record: dict) -> AnimalOut:
         if barn:
             names[barn["id"]] = barn.get("name", "")
     return render_animal(record, names)
+
+
+def capacity_notice(ctx: Ctx, barn_id: str | None) -> str | None:
+    """After an animal was put in a barn: a reminder when the barn now has more animals than places (the animal is
+    added anyway; the barn's bar on the home screen turns red)."""
+    barn = ctx.repo.get(path_of(ctx, "barns"), barn_id) if barn_id else None
+    if not barn or not barn.get("capacity"):
+        return None
+    count = sum(1 for a in ctx.repo.list(path_of(ctx, "animals"), [("barn_id", "==", barn_id)])
+                if a.get("status") in ON_FARM_STATUSES)
+    if count <= int(barn["capacity"]):
+        return None
+    return t("msg.barn_over_capacity", request_lang(), barn=barn.get("name", ""), count=count, capacity=barn["capacity"])
 
 
 def ear_tag_taken(ctx: Ctx, ear_tag: str, species: str | None, exclude_id: str | None = None) -> bool:
@@ -191,7 +204,9 @@ def create_animal():
         data["status_date"] = animal.date_added.isoformat()
         data["last_barn_id"], data["barn_id"] = data.get("barn_id"), None  # an animal that left is in no barn
     created = sync_purchase(ctx, ctx.repo.create(path_of(ctx, "animals"), data))
-    return out(render_one(ctx, created), 201)
+    shown = render_one(ctx, created)
+    shown.notice = capacity_notice(ctx, created.get("barn_id"))
+    return out(shown, 201)
 
 
 @bp.post("/animals/move")
@@ -261,7 +276,10 @@ def update_animal(animal_id: str):
     updated = ctx.repo.update(path_of(ctx, "animals"), animal_id, patch) or existing
     if {"purchase_price", "origin", "date_added", "name", "ear_tag"} & patch.keys():
         updated = sync_purchase(ctx, updated)
-    return out(render_one(ctx, updated))
+    shown = render_one(ctx, updated)
+    if patch.get("barn_id") and patch["barn_id"] != existing.get("barn_id"):
+        shown.notice = capacity_notice(ctx, patch["barn_id"])
+    return out(shown)
 
 
 @bp.post("/animals/<animal_id>/status")

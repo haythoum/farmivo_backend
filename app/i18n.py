@@ -260,6 +260,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "val.one_of": {"en": 'Input should be one of: {values}', "fr": 'Valeur attendue parmi : {values}', "ar": 'يجب أن تكون القيمة إحدى: {values}'},
     "val.lt": {"en": 'Input should be less than {n}', "fr": 'Doit être inférieur à {n}', "ar": 'يجب أن يكون أصغر من {n}'},
     "val.enum": {"en": 'Input should be {values}', "fr": 'Valeur attendue : {values}', "ar": 'القيمة المتوقعة: {values}'},
+    "msg.barn_over_capacity": {
+        "en": "Reminder: the barn “{barn}” now has {count} animals for {capacity} places. The animal was added anyway.",
+        "fr": "Rappel : le bâtiment « {barn} » compte maintenant {count} animaux pour {capacity} places. L'animal a bien été ajouté.",
+        "ar": "تذكير: الحظيرة «{barn}» فيها الآن {count} حيوانات لـ {capacity} أماكن. تمّت إضافة الحيوان رغم ذلك."},
     "msg.field_problem": {"en": '{field}: {problem}', "fr": '{field} : {problem}', "ar": '{field}: {problem}'},
     "err.birds_no_mating": {"en": '{species} lay eggs: they are not mated in Farmivo. Record their eggs in Production', "fr": "Les {species} pondent des œufs : pas d'accouplement dans Farmivo. Enregistrez leurs œufs dans Production", "ar": '{species} تبيض ولا يُسجَّل لها تزاوج في Farmivo. سجّل بيضها في قسم الإنتاج'},
     "err.mating_future": {"en": 'The mating date cannot be in the future', "fr": "La date d'accouplement ne peut pas être dans le futur", "ar": 'لا يمكن أن يكون تاريخ التزاوج في المستقبل'},
@@ -291,6 +295,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "tx.sale": {"en": "Sale of {animal}", "fr": "Vente de {animal}", "ar": "بيع {animal}"},
     "tx.sale_to": {"en": "Sale of {animal} to {buyer}", "fr": "Vente de {animal} à {buyer}",
                    "ar": "بيع {animal} إلى {buyer}"},
+    "err.no_hand_purchase": {
+        "en": "Animals bought are added in Animals, with Add animal and their purchase price: they then appear in the herd and their purchase is booked here by itself",
+        "fr": "Les animaux achetés s'ajoutent dans Animaux, avec Ajouter un animal et leur prix d'achat : ils apparaissent alors dans le troupeau et leur achat est inscrit ici tout seul",
+        "ar": "تُضاف الحيوانات المشتراة من قسم الحيوانات، عبر إضافة حيوان مع سعر شرائها: فتظهر في القطيع ويُسجَّل شراؤها هنا تلقائيًا"},
     "err.sold_with_others": {
         "en": "This animal was sold together with other animals in one sale: change the price or the date in Finance, in that sale's entry",
         "fr": "Cet animal a été vendu avec d'autres en une seule vente : changez le prix ou la date dans Finances, dans l'écriture de cette vente",

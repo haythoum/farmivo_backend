@@ -88,3 +88,10 @@ The apps cannot delete a farm yet (planned, with an admin dashboard). On the ser
 - Sales of several animals together (one "Animal sale" entry naming its animals, one price): the animals now leave the farm as sold, each at the average price, out of their barn (app/sales.py); editing or deleting the entry moves them accordingly. Before, they stayed on the farm.
 - The balance sheet lists every sale (`sales`): date, description, number of animals, price, average price, and per animal its purchase price, its expenses, its total cost and its result.
 - Deploy: `git pull`, then once `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.upgrade_2026_11_16` (sells the animals of the sales entered before; safe to run again), then `sudo supervisorctl restart farmivo`.
+
+## 17 Nov 2026 release (client feedback)
+
+- A farm created without a currency gets its country's currency, TND by default (it was USD): `POST /farms`.
+- Animals bought can no longer be typed as a finance expense (`purchase_animal` refused with 422): they are added with Add animal and their purchase price (the purchase is booked by itself). Typing them counted the animals twice and left them out of the herd. Entries typed before still count.
+- Lists are newest first also within one day (the last entry saved on top).
+- Adding or moving an animal into a barn that is then over its capacity: the answer carries `notice` ("Reminder: the barn … now has 6 animals for 5 places"), shown by the apps; the animal is added anyway.

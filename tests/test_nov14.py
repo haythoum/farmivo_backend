@@ -227,13 +227,17 @@ def test_upgrade_script_takes_left_animals_out_of_barns(make_client, repo):
     assert got["barn_id"] is None and got["last_barn_id"] == fold["id"]
 
 
-def test_purchase_entered_by_hand_is_capital(make_client):
-    """20 sheep bought in one go and booked as one "purchase animal" expense: capital, shared between them."""
+def test_purchase_entered_by_hand_is_capital(make_client, repo):
+    """20 sheep bought in one go and booked as one "purchase animal" expense (entered by hand before 17 Nov 2026,
+    refused since): capital, shared between them."""
     c = farm_client(make_client)
     fold = c.post("/v1/barns", json={"name": "Fold"}).json
     a, b = add(c, "S1", barn_id=fold["id"]), add(c, "S2", barn_id=fold["id"])
-    expense(c, 1000, "purchase_animal", barn_id=fold["id"], animal_ids=[a["id"], b["id"]])
-    expense(c, 300, "purchase_animal")  # no animal named: farm-wide capital
+    txs = f"farms/{c.get('/v1/farm').json['id']}/transactions"
+    repo.create(txs, {"type": "expense", "category": "purchase_animal", "amount": 1000, "date": "2026-11-01",
+                      "barn_id": fold["id"], "animal_ids": [a["id"], b["id"]]})
+    repo.create(txs, {"type": "expense", "category": "purchase_animal", "amount": 300, "date": "2026-11-01",
+                      "animal_ids": []})  # no animal named: farm-wide capital
     bilan = c.get("/v1/finance/bilan").json
     assert (bilan["purchases_total"], bilan["purchases_count"], bilan["capital"]) == (1300, 2, 1300)
     assert "purchase_animal" not in bilan["expenses_by_category"] and bilan["expenses_total"] == 0

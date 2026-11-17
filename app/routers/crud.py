@@ -75,6 +75,11 @@ def build_crud_blueprint(
         )
         if list_filter:
             rows = list_filter(ctx, rows)[:limit]
+        # Newest first: by date, and among records of the same day the last one entered first.
+        # (records saved in the same second: the one listed later by the database was saved later).
+        order = {id(r): n for n, r in enumerate(rows)}
+        rows.sort(key=lambda r: (str(r.get(date_field) or "") if date_field else "", str(r.get("created_at") or ""),
+                                 order[id(r)]), reverse=True)
         return out([render(r) for r in rows])
 
     @bp.post("")

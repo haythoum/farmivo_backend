@@ -98,9 +98,22 @@ def _prepare(ctx: Ctx, data: dict, tx_id: str | None = None) -> dict:
     return data
 
 
+_NO_HAND_PURCHASE = ("Animals bought are added in Animals, with Add animal and their purchase price: they then "
+                     "appear in the herd and their purchase is booked here by itself")
+
+
+def _create(ctx: Ctx, data: dict) -> dict:
+    """A purchase of animals is never typed here (it counted the animals twice and left them out of the herd)."""
+    if data.get("category") == costs.PURCHASE_CATEGORY:
+        raise ApiError(422, _NO_HAND_PURCHASE)
+    return _prepare(ctx, data)
+
+
 def _before_update(ctx: Ctx, existing: dict, merged: dict) -> dict:
     from flask import request
 
+    if merged.get("category") == costs.PURCHASE_CATEGORY and existing.get("category") != costs.PURCHASE_CATEGORY:
+        raise ApiError(422, _NO_HAND_PURCHASE)
     sent = request.get_json(silent=True) or {}
     if "animal_ids" in sent and "animal_id" not in sent:
         merged = {**merged, "animal_id": None}  # the list decides (an emptied list clears the one animal too)
@@ -165,7 +178,7 @@ transactions = build_crud_blueprint(
     update_model=TransactionUpdate,
     out_model=TransactionOut,
     date_field="date",
-    before_create=_prepare,
+    before_create=_create,
     before_update=_before_update,
     after_write=_after_write,
     after_delete=_after_delete,

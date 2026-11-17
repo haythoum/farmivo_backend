@@ -145,7 +145,25 @@ def create_farm():
     identity = get_identity()
     _require_verified(identity)
     data = body(FarmCreate).model_dump(exclude_none=True)
+    data.setdefault("currency", default_currency(data.get("country")))
     return out(_me(identity, membership.create_farm(get_repo(), identity, data)), 201)
+
+
+# The currency of a farm created without one, by its country (any spelling the apps offer); TND otherwise.
+_CURRENCIES = {
+    "tunisia": "TND", "tunisie": "TND", "تونس": "TND",
+    "algeria": "DZD", "algérie": "DZD", "algerie": "DZD", "الجزائر": "DZD",
+    "morocco": "MAD", "maroc": "MAD", "المغرب": "MAD",
+    "libya": "LYD", "libye": "LYD", "ليبيا": "LYD",
+    "egypt": "EGP", "égypte": "EGP", "egypte": "EGP", "مصر": "EGP",
+    "france": "EUR", "germany": "EUR", "allemagne": "EUR", "deutschland": "EUR", "italy": "EUR", "italie": "EUR",
+}
+
+
+def default_currency(country: str | None) -> str:
+    """'Tunisia' / 'تونس' -> 'TND'. Farmivo's farms are mostly in Tunisia: an unknown or empty country gives TND
+    (it was USD before 17 Nov 2026: a farm created with the currency field left empty showed dollars)."""
+    return _CURRENCIES.get((country or "").strip().lower(), "TND")
 
 
 @bp.post("/farms/join")
