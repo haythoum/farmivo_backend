@@ -4,11 +4,10 @@ A web page for Quadralens to follow the apps and help the farmers. It is **off**
 
 | Page | What it shows / does |
 |---|---|
-| Overview | What needs a look (problems of the week, feedback to read, new accounts, people seen in the apps), the totals, animals by species, newest farms. |
+| Overview | What needs a look (problems of the week, new accounts, people seen in the apps), the totals, animals by species, newest farms. |
 | Activity | Week by week: new accounts, new farms, **farms in use** (someone recorded or changed something that week). Farms that **stopped** (used on 2+ days, nothing for 3 weeks: worth a call) and farms created but never used. |
 | Apps | Android / iPhone split, the **app versions in use**, the people still on an **older version** (ask them to update), phone models, people not seen for 30 days. Filled as people open the updated apps (they send their version with every request). |
 | Problems | **Server errors** (a bug: the app said "Something went wrong"; with the request and the traceback), **emails not sent** (Mailjet refused or unreachable: verification codes, password resets) and **pushes not sent** (Firebase). Kept 90 days. |
-| Feedback | What people sent with "Send feedback" in the app: text, screen, screenshot, app version, phone, farm. Mark each one handled. |
 | Farms | Every farm; one farm: members, counts, and its **data** (animals, barns, the last 40 money entries, feed stock) to answer a support question; delete the farm. |
 | Users | Every account with its farms, app version, phone and last visit. **Resend code** (a new verification code; the usual limits: 60 s between codes, 5 an hour) and **Mark checked** (count the email as verified when the code email never arrives and you know the person). |
 | Breed photos | Per species: which breed has its **own photo**, shows the **species' photo** or has **none**; **upload** your own photo for any breed (JPEG, PNG or WebP, resized to 960 px when Pillow is installed on the server, else JPEG only) or remove it. |

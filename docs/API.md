@@ -276,9 +276,8 @@ Push payload (FCM), in the recipient's language (phone `language`, else the user
 `GET /reports/{kind}?format=json|csv&date_from=&date_to=` with `kind` = `herd` | `vaccinations` | `financial` | `production` (default range last 90 days; `herd` ignores dates).
 JSON: `{kind, date_from, date_to, columns: [...], rows: [{...}]}`. CSV: `text/csv` attachment — download and hand to the system share sheet.
 
-## Feedback and announcements (signed in, no farm needed)
+## Announcements (signed in, no farm needed)
 
-- `POST /feedback` → `201 {id}`: JSON `{text (1–3000), screen?}` or `multipart/form-data` with the same fields and an optional `screenshot` (JPEG/PNG/WebP, max 5 MB). 10 per hour per account (`429`). Lands in the admin dashboard.
 - `GET /announcements` → `[{id, title, body, sent_at}]`: the admin's announcements of the last 30 days, newest first, in the user's language. The apps show each id once in a dialog.
 
 ### App headers

@@ -3,7 +3,6 @@
 - /admin/activity: new accounts, new farms and farms in use week by week; farms that stopped;
 - /admin/apps: Android / iPhone split, app versions in use, people on an older version;
 - /admin/problems: server errors, emails and pushes that failed (app/ops.py);
-- /admin/feedback: the feedback sent from the apps (with screenshots), marked done when handled;
 - /admin/breeds: which breed has its own photo, the species' photo or none; upload or remove your own photo;
 - /admin/broadcast: an announcement to everyone (push + shown once in the apps);
 - support actions on /admin/users: resend the verification code, mark an email checked.
@@ -23,7 +22,7 @@ from app.breeds import BREEDS
 from app.config import get_settings
 from app.deps import get_mailer, get_notifier, get_repo
 from app.errors import ApiError
-from app.routers.support import ANNOUNCEMENTS, FEEDBACK, announcement_text
+from app.routers.support import ANNOUNCEMENTS, announcement_text
 from app.services import verification
 from app.services.membership import Identity
 from app.services.notifier import MEMBERS_CHANNEL
@@ -116,43 +115,6 @@ An email not sent means Mailjet refused or could not be reached (check the Mailj
 {% if p.trace %}<details><summary>Trace</summary><pre>{{ p.trace }}</pre></details>{% endif %}</td></tr>
 {% else %}<tr><td colspan="4" class="muted">No problem recorded. 🎉</td></tr>{% endfor %}</table></div>""",
                  rows=rows[:300], every=every, counts=counts, kind=kind, days=days, keep=ops.KEEP_DAYS)
-
-
-# ------------------------------------------------------------------------ feedback
-@bp.get("/feedback")
-def feedback():
-    """The feedback sent from the apps, newest first (new ones first with ?show=new)."""
-    repo = get_repo()
-    show = request.args.get("show") or "new"
-    rows = sorted(repo.list(FEEDBACK), key=lambda f: f.get("created_at") or "", reverse=True)
-    counts = {"new": sum(1 for f in rows if f.get("status") == "new"), "all": len(rows)}
-    if show == "new":
-        rows = [f for f in rows if f.get("status") == "new"]
-    return _page("""<h1>Feedback</h1><div class="tabs"><a class="{{ 'on' if show == 'new' else '' }}" href="?show=new">To read ({{ counts.new }})</a>
-<a class="{{ 'on' if show == 'all' else '' }}" href="?show=all">All ({{ counts.all }})</a></div>
-{% for f in rows %}<div class="box"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
-<div><b>{{ f.name or f.email or f.uid }}</b> <span class="muted">{{ f.email or '' }}</span>
-{% if f.farm_id %} · <a href="{{ url_for('admin.farm', farm_id=f.farm_id) }}">{{ f.farm_name or f.farm_id }}</a> ({{ f.role }}){% endif %}</div>
-<div class="muted">{{ (f.created_at or '')[:16]|replace('T', ' ') }}</div></div>
-<p style="white-space:pre-wrap;margin:10px 0">{{ f.text }}</p>
-<div class="muted">Screen: {{ f.screen or '?' }} · {{ f.app_platform or '?' }} {{ f.app_version or '' }} · {{ f.device_model or '' }} {{ f.os_version or '' }} · language {{ f.lang }}</div>
-{% if f.screenshot_url %}<p><a href="{{ f.screenshot_url }}" target="_blank" rel="noopener"><img src="{{ f.screenshot_url }}" alt="screenshot"
-style="max-width:240px;max-height:420px;border-radius:10px;border:1px solid var(--line)"></a></p>{% endif %}
-<form method="post" action="{{ url_for('admin.feedback_status', feedback_id=f.id) }}" style="margin-top:8px"><input type="hidden" name="token" value="{{ token }}">
-{% if f.status == 'new' %}<input type="hidden" name="status" value="done"><button class="small">Mark as handled</button>
-{% else %}<input type="hidden" name="status" value="new"><span class="pill green">handled</span> <button class="small" style="background:#5B6B69">Back to read</button>{% endif %}</form>
-</div>{% else %}<p class="muted">Nothing here.</p>{% endfor %}""", rows=rows, counts=counts, show=show,
-                 token=_form_token("feedback"))
-
-
-@bp.post("/feedback/<feedback_id>/status")
-def feedback_status(feedback_id: str):
-    """Mark one feedback handled (or to read again)."""
-    check_form("feedback")
-    status = "done" if request.form.get("status") == "done" else "new"
-    if not get_repo().update(FEEDBACK, feedback_id, {"status": status}):
-        return _back("admin.feedback", "Not found")
-    return _back("admin.feedback", "Marked as handled" if status == "done" else "Back in the list to read")
 
 
 # ------------------------------------------------------------------- breed photos

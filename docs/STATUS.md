@@ -104,9 +104,9 @@ The apps cannot delete a farm yet (planned, with an admin dashboard). On the ser
 
 ## 18 Nov 2026 release (dashboard and new app features)
 
-- **Admin dashboard** (ADMIN.md): Activity (sign-ups, new farms and farms in use per week; farms that stopped; never used), Apps (Android / iPhone, versions in use, people on an older version, phone models), Problems (server errors with traceback, emails and pushes not sent; `app/ops.py`, kept 90 days), Feedback inbox (with screenshots), Breed photos (status per breed, upload or remove your own), Announcements (push + dialog in the apps, per language), support on Users (resend the verification code, mark the email checked) and one farm's data (animals, barns, money, feed stock).
+- **Admin dashboard** (ADMIN.md): Activity (sign-ups, new farms and farms in use per week; farms that stopped; never used), Apps (Android / iPhone, versions in use, people on an older version, phone models), Problems (server errors with traceback, emails and pushes not sent; `app/ops.py`, kept 90 days), Breed photos (status per breed, upload or remove your own), Announcements (push + dialog in the apps, per language), support on Users (resend the verification code, mark the email checked) and one farm's data (animals, barns, money, feed stock).
 - The apps send their platform, version, OS and phone model (`X-Farmivo-*`), kept on the user with `last_seen`.
-- `POST /feedback`, `GET /announcements`.
+- `GET /announcements`.
 - **For sale**: `for_sale`, `asking_price`, `sale_note` on animals, `?for_sale=true`; `latest_weight_kg` on animals.
 - **Work on a barn**: `POST /vaccinations/bulk` (a whole barn or chosen animals), `POST /weights/bulk` (weighing session); several animals moved with the existing `POST /animals/move`.
 - **Feed stock**: feeds in sacks, sacks in (with a price: the feed expense is booked) and out, low-stock warning (notice + push to managers once).

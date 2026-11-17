@@ -71,7 +71,7 @@ app/
     feed_stock.py    Feed stock in sacks: in (books the feed expense) / out, low-stock warning
     finance.py       Transactions (shared by animals, per barn filter, sales), finance summary, balance sheet,
                      monthly summary page
-    support.py       Feedback from the apps (with screenshot) and the admin's announcements
+    support.py       The admin's announcements, shown once in the apps
     dashboard.py     Aggregated home screen payload
     members.py       Me, onboarding (create farm with its currency / join with invite code), members and roles
     farm.py          Farm settings, device (FCM token) registration
@@ -89,7 +89,7 @@ app/
     verification.py  6-digit email code after sign-up (Mailjet, services/mailer.py)
     password_reset.py, account.py   Password reset email, account deletion
   admin/             Admin web dashboard (/admin; docs/ADMIN.md): views.py (overview, farms with their data, users,
-                     delete a farm), pages.py (activity, apps, problems, feedback, breed photos, announcements,
+                     delete a farm), pages.py (activity, apps, problems, breed photos, announcements,
                      support actions)
 scripts/             Server tools: check_setup, seed_demo, delete_farm, migrate_docs, fetch_breed_photos and the
                      one-off release upgrades (upgrade_2026_11_14, upgrade_2026_11_16, sync_breeding_reminders)

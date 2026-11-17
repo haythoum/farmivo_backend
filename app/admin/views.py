@@ -1,5 +1,5 @@
 """Pages of the admin dashboard (see app/admin/__init__.py): overview, farms, users and deleting a farm here;
-activity, app versions, problems, feedback, breed photos, announcements and the support actions in
+activity, app versions, problems, breed photos, announcements and the support actions in
 app/admin/pages.py. Every form that changes something carries a token tied to the admin password (_token)."""
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ def _token(farm_id: str) -> str:
 
 
 def _form_token(action: str) -> str:
-    """Token of the dashboard's forms for ``action`` (support, feedback, breeds, broadcast): a page of another
+    """Token of the dashboard's forms for ``action`` (support, breeds, broadcast): a page of another
     site cannot post them (it does not know the admin password the token is made from)."""
     key = (get_settings().admin_password or "").encode()
     return hmac.new(key, f"form:{action}".encode(), hashlib.sha256).hexdigest()
@@ -142,7 +142,7 @@ pre{white-space:pre-wrap;font-size:12px;background:#F7F9F8;padding:8px;border-ra
 img.thumb{width:72px;height:54px;object-fit:cover;border-radius:8px;background:#F2F5F4}label{font-weight:600}
 </style></head><body><header><b>Farmivo admin</b><a href="{{ url_for('admin.overview') }}">Overview</a>
 <a href="{{ url_for('admin.activity') }}">Activity</a><a href="{{ url_for('admin.apps') }}">Apps</a>
-<a href="{{ url_for('admin.problems') }}">Problems</a><a href="{{ url_for('admin.feedback') }}">Feedback</a>
+<a href="{{ url_for('admin.problems') }}">Problems</a>
 <a href="{{ url_for('admin.farms') }}">Farms</a><a href="{{ url_for('admin.users') }}">Users</a>
 <a href="{{ url_for('admin.breed_photos') }}">Breed photos</a><a href="{{ url_for('admin.broadcast') }}">Announcements</a>
 </header><main>{% if flash %}<p class="ok">{{ flash }}</p>{% endif %}{{ body|safe }}</main></body></html>"""
@@ -168,12 +168,9 @@ def overview():
             if a.get("status") in ON_FARM_STATUSES:
                 species[a.get("species") or "other"] += 1
     from app import ops
-    from app.routers.support import FEEDBACK
-
     week = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     attention = [
         ("Problems (7 days)", len(ops.problems(repo, days=7)), url_for("admin.problems")),
-        ("New feedback", sum(1 for f in repo.list(FEEDBACK) if f.get("status") == "new"), url_for("admin.feedback")),
         ("New accounts (7 days)", sum(1 for u in users if (u.get("created_at") or "") >= week), url_for("admin.users")),
         ("Seen in the apps (7 days)", sum(1 for u in users if (u.get("last_seen") or "") >= week), url_for("admin.apps")),
     ]

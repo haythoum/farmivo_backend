@@ -2,7 +2,7 @@
 
 ## Storage layout
 MongoDB database `farmivo`:
-- **One collection per record type**, named after it: `farms`, `users`, `members`, `barns`, `animals`, `vaccinations`, `treatments`, `vet_visits`, `illnesses`, `reminders`, `breedings`, `weights`, `production`, `feedings`, `transactions`, `notifications`, `devices`, `feed_items`, `feed_moves`; global: `problems`, `feedback`, `announcements`. Photos: GridFS `photos.files` / `photos.chunks`.
+- **One collection per record type**, named after it: `farms`, `users`, `members`, `barns`, `animals`, `vaccinations`, `treatments`, `vet_visits`, `illnesses`, `reminders`, `breedings`, `weights`, `production`, `feedings`, `transactions`, `notifications`, `devices`, `feed_items`, `feed_moves`; global: `problems`, `announcements`. Photos: GridFS `photos.files` / `photos.chunks`.
 - `_id` is the record id. Every farm record carries `farm_id` (indexed); devices carry `user_id`.
 - Look at the data in the shell: `use farmivo`, `show collections`, `db.animals.find().pretty()`, `db.vaccinations.find({farm_id: "<id>"})`. Your farm id: `db.users.find()` (one document per Firebase user, `_id` = Firebase UID).
 - Internally the code still addresses records by Firestore-style paths (`farms/<farm_id>/animals`); the Mongo repository turns the last part into the collection name and the parent ids into fields, so the same code also runs on Firestore.
@@ -30,7 +30,6 @@ All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are 
 | `farms/{farmId}/feed_items` | name, sack_kg, low_at (warn at this many sacks or fewer), notes |
 | `farms/{farmId}/feed_moves` | feed_id, direction (`in` / `out`), sacks, date, unit_price (in; books the feed expense), supplier, notes, transaction_id (that expense) |
 | `problems` (global) | kind (`server_error` / `email_failed` / `push_failed`), message, at, and details (method, path, uid, trace / email, what / title, devices); older than 90 days removed |
-| `feedback` (global) | uid, email, name, farm_id, farm_name, role, text, screen, lang, app_platform, app_version, os_version, device_model, screenshot_url, status (`new` / `done`) |
 | `announcements` (global) | title_en/fr/ar, body_en/fr/ar, target (all / android / ios), phones (how many it was pushed to) |
 | `farms/{farmId}/reminders` | source_type, source_id, animal_id, title (English), title_key + title_params (server-made reminders, rendered in the reader's language), due_date, status, notified_buckets[] |
 | `farms/{farmId}/notifications` | title, body (English), title_key, body_key, params (rendered in the reader's language), type, animal_id, reminder_id, read |

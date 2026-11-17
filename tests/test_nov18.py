@@ -1,4 +1,4 @@
-"""18 November 2026: admin dashboard (activity, apps, problems, feedback, breed photos, announcements, support)
+"""18 November 2026: admin dashboard (activity, apps, problems, breed photos, announcements, support)
 and the app features (for sale, barn vaccination, weighing session, feed stock, monthly finance summary)."""
 from __future__ import annotations
 
@@ -80,28 +80,6 @@ def test_old_problems_are_pruned(repo, monkeypatch):
     assert ops.prune(repo) == 1 and len(repo.list("problems")) == 1
 
 
-# --------------------------------------------------------------------- feedback
-def test_feedback_with_a_screenshot(make_client, repo, photo_store):
-    c = farm_client(make_client)
-    r = c.post("/v1/feedback", headers=APP, data={
-        "text": "The sale button is hidden", "screen": "Finance",
-        "screenshot": (io.BytesIO(b"\x89PNG fake"), "shot.png", "image/png")}, content_type="multipart/form-data")
-    assert r.status_code == 201, r.json
-    f = repo.get("feedback", r.json["id"])
-    assert f["text"] == "The sale button is hidden" and f["screen"] == "Finance" and f["farm_name"]
-    assert f["app_version"] == "1.6.0 (16)" and f["screenshot_url"].startswith("https://storage.test/")
-    assert c.post("/v1/feedback", json={"text": "  "}).status_code == 422
-    assert c.post("/v1/feedback", json={"text": "ok"}).status_code == 201  # JSON works too
-
-
-def test_feedback_is_limited(make_client):
-    c = make_client("u9")  # no farm needed
-    for _ in range(10):
-        assert c.post("/v1/feedback", json={"text": "hi"}).status_code == 201
-    r = c.post("/v1/feedback", json={"text": "hi"}, headers={"Accept-Language": "fr"})
-    assert r.status_code == 429 and "heure" in r.json["detail"]
-
-
 # --------------------------------------------------------------- announcements
 def test_an_announcement_reaches_phones_and_the_apps(make_client, repo, notifier, admin_on):
     c = farm_client(make_client)
@@ -124,9 +102,8 @@ def test_every_new_admin_page_opens(make_client, repo, admin_on):
     c = farm_client(make_client)
     add(c, "S1")
     expense(c, 50)
-    c.post("/v1/feedback", json={"text": "hello"})
     for path in ("/admin", "/admin/activity", "/admin/activity?weeks=52", "/admin/apps", "/admin/problems",
-                 "/admin/problems?kind=server_error", "/admin/feedback", "/admin/feedback?show=all", "/admin/breeds",
+                 "/admin/problems?kind=server_error", "/admin/breeds",
                  "/admin/breeds?species=goat", "/admin/broadcast", "/admin/users"):
         r = c.get(path, headers=admin_on)
         assert r.status_code == 200, path
