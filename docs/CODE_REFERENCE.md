@@ -10,7 +10,7 @@ Conventions used below:
 
 ## Contents
 
-1. [Module map](#1-module-map)
+1. [Module map](#1-module-map) (business modules: [9a](#9a-business-modules))
 2. [app/main.py](#2-appmainpy): application factory
 3. [app/config.py](#3-appconfigpy): settings
 4. [app/deps.py](#4-appdepspy): auth, farm context, services; [app/permissions.py](#4a-apppermissionspy): roles policy
@@ -34,7 +34,7 @@ flowchart TD
   main --> errors[app.errors]
   main --> config[app.config]
   subgraph routers[app.routers]
-    members & farm & animals & health & breeding & growth & finance & dashboard & notifications & photos & reports & internal & legal
+    members & farm & barns & animals & health & breeding & growth & finance & dashboard & notifications & photos & reports & internal & legal & auth
     crud[crud<br/>build_crud_blueprint]
   end
   routers --> deps[app.deps<br/>get_identity / get_ctx]
@@ -50,6 +50,13 @@ flowchart TD
   health & breeding & dashboard --> reminders[services.reminders]
   internal --> reminders
   animals --> photosvc[services.photos]
+  animals --> codes[app.animal_codes]
+  finance --> sales[app.sales]
+  finance & animals --> costs[app.costs]
+  sales --> costs
+  breeding --> brules[app.breeding_rules]
+  barns --> breeds[app.breeds] --> bphotos[app.breed_photos]
+  routers --> i18n[app.i18n]
   deps --> repo[app.repository]
   deps --> notifier[services.notifier]
   deps --> photosvc
@@ -203,6 +210,9 @@ Server texts in English (default), French and Arabic.
 | `request_lang()` | `g.lang` inside a request, else English. |
 | `request_lang_given()` | True if the request sent a supported Accept-Language. |
 | `recipient_lang(device, user)` | Language for a push or email: the device's `language`, else the user's `lang`, else English. |
+| `readable_message(detail, lang)` | One sentence for the apps: the text itself, or for a list of field errors the first one as "<field as the form names it>: <problem>". Added as `message` to 422 answers by `errors.py`. |
+| `field_name(field, lang)` | A form field's name in `lang` (`date_of_birth` → "تاريخ الميلاد"); unknown fields as written. |
+| `_species_words(value, lang)`, `_durations(value, lang)` | Translate the variable parts of messages: species codes ("sheep, goat" → "أغنام، ماعز"), parents and sexes, field names, durations ("5 months 10 days" → "5 أشهر و10 أيام"). |
 
 ## 6. app/web.py
 
@@ -278,6 +288,14 @@ Enums: `Species` (cattle, sheep, goat, pig, horse, chicken, duck, rabbit, other)
 | `NotificationOut` | notifications | `title`, `body` (in the request language), `type`, `animal_id`, `reminder_id`, `read`. |
 | `DeviceIn` | POST `/devices` | `token` (10–4096 characters), `platform` android/ios, optional `language` ar/fr/en. |
 | `UpcomingItem`, `DashboardOut` | dashboard | See section 11.9. `finance` is optional (null for workers and viewers). |
+| `AnimalColor` | Animal `color` | Coat colour as farmers name it in Tunisia: sardi, adraa, white, brown, other. |
+| `BarnBase` / `BarnOut` | `/barns` | `species_list` (one, several or empty = any; `species` kept for older apps), `capacity`, `notes`; out adds counts on the farm and what needs attention (sick, pregnant, vaccination due). |
+| `MoveAnimalsIn` | `POST /animals/move` | animal_ids and a barn_id (null = outside). |
+| `MyFarmOut`, `SwitchFarmIn` | `GET /me/farms`, `POST /me/farm` | The user's farms with role and status; the farm to work in. |
+| `PasswordResetIn` | `POST /auth/password-reset` | The account's email. |
+| `CostLine`, `AnimalCostsOut` | `GET /animals/{id}/costs` | Each expense with the animal's share; purchase price, expenses, total and (once left) the result. |
+| `SoldAnimal`, `SaleOut`, `BilanOut` | `GET /finance/bilan` | A sold animal (price = its share, purchase, expenses, cost, result, sale entry); a sale (one entry: count, amount, average price, cost, result, animals); the balance sheet (capital, expenses, sales, herd value, profit = (cash_in + herd_value) − (capital + expenses_total)). |
+| `_blank_to_none(v)` | validators | "" or spaces mean none (a barn id sent empty by a form = outside). |
 
 ---
 
@@ -290,8 +308,72 @@ Enums: `Species` (cattle, sheep, goat, pig, horse, chicken, duck, rabbit, other)
 | `parse_date(value)` | Date, ISO text (first 10 characters) or `None`. |
 | `age_parts(dob, until=None)` | `(days, months, label)`. Labels look like `4y 7m`, `4y`, `7m` or `12d`. `until` is used for deceased animals. |
 | `expected_birth(species, mating)` | `mating + GESTATION_DAYS[species]`, or `None`. |
+| `pregnancy_check(species, mating)` | When to check an unconfirmed mating: mating date + the species' delay (30 days if unknown). |
 
 ---
+
+## 9a. Business modules
+
+Pure functions over the repository (no Flask), used by the routers and the scripts.
+
+### app/animal_codes.py: farm numbers
+
+| Name | Description |
+|---|---|
+| `format_code(species, number, year)` | `01-0007/26`: species code (01 sheep, 02 cattle, 03 goat, 04 horse, 05 chicken, 06 duck, 07 rabbit, 08 pig, 09 dog, 10 cat, 99 other), number, two-digit year. |
+| `code_year(animal)` | Birth year when born on the farm (if known), else the year it arrived. |
+| `new_code(repo, farm_id, animal, taken)` | Next number for the species and year (atomic counter, `Repository.increment`), skipping texts already used as an ear tag (`taken`). |
+| `set_counter_at_least(repo, farm_id, species, year, value)` | Used by the upgrade script after numbering existing animals. |
+
+### app/age_classes.py and app/breeds.py
+
+| Name | Description |
+|---|---|
+| `keys_for(species)` | The age-class keys (age by teeth) allowed for a species; empty = by date of birth only. |
+| `BREEDS`, `catalog(lang, base_url)` | Breeds per species (Tunisian / Maghreb first) with labels in en/fr/ar; `catalog` adds each breed's `photo` (`app/breed_photos.py`) when `base_url` (the address the app used) is given. |
+
+### app/breed_photos.py
+
+| Name | Description |
+|---|---|
+| `SOURCES`, `SPECIES_SOURCES` | Wikipedia articles (language, title) per breed and per species; the first with a free JPEG lead photo is used. |
+| `photos_dir()` | `FARMIVO_BREED_PHOTOS_DIR` (absolute, or relative to the project folder; default `data/breed_photos`). |
+| `slug(name)` | File name of a breed's photo: "Brune de l'Atlas" → `brune-de-l-atlas`. |
+| `credits()`, `_credits(folder)` | `credits.json`: author, licence, source of each downloaded photo. |
+| `photo(species, name, base_url, known_credits)` | `{url, credit, generic}`: the breed's photo, else the species' (`_species.jpg`, generic), else None. |
+
+### app/breeding_rules.py
+
+| Name | Description |
+|---|---|
+| `Rule`, `RULES` | Per species: female and male minimum mating age (months), shortest pregnancy (days), longest pregnancy (months + days), largest litter. Sheep/goat 8 months / 48 months / 135 days–5 months 10 days / 5; cattle 12 / 48 / 260 days–9 months 10 days / 3; horse, pig, rabbit, dog, cat from veterinary references. `BIRDS` are never mated; `MISCARRIAGE_MAX_DAYS_AGO` = 14. |
+| `add_months(d, months)`, `months_between(start, end)` | Calendar months (31 Jan + 1 month = end of February). |
+| `earliest_birth(species, mating)`, `latest_birth(species, mating)` | The pregnancy window of a mating, or None without limits. |
+| `gestation_text(species)`, `age_text(months)` | "5 months 10 days", "4 years" for the messages (translated by i18n). |
+
+### app/costs.py: costs and balance sheet
+
+| Name | Description |
+|---|---|
+| `PURCHASE_CATEGORY`, `SALE_CATEGORY` | `purchase_animal`, `animal_sale`. |
+| `tx_animals(tx)` | The animals of an entry: `animal_ids`, or `animal_id`. |
+| `barn_species(barn)` | The species a barn takes (`species_list`, or `species` of older records); [] = any. |
+| `feed_weights(animals, on_date)` | Feed by age: 0–6 months 0.5, 6–12 months 1, from 1 year (or unknown) 1.5. |
+| `shares(tx)`, `share_of(tx)` | Each animal's part of an entry (equal or by weights); the equal part, or None when weighted. |
+| `auto_purchase_ids(animals)`, `_bought_price(animal)` | The purchase entries the server booked from animal prices (counted from the animals, not twice); an animal's purchase price. |
+| `animal_cost_lines(repo, farm_id, animal_id, skip)`, `animal_costs(repo, farm_id, animal)` | Every expense of an animal with its share; purchase, expenses, total and (once left) the result. |
+| `bilan(repo, farm_id, barn_id)` | The balance sheet for the farm or a barn (`_in_barn`: in it, or in it when it left): capital, expenses by category plus animals lost, sales (`sold[]` and `sales[]` grouped by entry), herd count and value, cash in, profit. `r2` rounds to cents. |
+
+### app/sales.py: several animals sold in one entry
+
+| Name | Description |
+|---|---|
+| `is_sale(tx)` | An `animal_sale` income. |
+| `prices(tx)` | Each animal's price: the total divided equally to the cent (cents left over go to the first animals). |
+| `sold_without_price(animal)` | Marked sold by hand, no price, no entry: a sale entry may still give it its price. |
+| `cannot_sell(repo, farm_id, tx, tx_id)` | The first animal of the entry that already left the farm otherwise (finance answers 409). |
+| `back_on_farm(repo, farm_id, animal)` | Undo a sale: status active, into its old barn when it still exists, sale fields cleared. |
+| `sync(repo, farm_id, tx, deleted)` | After a sale entry is saved or deleted: its animals sold (status, date, price share, `sale_tx_id`, out of the barn, reminders closed) or back on the farm; returns how many changed. |
 
 ## 10. app/services
 
@@ -359,6 +441,8 @@ Who belongs to which farm, with which role, and the join workflow. Storage: `far
 | `remove(repo, farm_id, uid)` | Deletes the member record, clears the farm from `users/<uid>` and resolves a pending join-request notification; 409 for the owner. |
 | `rotate_invite_code(repo, farm)` | New unique code; the old one stops matching immediately. |
 | `transfer_ownership(repo, farm, from_uid, to_uid)` | Target must be another active member (409). Old owner → manager, target → owner, `farms.owner_uid` updated. |
+| `my_farms(repo, uid, active_only)` | The user's farms (active, with role) and pending requests, by name. |
+| `switch_farm(repo, identity, farm_id)` | Work in another of the user's farms (an active membership, else 403). |
 
 ### 10.1b services/verification.py
 
@@ -386,6 +470,15 @@ The 6-digit email code required before creating or joining a farm. Storage: `ema
 | `code_message(sender_email, sender_name, to, code, minutes, lang="en") -> dict` | Mailjet Send API v3.1 payload: From (email, name), To, translated Subject, TextPart, HTMLPart, CustomID `farmivo-verification`. |
 | `MailjetMailer(api_key, api_secret, sender_email, sender_name, timeout)` | `send_code` posts `code_message` with `mailjet_rest.Client(version="v3.1").send.create` and raises `MailError` unless Mailjet answers 200 with `Status: success`. `check()` lists the account's active senders through the v3 `sender` resource (used by `check_setup`); `_client(version)` builds the client. |
 | `LogMailer` | Used when `MAILJET_API_KEY` is empty: logs "Email not configured; verification code for <email>: <code>" at WARNING (the Flask app log inside a request). |
+| `reset_text(link, lang)`, `reset_html(link, lang)`, `reset_message(sender_email, sender_name, to, link, lang)` | Password reset email: plain text, branded HTML (right to left for Arabic) and the Mailjet payload. |
+
+### 10.1d services/password_reset.py
+
+| Name | Description |
+|---|---|
+| `send_reset(repo, mailer, email, lang, make_link)` | Emails a reset link when the address has an account (unknown addresses return normally, so nobody learns who is registered). 422 invalid address, 429 too soon / too many (`_key` per address), 502 when the link or email cannot be made. |
+| `firebase_link(email)`, `NoSuchUser` | Firebase Admin reset link; raised for an unknown email. |
+| `with_lang(link, lang)` | The link with `lang`, so Firebase's "new password" page is in the app's language. |
 
 ### 10.2 services/notifier.py
 
@@ -484,6 +577,9 @@ Onboarding (token only, no farm needed) and member management. Rules live in `se
 | `DELETE /v1/farm/members/<uid>` | `remove_member` | none | 204 | Manager+. 409 for the owner. |
 | `POST /v1/farm/invite-code` | `rotate_invite_code` | none | `InviteCodeOut` | Manager+. The old code stops working. |
 | `POST /v1/farm/transfer-ownership` | `transfer_ownership` | `TransferIn` | `MemberOut` (new owner) | Owner only. Previous owner becomes manager. |
+| `GET /v1/me/farms` | `my_farms` | none | `[MyFarmOut]` | Anyone signed in. |
+| `POST /v1/me/farm` | `switch_farm` | `{farm_id}` | `MeOut` | 403 if not an active member there. |
+| (helper) | `default_currency(country)` | | | Currency of a farm created without one: by country (Tunisia TND, Algeria DZD, Morocco MAD …), TND otherwise. |
 
 `_delete_firebase_user(uid)` deletes the Firebase Auth user with `firebase_admin.auth.delete_user` (the tests inject a fake `auth_admin` override); failures are logged, never returned, because the data is already gone and the app signs out anyway.
 
@@ -498,6 +594,14 @@ Onboarding (token only, no farm needed) and member management. Rules live in `se
 | `ear_tag_taken(ctx, tag, exclude_id)` | Is the tag already used in this farm? |
 | `check_parents(ctx, data, animal_id)` | `mother_id` must be female and `father_id` male, they must exist (404) and not be the animal itself (422). |
 | `_delete_photo(url)` | Best effort: asks the photo store to delete a photo that is no longer used; failures are only logged. |
+| `barn_names(ctx)`, `render_one(ctx, record)` | Barn id → name (one query); one animal rendered with its barn names. |
+| `tag_conflict(tag, species)`, `farm_code_for(ctx, animal)` | 409 for an ear tag used by the same species; a new farm number never equal to a used ear tag. |
+| `check_barn(ctx, barn_id, species)` | The barn exists and takes the species (404 / 422 saying what the barn takes). |
+| `capacity_notice(ctx, barn_id)` | After a create or a move into a barn: the translated reminder when the barn now has more animals on the farm than places (`notice` in the answer). |
+| `sync_purchase(ctx, animal)` | One `purchase_animal` entry of the purchase price while the animal was bought (removed otherwise); id kept as `purchase_tx_id`. |
+| `POST /v1/animals/move` → `move_animals` | Several animals into a barn, or outside; all or nothing. |
+| `GET /v1/animals/<id>/costs` → `get_costs` | `app/costs.animal_costs` (managers and the owner). |
+| `change_status` with a sale of several animals | An animal sold together with others: "sold" again → 409 (change the entry); undone → taken out of the entry, whose amount loses its share (others keep their price). |
 
 | Route | Function | Request | Response | Errors and side effects |
 |---|---|---|---|---|
@@ -535,6 +639,7 @@ Helpers: `_render_reminder(record, as_of)` adds `days_until`; `_illness_status(r
 CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_date`):
 - `_validate_parents` checks the dam (404 if missing, 422 if not female) and the sire (404, or 422 if not male). It fills `expected_birth_date` from `expected_birth(dam.species, mating_date)` when not given.
 - `_before_create` validates and starts with `actual_birth_date = null` and `offspring_ids = []`. `_before_update` re-validates and refuses (422) setting `delivered` by PATCH: only recording the birth does that.
+- Breeding rules (`app/breeding_rules.py`): `_too_young` (mating age per species and sex), `_check_period` (one pregnancy at a time: no second open mating, none during a pregnancy), `_check_dates` (not in the future, after the mother's birth, expected birth inside the pregnancy window, confirmation between mating and today, miscarriage today or up to 14 days ago; each check only when its own fields change, `_changed`), `_after_delete` (removes the reminders).
 - `_sync` keeps reminder `birth_<id>` on `expected_birth_date` while `pregnancy_status` is pending or confirmed, and removes it otherwise. Deleting the breeding removes the reminder.
 
 | Route | Function | Behaviour |
@@ -556,9 +661,15 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 | Name | Description |
 |---|---|
 | `/v1/transactions` CRUD | Factory, date field `date`. |
-| `farm_currency(repo, farm_id)` | Farm currency or `USD`. |
+| `farm_currency(repo, farm_id)` | Farm currency (`USD` only for very old farms without one; new farms get TND or their country's). |
 | `compute_finance(repo, farm_id, start, end)` | Sums transactions in the range into income, expenses, net, per-category maps and `monthly[]` (`YYYY-MM`), rounded to 2 decimals. Also used by the dashboard. |
 | `GET /v1/finance/summary` → `finance_summary` | `date_from` / `date_to` default to the last 30 days; 422 if from > to. |
+| `_create(ctx, data)` | before_create: refuses a typed `purchase_animal` (422), then `_prepare`. |
+| `_prepare(ctx, data, tx_id)` | Barn exists; the animals that carry the entry (chosen, a barn's `_snapshot`, or the farm's; `_shared` = expenses other than purchases); feed weights; for a sale every animal still on the farm (`sales.cannot_sell`, 409); on an edit, animals deleted since are left out. |
+| `_after_write`, `_after_delete` | `sales.sync`: the animals of a sale entry follow it. |
+| `_enrich(record)`, `tx_label(tx, lang)` | Adds `label` (the server's own purchase / sale texts translated), `barn_name`, `share`. |
+| `_barn_filter(ctx, rows)` | `?barn_id=`: entries booked on the barn or carried by its animals (now or when they left). |
+| `GET /v1/finance/bilan` → `finance_bilan` | `costs.bilan` + currency; each sale gets its translated `label`. |
 
 ### 11.8 routers/notifications.py
 
@@ -601,6 +712,27 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 
 ---
 
+### 11.12 routers/barns.py
+
+| Route | Function | Notes |
+|---|---|---|
+| `GET /v1/barns` | `list_barns` | By name, with animals on the farm and what needs attention (`_attention`: confirmed pregnancies, vaccinations overdue or due within 7 days; `_render`). |
+| `POST /v1/barns` | `create_barn` | 409 if the name is taken (`_check_name`). |
+| `GET/PATCH/DELETE /v1/barns/<id>` | `get_barn`, `update_barn`, `delete_barn` | `_get_or_404`; a new species list cannot exclude animals already inside (`_check_species`, 422); delete moves its animals to `?move_to=` or outside. |
+| `GET /v1/age-classes` | `list_age_classes` | Age by teeth per species, labels in the request's language. |
+| `GET /v1/breeds` | `list_breeds` | `breeds.catalog(lang, request.url_root)`: breeds with labels and photos. |
+| `GET /v1/breeds/photo/<species>/<file>` | `breed_photo` | Public; strict name check; 404 "Photo not found"; cached 7 days. |
+
+### 11.13 routers/auth.py
+
+| Route | Function | Notes |
+|---|---|---|
+| `POST /v1/auth/password-reset` | `request_password_reset` | No sign-in; always 204 for a well-formed address; `services/password_reset.send_reset`. |
+
+### 11.14 app/admin (web dashboard)
+
+`views.py`: `_guard` (off without a password; local requests only unless allowed; HTTP Basic `admin`), `_no_cache`, `overview` (totals and newest farms, `_farm_row`, `_farms_table`, `_owner`, `_page`), deleting one farm with a form token (`_token`). See ADMIN.md.
+
 ## 12. scripts
 
 Run on the server from the project folder with the project's virtualenv, for example `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.check_setup`.
@@ -609,6 +741,11 @@ Run on the server from the project folder with the project's virtualenv, for exa
 |---|---|---|
 | `scripts/check_setup.py` | `ok`, `fail` (prints the fix and exits 1), `check_settings`, `check_mongo`, `check_firebase`, `check_email` | Step by step: `.env` found; MongoDB target; PyMongo version; login (code 18 means wrong user, password or auth DB); index creation and a write and delete in the data database (code 13 means no rights); the Firebase project id is set, the key file exists, and its `project_id` matches; the Mailjet API key works and the sender is validated (nothing is sent), or "Email: not configured (codes are written to the log)". Prints `All checks passed` at the end. Never prints passwords. |
 | `scripts/seed_demo.py` | `FARM`, `day(offset)`, `post(client, path, body)`, `seed(client)`, `main()` | A user without a farm first gets one (`POST /v1/farms`, becomes owner); an owner or manager fills their own farm; pending or lower roles stop with a message. Fills one farm with demo data through the real API code (Flask test client with the `uid` override and `email_verified` set, so all validation and reminders apply): 4 animals, vaccinations (one overdue), a treatment, a vet visit, a breeding, weights, a week of milk, feeding, an income and an expense. `--uid <Firebase UID>` is required; `--memory` is a dry run. Writes nothing if the farm already has animals. |
+| `scripts/delete_farm.py` | `describe`, `contents`, `_owner`, `main()` | Lists farms (`--find`), shows what one holds (`--dry-run`), deletes it after typing its name. |
+| `scripts/fetch_breed_photos.py` | `http_get`, `api`, `lead_photo`, `credit`, `fetch_one`, `run`, `main()` | Downloads each breed's free JPEG lead photo from Wikipedia (User-Agent as Wikimedia asks), 480 px, with author and licence in `credits.json`; species photo `_species.jpg`; never replaces a photo put there by hand; `--force`, `--species`. Prints which breeds got their own photo. |
+| `scripts/upgrade_2026_11_14.py` | `number_animals`, `main()` | Farm numbers for animals that have none. |
+| `scripts/upgrade_2026_11_16.py` | `upgrade`, `check`, `main()` | Sells the animals of sale entries entered before 16 Nov (`sales.sync`); `--check` prints the database, farms, income entries and their animals, and animals named in several sales. |
+| `scripts/sync_breeding_reminders.py` | `sync_all`, `main()` | Breeding reminders of every farm in line with the November rules. |
 | `scripts/migrate_docs.py` | `main()` | One-off move from the first version's single `docs` collection into one collection per type. Already-copied records are skipped; `--drop` removes `docs` once everything has been copied. |
 
 ---
@@ -649,4 +786,4 @@ print(len(names), "top-level classes/functions,", len(missing), "missing:", miss
 EOF
 ```
 
-Result when this document was last updated (email verification): **238 top-level classes and functions, 0 missing**.
+Result when this document was last updated (17 Nov 2026): **406 top-level classes and functions, 0 missing**.

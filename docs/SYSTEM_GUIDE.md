@@ -182,7 +182,7 @@ sequenceDiagram
   App->>API: AnimalCreate JSON
   API->>API: body(AnimalCreate): unknown field / bad value → 422 (translated message)
   API->>DB: ear tag taken for this species? → 409
-  API->>DB: parents (female / male, same species, born before) → 404 / 422; barn takes the species? → 409
+  API->>DB: parents (female / male, same species, born before) → 404 / 422; barn takes the species? → 422
   API->>DB: farm number 01-0007/26 (ear tag = it when empty); animals.insert(...)
   API->>DB: purchase price → purchase_animal entry booked by the server
   API-->>App: 201 AnimalOut (age_label, farm_code, notice when the barn is now over its capacity)

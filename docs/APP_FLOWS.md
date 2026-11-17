@@ -1338,8 +1338,8 @@ Every message reaches the user in a dialog with an OK / "Understood" button, in 
 | 403 `no_farm` / `pending` / `rejected` | No farm yet, waiting for approval, request refused | Create-or-join screen, waiting screen, or the refusal message |
 | 403 `forbidden_role` | The user's role may not do this (e.g. a worker opening finance) | The server's message; the app normally hides these actions |
 | 404 | The record, or the URL, does not exist | "Not Found" plus the URL (Android) |
-| 409 | Duplicate ear tag, birth already recorded, already in a farm, owner leaving, barn does not take the species, animal no longer on the farm, breeding rule (one pregnancy at a time) | The server's message |
-| 422 | Data failed validation | The first validation message |
+| 409 | Duplicate ear tag, birth already recorded, already in a farm, owner leaving, animal no longer on the farm, breeding rule (one pregnancy at a time) | The server's message |
+| 422 | Data failed validation (also: the barn does not take this species) | The first validation message |
 | 503 | The server cannot reach MongoDB | "Database unavailable" |
 
 ## 16. "Everything is 404 / nothing loads": check list
