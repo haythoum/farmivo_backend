@@ -47,3 +47,21 @@ def test_reminder_when_a_barn_goes_over_its_capacity(make_client):
     other = add(c, "S4")
     moved = c.patch(f"/v1/animals/{other['id']}", json={"barn_id": fold["id"]}, headers={"Accept-Language": "ar"}).json
     assert "4 حيوانات" in moved["notice"]
+
+
+def test_an_entry_whose_animal_was_deleted_can_still_be_edited(make_client):
+    c = farm_client(make_client)
+    a, b = add(c, "S1"), add(c, "S2")
+    tx = expense(c, 100, "veterinary", animal_ids=[a["id"], b["id"]])
+    assert c.delete(f"/v1/animals/{a['id']}").status_code == 204
+    r = c.patch(f"/v1/transactions/{tx['id']}", json={"amount": 120})
+    assert r.status_code == 200, r.json
+    assert r.json["animal_ids"] == [b["id"]]
+    # a new entry still refuses an unknown animal
+    assert c.post("/v1/transactions", json={"type": "expense", "category": "feed", "amount": 5, "date": "2026-11-01",
+                                            "animal_ids": [a["id"]]}).status_code == 404
+
+
+def test_photo_links_follow_the_forwarded_scheme(client):
+    r = client.get("/v1/breeds", headers={"X-Forwarded-Proto": "https"})
+    assert r.status_code == 200

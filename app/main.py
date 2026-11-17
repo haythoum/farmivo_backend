@@ -24,6 +24,9 @@ def create_app(overrides: dict | None = None) -> Flask:
     settings = get_settings()
     app.config["FARMIVO_OVERRIDES"] = overrides or {}
     app.config["MAX_CONTENT_LENGTH"] = settings.max_photo_bytes + 1024 * 1024  # photo + multipart overhead
+    # Behind nginx (deploy/nginx): links the server builds (breed photos) keep the scheme the app used (https later).
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)  # type: ignore[method-assign]
 
     if settings.cors_origin_list:
         CORS(app, origins=settings.cors_origin_list)

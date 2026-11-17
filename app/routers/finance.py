@@ -85,7 +85,13 @@ def _prepare(ctx: Ctx, data: dict, tx_id: str | None = None) -> dict:
         else:
             data["whole_farm"] = True
         ids = _snapshot(ctx, barn_id)
-    animals = [get_animal_or_404(ctx, animal_id) for animal_id in ids]
+    if tx_id:
+        # An entry saved before: animals deleted since are left out (their id made the entry impossible to edit).
+        found = {i: ctx.repo.get(path_of(ctx, "animals"), i) for i in ids}
+        ids = [i for i in ids if found[i]]
+        animals = [found[i] for i in ids]
+    else:
+        animals = [get_animal_or_404(ctx, animal_id) for animal_id in ids]
     if sales.is_sale(data):
         gone = sales.cannot_sell(ctx.repo, ctx.farm_id, {"animal_ids": ids}, tx_id)
         if gone:
