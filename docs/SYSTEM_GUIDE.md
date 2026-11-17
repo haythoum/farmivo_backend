@@ -80,6 +80,17 @@ flowchart TB
 | Health check | `curl http://51.83.71.157:8000/healthz` → `{"status":"ok"}` |
 | Full setup check | `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.check_setup` |
 
+**Releasing a new version:** on the server `cd /home/ubuntu/farmivo/farmivo_backend && git pull && sudo supervisorctl restart farmivo`, then the one-off steps named in the release notes of [STATUS.md](STATUS.md) (upgrade scripts, `scripts.fetch_breed_photos` once). Then build and publish both apps; the apps force users onto the newest version.
+
+| Server tool (`/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.<name>`) | What it does |
+|---|---|
+| `check_setup` | Checks settings, MongoDB, Firebase key step by step |
+| `fetch_breed_photos` | Downloads the breed photos (once; again with `--force`) |
+| `upgrade_2026_11_14` | Farm numbers for existing animals |
+| `upgrade_2026_11_16` (`--check`) | Sells the animals of sale entries entered before 16 Nov; `--check` lists sale entries and their animals |
+| `sync_breeding_reminders` | Breeding reminders after the November breeding rules |
+| `delete_farm`, `seed_demo`, `migrate_docs` | Admin: delete one farm, demo data, old storage layout |
+
 The API runs over plain HTTP on an IP address for now. The Android debug build and the iOS app explicitly allow that, and the Android release build refuses plain HTTP. For production, put the API behind a domain with HTTPS (`deploy/nginx/farmivo.conf`). Then point both apps at the `https://…/v1/` address and remove the iOS `NSAllowsArbitraryLoads` exception.
 
 ---
@@ -118,7 +129,7 @@ sequenceDiagram
     App->>API: POST /v1/farms {name, address}
     API->>DB: farms (owner_uid, invite_code), members (owner, active), users (farm_id, active)
     API-->>App: 201 Me (active, owner)
-    App->>App: open main screen (Dashboard)
+    App->>App: open main screen (Home)
   else Join a farm
     U->>App: invite code, e.g. GVF-7K3P
     App->>API: POST /v1/farms/join {invite_code}
@@ -162,18 +173,39 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-  participant App as Animals tab (+)
+  participant App as Animals tab / ➕ (form)
   participant API as POST /v1/animals (create_animal)
   participant DB as MongoDB
-  App->>App: form (ear tag, species, sex, ... mother/father pickers from the animal list)
+  App->>App: form (species, sex, breed with photos, colour, barn, mother/father of the same species ...)
+  App->>App: a species the chosen barn does not take → message dialog at once, barn removed
+  App->>App: Save with missing fields → red fields + dialog listing them
   App->>API: AnimalCreate JSON
-  API->>API: body(AnimalCreate): unknown field / bad value → 422
-  API->>DB: animals.find(farm_id, ear_tag) → taken? 409
-  API->>DB: check mother (female) / father (male) → 404 / 422
-  API->>DB: animals.insert({..., farm_id, _id})
-  API-->>App: 201 AnimalOut (with age_label)
-  App->>App: "Animal added", list refreshed
-  Note over App: on error the form reopens with the server message and the typed values
+  API->>API: body(AnimalCreate): unknown field / bad value → 422 (translated message)
+  API->>DB: ear tag taken for this species? → 409
+  API->>DB: parents (female / male, same species, born before) → 404 / 422; barn takes the species? → 409
+  API->>DB: farm number 01-0007/26 (ear tag = it when empty); animals.insert(...)
+  API->>DB: purchase price → purchase_animal entry booked by the server
+  API-->>App: 201 AnimalOut (age_label, farm_code, notice when the barn is now over its capacity)
+  App->>App: dialog "Animal added" (+ the capacity reminder), list refreshed
+  Note over App: on error the form reopens with what was typed and the server's message in a dialog
+```
+
+### 3.3b Sell several animals together
+
+```mermaid
+sequenceDiagram
+  participant App as Finance › + (income, "Animal sale", animals, price)
+  participant API as POST /v1/transactions (finance._create / _prepare)
+  participant S as app/sales.py
+  participant DB as MongoDB
+  App->>API: {type: income, category: animal_sale, amount: 1680, animal_ids: [a, b]}
+  API->>DB: every animal still on the farm? (else 409 "… is no longer on the farm")
+  API->>DB: transactions.insert
+  API->>S: sync(tx)
+  S->>DB: each animal: status sold, status_date, sale_price = 840 (average), sale_tx_id, out of its barn, reminders closed
+  API-->>App: 201
+  App->>API: GET /finance/bilan → sales[] with each animal's price, cost, result (tap a sale)
+  Note over API,S: editing the entry passes price/date on; an animal taken out or a deleted entry → back on the farm
 ```
 
 ### 3.4 Vaccination, reminder, daily push and notification list
@@ -264,25 +296,26 @@ Android: `farmivo_android/app/src/main/java/com/quadralens/farmivo/ui/`. iOS: `f
 
 | Screen | Android | iOS | API calls | Backend function(s) | Collections |
 |---|---|---|---|---|---|
-| Sign in / create account | `LoginActivity`, `util/SignUpRules` | `Auth/Views/LoginView`, `Core/Auth/AuthStore`, `SignUpRules` | Firebase Auth; `GET /me` | `me`, `get_identity`, `membership.resolve` | users, members |
-| Create or join a farm, waiting screen | to be built | to be built | `POST /farms`, `POST /farms/join`, `DELETE /me/membership` | `create_farm`, `join_farm`, `leave_farm` | farms, members, users, notifications |
-| Members (managers, owner) | to be built | to be built | `GET /farm/members`, `.../approve`, `.../reject`, `PATCH`/`DELETE /farm/members/<uid>`, `POST /farm/invite-code`, `POST /farm/transfer-ownership` | `list_members`, `approve_member`, `reject_member`, `change_member_role`, `remove_member`, `rotate_invite_code`, `transfer_ownership` | members, users, farms |
-| Dashboard (tab 1) | `DashboardFragment` | `Dashboard/Views/DashboardView` | `GET /dashboard` | `dashboard`, `compute_finance` | animals, reminders, breedings, illnesses, transactions, notifications |
-| Animals list (tab 2) | `AnimalsFragment` | `Animals/Views/AnimalsView` | `GET /animals?status=&q=` | `list_animals` | animals |
-| Add / edit animal | `AnimalFormActivity` + `FormDialog` | `FormSheet` from `AnimalsView` / `AnimalDetailView` | `POST /animals`, `PATCH /animals/<id>` | `create_animal`, `update_animal`, `check_parents` | animals |
-| Animal profile | `AnimalDetailActivity` → `AnimalProfileFragment` | `Animals/Views/AnimalDetailView` (Profile tab) | `GET /animals/<id>/family`, `POST /animals/<id>/status`, `POST /animals/<id>/photo`, `DELETE /animals/<id>` | `get_family`, `change_status`, `upload_photo`, `delete_animal` | animals, transactions (sale), reminders, GridFS |
+| Sign in / create account, email code | `LoginActivity`, `VerifyEmailActivity`, `util/SignUpRules` | `Auth/Views/LoginView`, `Onboarding/Views/OnboardingViews` (`VerifyEmailView`), `Core/Auth/AuthStore` | Firebase Auth; `GET /me`, `POST /me/verification/send`, `/verify`, `POST /auth/password-reset` | `me`, `get_identity`, `membership.resolve`, `verification` | users, members, email_codes |
+| Create or join a farm, waiting screen | `FarmSetupActivity`, `WaitingActivity` | `FarmSetupView`, `CreateFarmView`, `JoinFarmView`, `WaitingView` | `POST /farms` (currency TND by default), `POST /farms/join`, `DELETE /me/membership`, `GET /me/farms`, `POST /me/farm` | `create_farm`, `default_currency`, `join_farm`, `leave_farm` | farms, members, users, notifications |
+| Members (managers, owner) | `MembersFragment` | `Members/Views/MembersView` | `GET /farm/members`, `.../approve`, `.../reject`, `PATCH`/`DELETE /farm/members/<uid>`, `POST /farm/invite-code`, `POST /farm/transfer-ownership` | `list_members`, `approve_member`, `reject_member`, `change_member_role`, `remove_member`, `rotate_invite_code`, `transfer_ownership` | members, users, farms |
+| Home (tab 1): barns, modules, alerts, empty farm | `DashboardFragment`, `FarmSceneView` | `Home/Views/HomeView`, `FarmScene` | `GET /dashboard`, `GET /barns` | `dashboard`, `compute_finance`, `list_barns` | animals, barns, reminders, breedings, illnesses, transactions, notifications |
+| Barns (add, edit, delete, species, capacity) | `BarnsFragment`, `MoveToBarn` | `BarnsView`, `BarnScreen`, `MoveAnimalDialog` (in `AnimalsView` / `FarmSettingsView`) | `GET/POST/PATCH/DELETE /barns` | barns router | barns, animals |
+| Animals list (tab 2), search | `AnimalsFragment`, `SearchActivity` | `Animals/Views/AnimalsView`, `AnimalSearchView` | `GET /animals?status=&q=&barn_id=` | `list_animals` | animals |
+| Add / edit animal (breed photos, barn check, capacity reminder) | `AnimalFormActivity` + `FormDialog`, `BreedPhotos` | `NewAnimalSheet` / `FormSheet`, `BreedPickSheet` | `POST /animals`, `PATCH /animals/<id>`, `GET /breeds`, `GET /breeds/photo/...`, `GET /age-classes` | `create_animal`, `update_animal`, `check_parents`, `check_barn`, `capacity_notice`, `farm_code_for` | animals, transactions (purchase) |
+| Quick add (➕) | `QuickAddSheet` | `Home/Views/QuickAddSheet` | the record's CRUD route | the record's route | the record's collection |
+| Animal profile, costs, status (sold, death …), undo | `AnimalDetailActivity` → `AnimalProfileFragment`, `AnimalCosts` | `Animals/Views/AnimalDetailView`, `AnimalCostsCard` | `GET /animals/<id>/family`, `/costs`, `POST /animals/<id>/status`, `POST /animals/<id>/photo`, `DELETE /animals/<id>` | `get_family`, `animal_costs`, `change_status`, `upload_photo`, `delete_animal` | animals, transactions (sale), reminders, GridFS |
 | Animal → Health tab | `ResourceTabsFragment` (animal id) → `RecordsFragment` | `ResourceTabsView(ids: vaccinations, treatments, vet_visits, illnesses, animalId)` | `GET/POST/PATCH/DELETE /vaccinations, /treatments, /vet-visits, /illnesses ?animal_id=` | CRUD from `build_crud_blueprint`, `_sync_vaccination`, `_sync_vet_visit` | vaccinations, treatments, vet_visits, illnesses, reminders |
-| Animal → Breeding tab | `ResourceTabsFragment(breedings)`, `BirthDialog` | `ResourceTabsView(ids: breedings)`, `Breeding/Views/BirthSheet` | `GET /breedings` (the app keeps rows where the animal is dam or sire), `POST /breedings/<id>/births` | breedings CRUD, `record_birth` | breedings, animals, weights, reminders |
-| Animal → Growth tab | `GrowthFragment` (+ `GrowthChartView`) | `GrowthView` (in `AnimalDetailView.swift`) | `GET /animals/<id>/growth`, weights / production / feedings CRUD, `GET /production/summary` | `growth_chart`, `production_summary` | weights, production, feedings |
-| Health (tab 3) | `ResourceTabsFragment` | `Health/Views/HealthView` | same as the animal Health tab, farm-wide | same | same |
-| Breeding (tab 4) | `ResourceTabsFragment(breedings)` | `Breeding/Views/BreedingView` | breedings CRUD, births | same | same |
-| More (tab 5) | `MoreFragment` | `More/Views/MoreView` | none (menu) | none | none |
-| Growth & production | `HostActivity(GROWTH)` → `ResourceTabsFragment` | `ResourceTabsView(weights, production, feedings)` | weights / production / feedings CRUD, `/production/summary` | factory routes, `production_summary` | weights, production, feedings |
-| Finance | `HostActivity(FINANCE)` → `FinanceFragment` | `Finance/Views/FinanceView` | `GET /finance/summary`, transactions CRUD | `finance_summary`, `compute_finance` | transactions |
-| Reminders | `HostActivity(REMINDERS)` → `RecordsFragment(reminders)` | `ResourceTabsView(reminders)` | `GET/POST /reminders`, `POST /reminders/<id>/done`, `DELETE /reminders/<id>` | `list_reminders`, `create_custom_reminder`, `mark_reminder_done`, `delete_custom_reminder` | reminders |
+| Animal → Breeding tab, birth | `ResourceTabsFragment(breedings)`, `BirthDialog` | `ResourceTabsView(ids: breedings)`, `Breeding/Views/BirthSheet` | `GET /breedings`, `POST /breedings/<id>/births` | breedings CRUD with the breeding rules, `record_birth` | breedings, animals, weights, reminders |
+| Animal → Growth tab | `GrowthFragment` (+ `GrowthChartView`) | `GrowthView` / `GrowthScreen` | `GET /animals/<id>/growth`, weights / production / feedings CRUD, `GET /production/summary` | `growth_chart`, `production_summary` | weights, production, feedings |
+| Health | `HostActivity(HEALTH)` → `ResourceTabsFragment` | `Health/Views/HealthView` | same as the animal Health tab, farm-wide | same | same |
+| Breeding | `HostActivity(BREEDING)` → `ResourceTabsFragment(breedings)` | `Breeding/Views/BreedingView` | breedings CRUD, births | same | same |
+| Growth & production | `HostActivity(GROWTH)` → `GrowthFragment` | `GrowthScreen` | weights / production / feedings CRUD, `/production/summary` | factory routes, `production_summary` | weights, production, feedings |
+| Finance: balance sheet, sales detail, entries | `HostActivity(FINANCE)` → `FinanceFragment` (+ `RecordsFragment(transactions)`) | `Finance/Views/FinanceView`, `SaleDetailSheet` | `GET /finance/bilan?barn_id=`, transactions CRUD `?barn_id=` | `finance_bilan`, `costs.bilan`, `_prepare`, `sales.sync` | transactions, animals, barns |
+| Reminders | `HostActivity(REMINDERS)` → `RecordsFragment(reminders)` | `RemindersScreen` (in `MoreView`) | `GET/POST /reminders`, `POST /reminders/<id>/done`, `DELETE /reminders/<id>` | `list_reminders`, `create_custom_reminder`, `mark_reminder_done`, `delete_custom_reminder` | reminders |
 | Notifications | `HostActivity(NOTIFICATIONS)` → `NotificationsFragment` | `Notifications/Views/NotificationsView` | `GET /notifications`, `/read`, `/read-all`, `DELETE` | notifications router | notifications |
-| Reports | `HostActivity(REPORTS)` → `ReportsFragment` | `Reports/Views/ReportsView` | `GET /reports/<kind>?format=csv` → share sheet | `report`, `build_rows` | animals, vaccinations, transactions, production |
-| Farm settings | `MoreFragment` (dialog) | `Settings/Views/FarmSettingsView` | `GET /farm` (role, invite code for managers), `PATCH /farm` (manager or owner) | `get_farm`, `update_farm`, `render_farm` | farms |
+| Reports (tab 4) | `ReportsFragment` | `Reports/Views/ReportsView` | `GET /reports/<kind>?format=csv` → share sheet | `report`, `build_rows` | animals, vaccinations, transactions, production |
+| Me (tab 5): farm settings, my farms, language, sign out, delete account | `MoreFragment` | `More/Views/MoreView`, `Settings/Views/FarmSettingsView`, `DeleteAccountView` | `GET/PATCH /farm`, `GET /me/farms`, `DELETE /me` | `get_farm`, `update_farm`, `delete_account` | farms, users, members |
 | Sign out | `MoreFragment` → `fcm/DeviceRegistrar.unregisterAndSignOut` | `AuthStore.signOut` → `PushManager.unregisterDevice` | `DELETE /devices?token=` | `unregister_device` | devices |
 | Push registration | `fcm/DeviceRegistrar`, `fcm/FarmivoMessagingService` | `Core/Push/PushManager` | `POST /devices` | `register_device` | devices |
 
@@ -294,7 +327,9 @@ Supporting app classes:
 | Animal cache for pickers and labels | `data/Animals` | `Core/Utilities/AnimalStore` |
 | Record type registry | `ui/Resources`, `ui/Resource`, `ui/Field` | `Shared/Views/Resources.swift` |
 | Generic list + form | `ui/RecordsFragment`, `ui/RowAdapter`, `ui/FormDialog` | `Shared/Views/RecordsListView`, `FormSheet`, `FormField` |
-| Look and feel | `res/values/colors.xml`, `themes.xml`, `ui/UiKit` | `Shared/Views/Theme.swift`, `Cards.swift`, asset catalog |
+| Look and feel | `res/values/colors.xml`, `themes.xml`, `ui/UiKit` (`keepAtStart` for right-to-left rows), `res/drawable/` (line icons tinted; `ill_farm_sheep`, `ic_feed_color`, `ic_sale_money` in their own colours) | `Shared/Views/Theme.swift`, `Cards.swift`, `PageKit.swift` (`Glyph`: SF Symbols, "Icon…" tinted, "Art…" full colour), asset catalog |
+| Messages (dialog with OK / Understood) | `ui/InfoCard`, `util/Fmt.toast` / `Fmt.done` | `Messages`, `MessageDialog`, `MessageTrigger` (`PageKit.swift`) |
+| Breed photos | `ui/BreedPhotos`, `data/Breeds` (Glide) | `BreedPickSheet`, `BreedPhoto`, `BreedPreview` (`FormSheet.swift`), `BreedStore` (AsyncImage) |
 | JSON helpers and formatting | `util/J`, `util/Fmt` | `Core/Models/JSONValue`, `Core/Utilities/Fmt` |
 
 ---
@@ -303,7 +338,7 @@ Supporting app classes:
 
 | Setting | Backend | Android | iOS |
 |---|---|---|---|
-| API address | `FARMIVO_PUBLIC_BASE_URL` in `.env` (photo links) | `farmivoApiUrl` in `gradle.properties` → `BuildConfig.API_BASE_URL`; `/v1/` is appended if missing | `API_BASE_URL` in `Config/Debug.xcconfig` / `Release.xcconfig` → Info.plist `FarmivoAPIBaseURL`; `/v1/` appended if missing |
+| API address | `FARMIVO_PUBLIC_BASE_URL` in `.env` (animal photo links); breed photo links follow the address the app used (ProxyFix behind nginx) | `farmivoApiUrl` in `gradle.properties` → `BuildConfig.API_BASE_URL`; `/v1/` is appended if missing | `API_BASE_URL` in `Config/Debug.xcconfig` / `Release.xcconfig` → Info.plist `FarmivoAPIBaseURL`; `/v1/` appended if missing |
 | Plain HTTP allowed | n/a | debug only: `app/src/debug/res/xml/network_security_config.xml` | `NSAllowsArbitraryLoads` in `project.yml` (remove once HTTPS) |
 | Firebase client config | n/a | `app/google-services.json` (project `farmivo-4d932`) | `Farmivo/Resources/GoogleService-Info.plist` |
 | Firebase project id | `FARMIVO_FIREBASE_PROJECT_ID=farmivo-4d932` | inside `google-services.json` | inside `GoogleService-Info.plist` |
@@ -311,6 +346,7 @@ Supporting app classes:
 | iOS push | n/a | n/a | APNs key uploaded in the Firebase console |
 | MongoDB | `FARMIVO_MONGO_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_AUTH_DB`, `_DB`, `_PREFIX` (or `FARMIVO_MONGO_URI`) | none | none |
 | Photo storage | `FARMIVO_PHOTO_STORE=gridfs` (or `minio` + `FARMIVO_MINIO_*`) | none | none |
+| Breed photos | `FARMIVO_BREED_PHOTOS_DIR` (default `data/breed_photos`, not in git), filled once by `python -m scripts.fetch_breed_photos` | none (loaded from the API) | none (loaded from the API) |
 | Reminder job | `FARMIVO_CRON_SECRET` + a daily crontab line calling `/v1/internal/reminders/run` | none | none |
 | Sign-up email code | `MAILJET_API_KEY`, `MAILJET_API_SECRET`, `FARMIVO_MAIL_FROM_EMAIL`, `FARMIVO_MAIL_FROM_NAME`; `FARMIVO_CODE_SECRET` (empty key: code in the server log) | none | none |
 | Language | `Accept-Language` per request; `users.lang` (last request); `devices.language` per phone; texts in `app/i18n.py` | sends `Accept-Language` and the device `language` | sends `Accept-Language` and the device `language` |

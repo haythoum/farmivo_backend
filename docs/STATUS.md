@@ -1,13 +1,13 @@
-# Project status (as of 31 Oct 2026)
+# Project status (as of 17 Nov 2026)
 
 **App id:** `com.quadralens.farmivo` (Android + iOS). **Firebase project:** `farmivo-4d932` (client config files committed in the app repos). Still needed: the backend service-account key, Email/Password sign-in enabled, APNs key for iOS push, a MongoDB URI.
 
 ## Delivered
 | Part | Branch | State |
 |---|---|---|
-| Backend (Flask + gunicorn/supervisor, MongoDB, optional MinIO photos, Firebase auth/push) | `feature/initial-api` | All five feature areas, farm members with 4 roles and approval, email verification code (Mailjet); tests, docs |
-| Android (Java) | `feature/initial-app` | All five feature areas implemented |
-| iOS (SwiftUI) | `feature/initial-app` | All five feature areas implemented |
+| Backend (Flask + gunicorn/supervisor, MongoDB, optional MinIO photos, Firebase auth/push) | `feature/initial-api` | Running on the VPS. All feature areas, barns, farm numbers, breeding rules, costs and balance sheet, sales, breed photos, farm members with 4 roles and approval, several farms per account, email code (Mailjet), admin dashboard; 222 tests, docs |
+| Android (Java) | `feature/initial-app` | All feature areas; built and tested on phones by the team and the client |
+| iOS (SwiftUI) | `feature/initial-app` | All feature areas, same design as Android |
 | UI mockup | Claude artifact "Farmivo App Mockup" | 15 screens: sign in, dashboard, animals, profile, health, breeding, growth; create account, email code, create or join a farm, waiting for approval, members, approve with a role |
 
 ## Be aware: what was NOT verified
@@ -20,6 +20,8 @@ The code was written in a sandbox with **no access to PyPI, the Android SDK/Mave
 - Account deletion (`DELETE /v1/me`) and the public pages (`/privacy`, `/terms`, `/support`, `/delete-account`): tested with an in-memory database and fakes; Firebase `delete_user` never called for real. **The legal texts are templates: the owner (ideally with a lawyer) must review them before the store release** (`app/legal.py`).
 - Email verification code: tested with a fake mailer (16 tests); real Mailjet delivery was never tried (tested with a fake Mailjet client).
 Plan for the first session: run `pytest`, build both apps, fix compile errors, then do the manual end-to-end checklist in DEVELOPMENT_GUIDE.md.
+
+**Since then (Nov 2026):** the backend runs on the VPS against real MongoDB 3.6 and Firebase; Android is built and used by the client. Changes are still written in a sandbox without the Android SDK or Swift compiler: the Java is checked for syntax, duplicate variables and lambda captures, the Swift for translations and documentation only, so **every release must be built in Android Studio and Xcode before it goes to the stores**.
 
 ## Backend bug review (membership after sign-in, notifications)
 
@@ -43,16 +45,18 @@ Full line-by-line review: [REVIEW_2026-11-03.md](REVIEW_2026-11-03.md). Fixed: g
 - Android: no unit/UI tests; notification tap opens the app, not the specific animal; photo EXIF rotation not applied.
 - iOS: notification tap does not deep-link; no offline cache.
 - No offline mode on either app (needs a connection).
-- One farm per person (members, roles and approval are done in the backend and both apps).
+- Several farms per account are supported; a person works in one farm at a time (switch in Me > My farms).
+- A breed without a free photo on Wikimedia shows the species' photo until a farmer's own photo is copied to the server.
 - Finance: no budgets/recurring entries; reports are CSV only (no PDF).
 - Backend: no rate limiting, no audit log, no pagination beyond `limit`.
-- Mockup has no finance, reports, notifications or settings screens.
+- Mockup has no finance, reports, notifications or settings screens (the apps have them).
 
 ## Suggested next steps
 1. First build/test pass (above).
 2. Create the Firebase project, Atlas cluster, deploy backend, point apps at it.
 3. TestFlight / Play internal testing with one real farm.
-4. Deep links from notifications, offline cache, multi-language (Arabic/French/Spanish?), PDF reports.
+4. Deep links from notifications, offline cache, PDF reports (Arabic, French and English are done).
+5. HTTPS: a domain in front of the API (deploy/nginx), then remove the plain-HTTP exceptions in the apps.
 
 ## 13 Nov 2026: barns, age by teeth, ear tags per species, statuses, pregnancy check, password reset
 - Deploy: pull, `sudo supervisorctl restart farmivo`, then once, from the project folder with the virtualenv's Python 3 (plain `python` on the server is Python 2.7): `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.sync_breeding_reminders` (pending matings get a pregnancy-check reminder instead of an expected-birth one).
@@ -95,3 +99,5 @@ The apps cannot delete a farm yet (planned, with an admin dashboard). On the ser
 - Animals bought can no longer be typed as a finance expense (`purchase_animal` refused with 422): they are added with Add animal and their purchase price (the purchase is booked by itself). Typing them counted the animals twice and left them out of the herd. Entries typed before still count.
 - Lists are newest first also within one day (the last entry saved on top).
 - Adding or moving an animal into a barn that is then over its capacity: the answer carries `notice` ("Reminder: the barn … now has 6 animals for 5 places"), shown by the apps; the animal is added anyway.
+- Review fixes the same day: an entry naming an animal deleted since can be edited again (the animal is left out); breed photo links follow the scheme and host behind nginx (ProxyFix).
+- Deploy: `git pull`, `sudo supervisorctl restart farmivo`. If the breed photos were never downloaded: `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.fetch_breed_photos`.

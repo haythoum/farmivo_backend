@@ -345,7 +345,9 @@ Authorization: Bearer <Firebase ID token>
 ```
 
 ### 7.2 Add animal (the + button)
-Required: ear tag, species, sex. Optional: name, breed, date of birth, date added, mother, father, notes. The date of birth cannot be in the future; the ear tag must be unique in the farm.
+Required: species, sex. Optional: ear tag (empty → the farm number `01-0007/26` the server gives every animal), name, breed (chosen from a list with real photos, `GET /v1/breeds`), colour, date of birth or age by teeth, date added, origin and purchase price, barn, mother, father (same species), notes. The date of birth cannot be in the future; the ear tag must be unique per species in the farm.
+
+What the app checks before calling: a species the chosen barn does not take shows a dialog at once and removes the barn; Save with missing fields shows them in red and in a dialog. After saving, `notice` in the answer (the barn now has more animals than places) is added to the "Animal added" dialog. A purchase price books the purchase in Finance by itself.
 ```http
 POST /v1/animals
 Authorization: Bearer <Firebase ID token>
@@ -538,7 +540,7 @@ Authorization: Bearer <Firebase ID token>
 ```
 
 ### 7.5 Change status (sold, died, ...)
-`POST /v1/animals/{id}/status`. A **sold** animal with a sale price also creates an income entry in Finance automatically. See section 11.
+`POST /v1/animals/{id}/status`: `sold` (price, buyer), `deceased`, `donated`, `gifted`, `sacrificed` take the animal off the farm and out of its barn; `active` undoes a mistake (back into its old barn). A **sold** animal with a sale price also creates an income entry in Finance automatically (`sale_tx_id`). An animal sold together with others in one entry is corrected in that entry (409 here); undoing it takes it out of that sale. See section 11.
 ```http
 POST /v1/animals/283a276c7c9f462a93b2e1c5f7dd19d6/status
 Authorization: Bearer <Firebase ID token>
@@ -1044,7 +1046,19 @@ Content-Type: application/json
 
 ## 11. Finance
 Managers and the owner only; workers and viewers get `403 forbidden_role`, so the apps hide Finance for them.
-Income and expenses are records (`POST /v1/transactions`); selling an animal adds income automatically.
+Income and expenses are records (`POST /v1/transactions`), listed newest first. Selling an animal adds income automatically; an animal's purchase price adds its purchase (capital) automatically, and a purchase cannot be typed here (`422`). Every expense is carried by animals: the ones chosen, a barn's (`barn_id` + `whole_barn`) or the whole farm's when neither is given; feed is shared by age.
+
+**Selling several animals together** (one price): an income `animal_sale` entry naming the animals. Each animal is then sold at the average price and leaves the farm:
+```http
+POST /v1/transactions
+Content-Type: application/json
+
+{"type": "income", "category": "animal_sale", "amount": 1680, "date": "2026-11-15",
+ "description": "Sale to the butcher", "animal_ids": ["<goat 03-0001>", "<goat 03-0002>"]}
+```
+→ `201`; both goats: `status: "sold"`, `sale_price: 840`, `barn_id: null`. An animal that already left the farm → `409` "03-0002/26 is no longer on the farm: it cannot be sold. Take it out of this sale".
+
+**Balance sheet** (Finance screen): `GET /v1/finance/bilan?barn_id=` → capital, expenses by category, sales with `sales[]` (one per entry: `count`, `amount`, `average_price`, `total_cost`, `result`, and `animals[]` each with `sale_price`, `purchase_price`, `expenses`, `total_cost`, `result`), herd value and real profit. Tapping a sale in the app shows that list; tapping an animal opens its file.
 ```http
 POST /v1/transactions
 Authorization: Bearer <Firebase ID token>
@@ -1316,13 +1330,15 @@ Authorization: Bearer <Firebase ID token>
 }
 ```
 
+Every message reaches the user in a dialog with an OK / "Understood" button, in the app's language (the server translates its messages from `Accept-Language`; 422 answers also carry a readable `message`).
+
 | Status | Meaning | What the user sees |
 |---|---|---|
 | 401 | Missing, invalid or expired Firebase token | The app refreshes the token once, then asks to sign in again |
 | 403 `no_farm` / `pending` / `rejected` | No farm yet, waiting for approval, request refused | Create-or-join screen, waiting screen, or the refusal message |
 | 403 `forbidden_role` | The user's role may not do this (e.g. a worker opening finance) | The server's message; the app normally hides these actions |
 | 404 | The record, or the URL, does not exist | "Not Found" plus the URL (Android) |
-| 409 | Duplicate ear tag, birth already recorded, already in a farm, owner leaving | The server's message |
+| 409 | Duplicate ear tag, birth already recorded, already in a farm, owner leaving, barn does not take the species, animal no longer on the farm, breeding rule (one pregnancy at a time) | The server's message |
 | 422 | Data failed validation | The first validation message |
 | 503 | The server cannot reach MongoDB | "Database unavailable" |
 

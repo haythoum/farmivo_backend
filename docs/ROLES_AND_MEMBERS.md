@@ -15,7 +15,7 @@ Code: `app/services/membership.py` (rules), `app/routers/members.py` (endpoints)
 | **Invite code** | Short code like `GVF-7K3P`: three letters from the farm name ("Green Valley Farm" gives `GVF`) and four random characters without look-alikes (no 0/O, 1/I/L). Managers and the owner see it in Farm settings and share it. Rotating it makes the old code stop working. A code alone gives no access: every request must be approved. |
 | **Status** | Where a user stands, from `GET /me`: `none` (no farm), `pending` (asked to join, waiting), `active` (member with a role), `rejected` (request refused). |
 
-A user belongs to **one farm at a time**. Asking to join another farm replaces a pending request; to switch farms an active member leaves first.
+A user **works in one farm at a time** but can belong to several (since 14 Nov 2026): creating a farm while in one adds it and switches to it; asking to join another farm keeps the user where they are, and the request then shows in Me > My farms (`GET /me/farms`). Switching: `POST /me/farm`.
 
 ## Email verification code
 

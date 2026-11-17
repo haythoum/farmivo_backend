@@ -71,7 +71,8 @@ For a server that already runs MongoDB (and optionally MinIO). The API runs as a
    sudo supervisorctl status farmivo        # RUNNING
    curl localhost:8000/healthz               # {"status":"ok"}
    ```
-   After a code update: `git pull && .venv/bin/pip install -r requirements.txt && sudo supervisorctl restart farmivo`. Logs: `/var/log/farmivo/`.
+   After a code update: `git pull && .venv/bin/pip install -r requirements.txt && sudo supervisorctl restart farmivo`. Logs: `/var/log/farmivo/`. When a release note in `docs/STATUS.md` names an upgrade script, run it once after the pull (all are safe to run again); `--check` on `upgrade_2026_11_16` only shows what it finds.
+   **Breed photos (once):** `.venv/bin/python -m scripts.fetch_breed_photos` downloads the breed photos from Wikimedia Commons into `data/breed_photos/` (or `FARMIVO_BREED_PHOTOS_DIR`) and prints which breeds got one; copy your own JPEG as `<species>/<breed>.jpg` to replace any of them.
 6. **nginx + TLS** (`deploy/nginx/farmivo.conf`, then `certbot --nginx`): the apps need https in production.
 7. **Daily reminders (needed for vaccination pushes):** `chmod +x deploy/cron/run_reminders.sh`, then `crontab -e` and add `0 7 * * * /home/ubuntu/farmivo/farmivo_backend/deploy/cron/run_reminders.sh >> /var/log/farmivo-reminders.log 2>&1` (07:00 server time). Test once by running the script by hand. Without this job no reminder push is ever sent.
 8. **Firewall:** MongoDB (27017) and MinIO (9000/9001) should only accept connections from the API server itself (or a private network), not from the internet. Expose only 80/443.
@@ -103,12 +104,15 @@ Set your Team in Signing & Capabilities; add **Push Notifications** capability (
 | Add a field to a record (e.g. vaccination "dose") | Backend: `schemas.py` model. Apps: one `Field` line in the resource registry. Update `docs/API.md`. |
 | Add a new record type | Backend: models in `schemas.py` + `build_crud_blueprint(...)` registered in the module's blueprint (and the module in `main.py`). Apps: add a `Resource` entry; add it to a tab list. |
 | Change reminder timing | `reminder_bucket()` in `services/reminders.py` |
-| Add a species gestation | `GESTATION_DAYS` in `utils.py` |
+| Add a species gestation | `GESTATION_DAYS` in `utils.py` (default expected date) and `RULES` in `breeding_rules.py` (what is possible) |
+| Add or translate a server message | `MESSAGES` in `app/i18n.py` (en, fr, ar); raise the English text, the handler translates it. `tests/test_nov15.py` fails on an untranslated message |
+| Add a breed, or its photo | `BREEDS` in `app/breeds.py`; its Wikipedia article in `SOURCES` of `app/breed_photos.py`, then `python -m scripts.fetch_breed_photos` |
+| Add a finance category | `TransactionCategory` in `schemas.py`, the apps' category lists and icons (`Resources.categoryIcon` on both), labels in the three languages |
 | Switch database | `FARMIVO_DB_BACKEND` |
 | Back up data | Atlas backups, or `mongodump --host <host> -u <user> -p --authenticationDatabase <auth db> --db farmivo` |
 
 ## 6. Testing
-- Backend: `pytest` — API behaviour (auth, CRUD, reminders, breeding/births, finance, photos, reports) plus repository tests. The Mongo repository test uses `mongomock`.
+- Backend: `pytest` — API behaviour (auth, members, CRUD, reminders, breeding rules and births, finance: sharing, balance sheet, sales, photos, reports, translations) plus repository tests. The Mongo repository test uses `mongomock`.
 - Android / iOS: iOS has `FarmivoTests` (JSON decoding, formatting, error parsing). Android has no tests yet (see STATUS.md).
 - Manual end-to-end checklist: register → add animal with photo → add vaccination with next due date → see the reminder → call the cron endpoint → receive the push → record a mating → record the birth → check the offspring exist and the dashboard changed → export a CSV report.
 
@@ -119,6 +123,8 @@ Set your Team in Signing & Capabilities; add **Push Notifications** capability (
 | Every call returns 401 | Missing service-account key (`FARMIVO_FIREBASE_CREDENTIALS`), or key/project id from another Firebase project. The log line `Rejected Firebase token:` says which |
 | Android cannot reach backend | Using `localhost` instead of `10.0.2.2` on the emulator; real device needs your LAN IP or a public URL |
 | Photos upload but do not display | `PUBLIC_BASE_URL` wrong (the URL stored in the animal is built from it) |
+| Breed list without photos | `scripts.fetch_breed_photos` not run yet (or no internet from the server when it ran) |
+| `python-dotenv could not parse statement starting at line N` | Line N of `.env` is not `NAME=value` (make it a `#` comment); the other lines still load |
 | No push on iOS | APNs key not uploaded to Firebase, simulator used, or capability missing |
 | Reminders never notify | Daily job not scheduled, wrong `X-Cron-Secret`, or the device token was never registered |
 

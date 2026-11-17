@@ -9,14 +9,15 @@ Start here. The three repositories each have a `docs/` folder; this one (backend
 | [SYSTEM_GUIDE.md](SYSTEM_GUIDE.md) | **Start here.** How backend, Android and iOS connect: components, deployment, sequence diagrams, screen → endpoint → code → collection map, configuration matrix, errors, security, glossary |
 | [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md) | Farm members: owner, manager, worker, viewer; invite codes and approval; who may call what; what the apps show for each status |
 | [CODE_REFERENCE.md](CODE_REFERENCE.md) | Every backend module, class, function and route: what it does, parameters, errors, side effects |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | How the whole system fits together: components, request flow, auth, reminders, photos |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | How the whole system fits together: module map, request flow, auth, reminders, photos, languages, money (costs, balance sheet, sales), breeding rules, breed photos, app design |
 | [DATA_MODEL.md](DATA_MODEL.md) | What is stored in MongoDB, collections, relations, business rules |
 | [API.md](API.md) | The REST contract the apps use (every endpoint, field, error) |
 | [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md) | Set up Firebase + MongoDB, run the backend, build both apps, deploy, test |
 | [DECISIONS.md](DECISIONS.md) | Why things were built this way (MongoDB, generic records, no per-entity models, ...) |
 | [BRANDING.md](BRANDING.md) | Logo files, colour palette, where "Powered by Quadralens" appears |
 | [APP_FLOWS.md](APP_FLOWS.md) | Screen-by-screen guide: what each action calls and what comes back (real example responses), plus the "everything is 404" checklist |
-| [STATUS.md](STATUS.md) | What is done, what was **not** verified, known gaps, suggested next steps |
+| [STATUS.md](STATUS.md) | What is done, release notes with their deploy steps, what was **not** verified, known gaps, suggested next steps |
+| [ADMIN.md](ADMIN.md) | The admin web dashboard |
 | [REVIEW_2026-11-03.md](REVIEW_2026-11-03.md) | Backend review of 3 November 2026: every finding, fixed or not, with severity |
 
 Per app: [Android docs](https://github.com/haythoum/farmivo_android/tree/feature/initial-app/docs) · [iOS docs](https://github.com/haythoum/farmivo_ios/tree/feature/initial-app/docs)
@@ -27,9 +28,11 @@ The UI mockup (7 screens) is the "Farmivo App Mockup" artifact in Claude; its sc
 
 | Feature | Backend | Android screen | iOS screen |
 |---|---|---|---|
-| 1. Animal profiles (ear tag, name, species, breed, sex, DOB/age, date added, photo, status) | `routers/animals.py` | `AnimalsFragment`, `AnimalProfileFragment`, `AnimalFormActivity` | `AnimalsView`, `AnimalDetailView` |
+| 1. Animal profiles (farm number, ear tag, name, species, breed with photo, sex, colour, DOB or age by teeth, barn, photo, status, costs) | `routers/animals.py`, `animal_codes.py`, `breeds.py`, `breed_photos.py`, `costs.py` | `AnimalsFragment`, `AnimalProfileFragment`, `AnimalFormActivity`, `BreedPhotos` | `AnimalsView`, `AnimalDetailView`, `BreedPickSheet` |
+| Barns (species, capacity) | `routers/barns.py` | `BarnsFragment`, Home barn cards | `BarnsView`, `HomeView` |
 | 2. Health & vaccination (history, next dates, treatments, vet visits, illness/recovery, auto reminders) | `routers/health.py`, `services/reminders.py` | Health tab (`ResourceTabsFragment`) | `HealthView` |
-| 3. Breeding (mating, pregnancy, expected birth, births/offspring, family) | `routers/breeding.py`, `GET /animals/{id}/family` | Breeding tab, `BirthDialog` | `BreedingView`, `BirthSheet` |
+| 3. Breeding (mating rules, pregnancy, miscarriage, expected birth, births/offspring, family) | `routers/breeding.py`, `breeding_rules.py`, `GET /animals/{id}/family` | Breeding tab, `BirthDialog` | `BreedingView`, `BirthSheet` |
 | 4. Growth & production (weights, milk/eggs, feeding, charts) | `routers/growth.py` | Growth screen, `GrowthChartView` | `GrowthView` (Swift Charts) |
-| 5. Dashboard (counts, births/deaths/sales, upcoming vaccinations, finance, reports, notifications) | `routers/dashboard.py`, `finance.py`, `reports.py`, `notifications.py` | `DashboardFragment`, Finance/Reports/Notifications | `DashboardView`, `FinanceView`, `ReportsView`, `NotificationsView` |
-| 6. Farm members (create or join a farm, approval, roles) | `routers/members.py`, `services/membership.py`, `permissions.py` | to be built (see ROLES_AND_MEMBERS.md) | to be built |
+| 5. Home (barns, counts, alerts, finance tile, reports, notifications) | `routers/dashboard.py`, `reports.py`, `notifications.py` | `DashboardFragment`, Reports/Notifications | `HomeView`, `ReportsView`, `NotificationsView` |
+| Finance (expenses shared by animals, balance sheet per barn, sales with each animal's result) | `routers/finance.py`, `costs.py`, `sales.py` | `FinanceFragment` | `FinanceView`, `SaleDetailSheet` |
+| 6. Farm members (create or join a farm, approval, roles) | `routers/members.py`, `services/membership.py`, `permissions.py` | `FarmSetupActivity`, `WaitingActivity`, `MembersFragment` | `FarmSetupView`, `WaitingView`, `MembersView` |

@@ -6,7 +6,7 @@ This file is the reference for the contract; the backend serves no auto-generate
 ## Conventions
 
 - **Auth**: every `/v1` endpoint requires `Authorization: Bearer <Firebase ID token>`. Mobile apps sign in with Firebase Auth (email/password; Google optional) and send a fresh ID token on each request (the Firebase SDK refreshes it; call `getIdToken` / `getIDToken` per request). `401` = missing/invalid token: refresh the token once, retry once, otherwise sign the user out.
-- **Farm scoping**: a user belongs to at most one farm, as owner, manager, worker or viewer (see [Members & roles](#members--roles) and [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md)). Nothing is created automatically: after sign-in the app calls `GET /me` and then creates a farm or asks to join one. Every farm endpoint uses the caller's farm; there is no farm id in URLs.
+- **Farm scoping**: a user can belong to several farms (owner, manager, worker or viewer in each) and works in one at a time (`GET /me/farms`, `POST /me/farm`) (see [Members & roles](#members--roles) and [ROLES_AND_MEMBERS.md](ROLES_AND_MEMBERS.md)). Nothing is created automatically: after sign-in the app calls `GET /me` and then creates a farm or asks to join one. Every farm endpoint uses the caller's farm; there is no farm id in URLs.
 - **Membership and role errors** are `403` with a machine-readable `code` next to `detail`: `{"detail": "...", "code": "no_farm" | "pending" | "rejected" | "forbidden_role"}`. Route on `code`, show `detail`.
 - **Dates**: `YYYY-MM-DD` (e.g. `2026-10-31`). Timestamps (`created_at`, `updated_at`): ISO-8601 UTC strings.
 - **IDs**: opaque strings.
@@ -30,7 +30,7 @@ This file is the reference for the contract; the backend serves no auto-generate
 | transaction type | `income` `expense` |
 | reminder source_type | `vaccination` `vet_visit` `birth` `pregnancy_check` `custom` |
 
-Suggested finance categories (free text, but offer these in the UI): income: `animal_sale`, `milk_sale`, `egg_sale`, `other_income`; expense: `feed`, `veterinary`, `medication`, `labor`, `equipment`, `purchase_animal`, `utilities`, `other_expense`.
+Suggested finance categories (free text, but offer these in the UI): income: `animal_sale`, `milk_sale`, `egg_sale`, `other_income`; expense: `feed`, `veterinary`, `medication`, `labor`, `equipment`, `utilities`, `other_expense`. `purchase_animal` is booked by the server from an animal's purchase price and cannot be typed (422).
 
 ## Members & roles
 
@@ -42,7 +42,7 @@ These work **without** a farm (token only):
 | `PATCH /me` | `{name}` (1–60 characters, extra spaces removed) | `200 Me`. Also copies the name to the user's member record, so managers see it in Members |
 | `POST /me/verification/send` | | `200 {sent_to, resend_after_seconds: 60, expires_in_seconds: 900}`: emails a new 6-digit code (the previous one stops working). `429 too_soon` with `retry_after` (seconds) within 60 s of the last code, `429 too_many_codes` after 5 codes in an hour, `409 already_verified`, `400 no_email`, `502 email_failed` |
 | `POST /me/verification/verify` | `{code}` (`"482715"`, spaces ignored) | `200 Me` with `email_verified: true`. `400 wrong_code` ("Wrong code. 4 attempts left"), `429 too_many_attempts` after 5 wrong tries (the code is burnt), `410 code_expired` (expired, burnt or never sent) |
-| `POST /farms` | `{name (2-80), address (5-200), country?, currency? (3 letters, default USD)}` | `201 Me` (caller becomes **owner**). `403 email_unverified` before the code was confirmed. `409` if already active in or waiting for a farm |
+| `POST /farms` | `{name (2-80), address (5-200), country?, currency? (3 letters; without it the country's currency, TND by default)}` | `201 Me` (caller becomes **owner**). `403 email_unverified` before the code was confirmed. `409` if already active in or waiting for a farm |
 | `POST /farms/join` | `{invite_code}` (e.g. `GVF-7K3P`; case, spaces and dash optional) | `200 Me` with `status: "pending"`. `403 email_unverified` before the code was confirmed. `404 "No farm with this code"`, `409` if already active in a farm. A pending request to another farm is replaced; a rejected one may be repeated |
 | `DELETE /me/membership` | | `200 Me` (`status: "none"`): cancels a pending request or leaves the farm. `409 "Transfer ownership first"` for the owner |
 | `DELETE /me` | | `204`: **deletes the account**. Removes the user's devices, `users/<uid>`, email code and membership or join request. An owner who is the only active member also deletes the whole farm (every record and the photos). Then the Firebase sign-in account is deleted (best effort, logged on failure). `409 owner_must_transfer` ("Transfer ownership before deleting your account") when the owner's farm has other active members: nothing is deleted |
@@ -223,7 +223,7 @@ An animal that leaves the farm (sold, deceased, donated, gifted, sacrificed) lea
              "upcoming_vaccinations_count": 4, "overdue_vaccinations_count": 1,
              "sick_animals": 2, "ongoing_illnesses": 2},
   "breeding": {"pregnant_count": 5, "awaiting_check_count": 2, "due_soon": [{"breeding_id","dam_id","dam_label","expected_birth_date","days_until"}]},
-  "finance": {"currency": "USD", "income": 1200.0, "expenses": 800.0, "net": 400.0},  // null for workers and viewers
+  "finance": {"currency": "TND", "income": 1200.0, "expenses": 800.0, "net": 400.0},  // null for workers and viewers
   "unread_notifications": 3
 }
 ```
