@@ -11,15 +11,21 @@ the totals, and deleting a farm. It is **off** until a password is set.
 
 2. `sudo supervisorctl restart farmivo`
 
-By default the page answers only requests made from the server itself, so the password never travels over the
-network in clear (the API runs on plain HTTP).
+## Open it from your PC by the server's address
 
-## Open it (from your Windows PC)
+In `.env` add (the password must have at least 12 characters):
 
-1. In PowerShell: `ssh -L 8000:localhost:8000 ubuntu@51.83.71.157` and keep the window open.
-2. In the browser: `http://localhost:8000/admin`, user `admin`, the password above.
+    FARMIVO_ADMIN_ALLOW_REMOTE=true
 
-`FARMIVO_ADMIN_ALLOW_REMOTE=true` would open it to the network: only do that behind HTTPS.
+then `sudo supervisorctl restart farmivo`, and open `http://51.83.71.157:8000/admin` (user `admin`).
+
+Protection: an address that types 8 wrong passwords within 15 minutes is refused for 15 minutes. The API still
+runs on plain HTTP, so the password travels readable on the network: use a password used nowhere else, and move
+to HTTPS (deploy/nginx) as planned; nothing else changes then.
+
+Without `FARMIVO_ADMIN_ALLOW_REMOTE` the page answers only requests made from the server itself; then open it
+through an SSH tunnel: `ssh -L 8000:localhost:8000 ubuntu@51.83.71.157` (keep it open), and
+`http://localhost:8000/admin`.
 
 ## Delete a farm
 

@@ -18,11 +18,25 @@ from app.services.membership import members_path
 bp = Blueprint("admin", __name__)
 
 LOCAL = {"127.0.0.1", "::1", "localhost"}
+# Opened to the network (FARMIVO_ADMIN_ALLOW_REMOTE): wrong passwords from one address are counted, and after
+# MAX_FAILS within LOCK_MINUTES that address is refused for LOCK_MINUTES even with the right password.
+MAX_FAILS = 8
+LOCK_MINUTES = 15
+MIN_REMOTE_PASSWORD = 12
+_fails: dict[str, list[datetime]] = {}
+
+
+def _recent_fails(address: str, now: datetime) -> list[datetime]:
+    kept = [t for t in _fails.get(address, []) if now - t < timedelta(minutes=LOCK_MINUTES)]
+    _fails[address] = kept
+    return kept
 
 
 @bp.before_request
 def _guard():
-    """Off without a password; local requests only (unless allowed); HTTP Basic user admin + password."""
+    """Off without a password; local requests only (unless allowed); HTTP Basic user admin + password.
+    Opened to the network: a password of at least 12 characters, and an address with 8 wrong passwords in
+    15 minutes is refused for 15 minutes."""
     settings = get_settings()
     if not settings.admin_password:
         abort(404)
@@ -30,11 +44,22 @@ def _guard():
         forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("X-Real-IP")
         if request.remote_addr not in LOCAL or forwarded:
             abort(404)
+    elif len(settings.admin_password) < MIN_REMOTE_PASSWORD:
+        return Response(f"Farmivo admin: open to the network only with a password of at least {MIN_REMOTE_PASSWORD} "
+                        "characters (FARMIVO_ADMIN_PASSWORD in .env).", 403, {"Content-Type": "text/plain; charset=utf-8"})
+    address = request.remote_addr or "?"
+    now = datetime.now(timezone.utc)
+    if len(_recent_fails(address, now)) >= MAX_FAILS:
+        return Response(f"Farmivo admin: too many wrong passwords from this address. Try again in {LOCK_MINUTES} minutes.",
+                        429, {"Content-Type": "text/plain; charset=utf-8", "Retry-After": str(LOCK_MINUTES * 60)})
     auth = request.authorization
     ok = (auth is not None and auth.type == "basic" and hmac.compare_digest(auth.username or "", "admin")
           and hmac.compare_digest((auth.password or "").encode(), settings.admin_password.encode()))
     if not ok:
+        if auth is not None:  # the browser's first request carries no password: not a wrong one
+            _fails.setdefault(address, []).append(now)
         return Response("Farmivo admin: sign in", 401, {"WWW-Authenticate": 'Basic realm="Farmivo admin"'})
+    _fails.pop(address, None)
     return None
 
 

@@ -58,8 +58,9 @@ class Settings(BaseSettings):
     breed_photos_dir: str = "data/breed_photos"
     # Admin web dashboard (/admin): its password (user "admin"). Empty = the dashboard is off.
     admin_password: str | None = None
-    # By default /admin answers only requests from the server itself (reach it through an SSH tunnel). True opens it
-    # to the network: only behind HTTPS.
+    # By default /admin answers only requests from the server itself (SSH tunnel). True opens it to the network
+    # (http://<server>:8000/admin): then the password must have 12+ characters and an address with 8 wrong passwords
+    # in 15 minutes is locked out for 15 minutes. On plain HTTP the password travels readable: move to HTTPS soon.
     admin_allow_remote: bool = False
     cors_origins: str = ""
     environment: str = "development"

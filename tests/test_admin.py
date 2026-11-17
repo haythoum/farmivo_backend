@@ -52,3 +52,22 @@ def test_pages_and_delete(admin, repo):
     assert repo.get("farms", farm_id)
     r = admin.post(f"/admin/farms/{farm_id}/delete", headers=h, data={"token": token, "confirm": FARM["name"]})
     assert r.status_code == 302 and repo.get("farms", farm_id) is None
+
+
+def test_open_to_the_network_with_a_long_password_and_a_lockout(make_client, monkeypatch):
+    from app.admin import views
+
+    monkeypatch.setattr(views, "_fails", {})
+    monkeypatch.setattr(get_settings(), "admin_allow_remote", True)
+    client = make_client("owner1", name="Owner")
+    far = {"environ_base": {"REMOTE_ADDR": "8.8.8.8"}}
+    monkeypatch.setattr(get_settings(), "admin_password", "short-pw")
+    assert client.get("/admin", headers=basic("short-pw"), **far).status_code == 403
+    monkeypatch.setattr(get_settings(), "admin_password", "a-long-password-1")
+    assert client.get("/admin", headers=basic("a-long-password-1"), **far).status_code == 200
+    assert client.get("/admin", **far).status_code == 401  # no password yet: not counted
+    for _ in range(views.MAX_FAILS):
+        assert client.get("/admin", headers=basic("guess"), **far).status_code == 401
+    assert client.get("/admin", headers=basic("a-long-password-1"), **far).status_code == 429
+    # another address is not locked
+    assert client.get("/admin", headers=basic("a-long-password-1"), environ_base={"REMOTE_ADDR": "9.9.9.9"}).status_code == 200

@@ -731,7 +731,7 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 
 ### 11.14 app/admin (web dashboard)
 
-`views.py`: `_guard` (off without a password; local requests only unless allowed; HTTP Basic `admin`), `_no_cache`, `overview` (totals and newest farms, `_farm_row`, `_farms_table`, `_owner`, `_page`), deleting one farm with a form token (`_token`). See ADMIN.md.
+`views.py`: `_guard` (off without a password; local requests only unless `FARMIVO_ADMIN_ALLOW_REMOTE`, then a password of 12+ characters and `_recent_fails`: 8 wrong passwords from one address in 15 minutes lock it out for 15 minutes; HTTP Basic `admin`), `_no_cache`, `overview` (totals and newest farms, `_farm_row`, `_farms_table`, `_owner`, `_page`), deleting one farm with a form token (`_token`). See ADMIN.md.
 
 ## 12. scripts
 
