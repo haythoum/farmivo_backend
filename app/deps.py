@@ -172,6 +172,11 @@ def get_identity() -> Identity:
         identity = Identity(uid=decoded["uid"], email=decoded.get("email"), name=decoded.get("name"),
                             email_verified=bool(decoded.get("email_verified")), auth_time=decoded.get("auth_time"))
     g.farmivo_identity = identity
+    from app import ops
+
+    info = ops.client_info(request.headers)
+    if info:  # the apps say which version they are (admin dashboard: app versions, support)
+        ops.record_client(get_repo(), identity.uid, identity.email, info)
     if g.get("lang_given"):
         remember_lang(get_repo(), identity.uid, g.lang)
     return identity

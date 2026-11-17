@@ -27,7 +27,7 @@ from app.schemas import (
     DEFAULT_UNIT,
 )
 from app.utils import parse_date, today
-from app.web import out, q_date, q_enum, q_str
+from app.web import body, out, q_date, q_enum, q_str
 
 bp = Blueprint("growth_production", __name__)
 
@@ -40,6 +40,24 @@ weights = build_crud_blueprint(
     date_field="date",
 )
 bp.register_blueprint(weights, url_prefix="/weights")
+
+
+@bp.post("/weights/bulk")
+def weighing_session():
+    """POST /v1/weights/bulk {date, entries: [{animal_id, weight_kg}], notes?} - save a weighing session (several
+    animals weighed the same day) at once. Workers and above. All or nothing: 404 if an animal is missing.
+    An animal weighed twice in the list keeps the last weight. Returns {"created": n}."""
+    from app.schemas import WeighingSessionIn
+
+    ctx = get_ctx()
+    data = body(WeighingSessionIn)
+    entries = {e.animal_id: e.weight_kg for e in data.entries}
+    for animal_id in entries:
+        get_animal_or_404(ctx, animal_id)
+    for animal_id, kg in entries.items():
+        ctx.repo.create(path_of(ctx, "weights"), {"animal_id": animal_id, "date": data.date.isoformat(),
+                                                  "weight_kg": kg, "notes": data.notes})
+    return out({"created": len(entries)}, 201)
 
 production_summary_bp = Blueprint("production_summary", __name__)
 

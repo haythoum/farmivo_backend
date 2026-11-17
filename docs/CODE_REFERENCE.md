@@ -299,6 +299,8 @@ Enums: `Species` (cattle, sheep, goat, pig, horse, chicken, duck, rabbit, other)
 
 ---
 
+Feed stock and app features of 18 Nov: `FeedItemBase` / `FeedItemOut` (balance, low, last move), `FeedMoveBase` / `FeedMoveOut` (direction in/out, sacks, unit price, linked expense, notice), `BulkVaccinationIn`, `WeighingEntry`, `WeighingSessionIn`.
+
 ## 9. app/utils.py
 
 | Name | Description |
@@ -374,6 +376,29 @@ Pure functions over the repository (no Flask), used by the routers and the scrip
 | `cannot_sell(repo, farm_id, tx, tx_id)` | The first animal of the entry that already left the farm otherwise (finance answers 409). |
 | `back_on_farm(repo, farm_id, animal)` | Undo a sale: status active, into its old barn when it still exists, sale fields cleared. |
 | `sync(repo, farm_id, tx, deleted)` | After a sale entry is saved or deleted: its animals sold (status, date, price share, `sale_tx_id`, out of the barn, reminders closed) or back on the farm; returns how many changed. |
+
+### app/ops.py: what the admin dashboard watches
+
+| Name | Description |
+|---|---|
+| `PROBLEMS`, `KINDS`, `KEEP_DAYS`, `ACTIVITY_COLLECTIONS`, `CLIENT_HEADERS`, `SEEN_EVERY` | The `problems` collection and its kinds (`server_error`, `email_failed`, `push_failed`), kept 90 days; the collections that count as a farm being used; the app headers; `last_seen` written at most once an hour. |
+| `report(kind, message, repo, **details)` | Records one problem (the request's repository without `repo`); never raises; now and then (5 %) calls `prune`. `_short` trims texts, `_now` is UTC now. |
+| `report_exception(exc, method, path, uid)` | A server error with the last lines of its traceback (called by the 500 handler in `errors.py`). |
+| `prune(repo, keep_days)`, `problems(repo, kind, days)` | Delete problems older than 90 days; list the last days' problems newest first. |
+| `client_info(headers)`, `record_client(repo, uid, email, info)` | The app's `X-Farmivo-Platform/Version/OS/Device`; kept on `users/<uid>` with `last_seen` and the email (called by `deps.get_identity`); writes only when something changed or an hour passed. |
+| `version_key(version)`, `app_versions(users)` | Sortable "1.6.0 (16)" (build number first); platform split, versions in use, newest per platform and the users on an older one. |
+| `week_start(day)`, `farm_days(repo, farm_id, collections)`, `weekly_activity(repo, collections, weeks, today)`, `stopped_farms(farms, farm_days_by_id, quiet_days, today)` | Monday of a week; the days a farm recorded something; new accounts, new farms and farms in use per week; farms used on 2+ days but quiet for 3 weeks. |
+
+### app/month_report.py: the monthly finance summary
+
+| Name | Description |
+|---|---|
+| `TEXTS`, `CATEGORIES`, `MONTHS`, `tr(key, lang)` | The page's words, the finance categories and the month names (Tunisian Arabic month names) in en/fr/ar. |
+| `category_label(category, lang)`, `month_label(month, lang)` | A category / "November 2026" in the reader's language. |
+| `month_bounds(month)`, `previous_month(month)` | First and last day of a month; the month before. |
+| `money(value, currency)`, `totals(rows)` | "1 234,50 TND"; income, expenses, result and both by category. |
+| `data(repo, farm_id, month)` | The month's entries and totals, the month before's totals, the animals sold. |
+| `render_html(farm, month, lang, made_on, info, label)` | The printable A4 page (right to left in Arabic) the apps turn into a PDF. |
 
 ## 10. app/services
 
@@ -587,6 +612,9 @@ Onboarding (token only, no farm needed) and member management. Rules live in `se
 
 ### 11.3 routers/animals.py
 
+`latest_weights(ctx, animal_id)`: each animal's last weighing, added to lists and the animal's page (`latest_weight_kg`, `latest_weight_date`); `?for_sale=true` lists the animals on the farm offered for sale (`for_sale`, `asking_price`, `sale_note`; an animal that left the farm is never for sale).
+
+
 | Name | Description |
 |---|---|
 | `RELATED_COLLECTIONS` | Collections deleted together with an animal: vaccinations, treatments, vet_visits, illnesses, weights, production, feedings, reminders. |
@@ -615,6 +643,9 @@ Onboarding (token only, no farm needed) and member management. Rules live in `se
 | `GET /v1/animals/<id>/family` | `get_family` | none | `FamilyOut` | Siblings share the mother or the father; offspring have the animal as a parent. |
 
 ### 11.4 routers/health.py
+
+`vaccinate_many`: `POST /v1/vaccinations/bulk` (`BulkVaccinationIn`: a barn and optionally one species of it, or chosen animals) creates one vaccination with its reminder per animal on the farm; returns created / skipped.
+
 
 Four CRUD blueprints from `build_crud_blueprint` plus the reminder routes.
 
@@ -648,6 +679,9 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 
 ### 11.6 routers/growth.py
 
+`weighing_session`: `POST /v1/weights/bulk` (`WeighingSessionIn`: date, entries of animal and kg) saves a weighing session at once (404 if an animal is missing; an animal twice keeps the last weight).
+
+
 | Route / blueprint | Function | Behaviour |
 |---|---|---|
 | `/v1/weights` CRUD | (factory) | Date field `date`. |
@@ -657,6 +691,9 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 | `GET /v1/animals/<id>/growth` | `growth_chart` | Weights ordered by date. Total gain is last − first; the average daily gain is gain ÷ days between them, `null` if they are the same day. 404 for an unknown animal. |
 
 ### 11.7 routers/finance.py
+
+`month_report`: `GET /v1/finance/month-report?month=YYYY-MM` returns the monthly summary page (`app/month_report.py`) in the caller's language; managers and the owner.
+
 
 | Name | Description |
 |---|---|
@@ -723,6 +760,22 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 | `GET /v1/breeds` | `list_breeds` | `breeds.catalog(lang, request.url_root)`: breeds with labels and photos. |
 | `GET /v1/breeds/photo/<species>/<file>` | `breed_photo` | Public; strict name check; 404 "Photo not found"; cached 7 days. |
 
+### 11.12a routers/feed_stock.py
+
+| Route | Function | Notes |
+|---|---|---|
+| `GET /v1/feed-stock` | `stock` | Every feed with `balance` sacks and `low`; low ones first. |
+| `/v1/feed-stock/items` (CRUD) | `_item_view` (balance, low, last move), `_after_item_delete` (its movements go too) | A feed: name, `sack_kg`, `low_at`. |
+| `/v1/feed-stock/moves` (CRUD) | `_feed`, `balance`, `_check`, `_before_move_create`, `_before_move_update`, `_after_move_write`, `_after_move_delete`, `_move_view` | Sacks in/out; out never more than the stock (422); a price only from managers (403) and hidden from workers; crossing `low_at` notifies the managers once (`push.feed_low_*`) and answers `notice`. |
+| | `expense_text`, `sync_expense`, `unlink_expense`, `r2` | Sacks in with a price book the `feed` expense (through `finance._prepare`, shared like any feed); edit/delete keep it in step; an expense deleted in Finance unlinks the movement. |
+
+### 11.12b routers/support.py
+
+| Route | Function | Notes |
+|---|---|---|
+| `POST /v1/feedback` | `send_feedback` (`_form`) | Signed in, no farm needed; JSON or multipart with `screenshot`; text 1–3000 characters; 10 per hour (429); stores farm, role, language and the app headers. |
+| `GET /v1/announcements` | `list_announcements`, `announcement_text` | The admin's announcements of the last 30 days in the user's language (English, then any filled one). |
+
 ### 11.13 routers/auth.py
 
 | Route | Function | Notes |
@@ -731,7 +784,9 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 
 ### 11.14 app/admin (web dashboard)
 
-`views.py`: `_guard` (off without a password; local requests only unless `FARMIVO_ADMIN_ALLOW_REMOTE`, then a password of 12+ characters and `_recent_fails`: 8 wrong passwords from one address in 15 minutes lock it out for 15 minutes; HTTP Basic `admin`), `_no_cache`, `overview` (totals and newest farms, `_farm_row`, `_farms_table`, `_owner`, `_page`), deleting one farm with a form token (`_token`). See ADMIN.md.
+`views.py`: `_form_token(action)` and `check_form(action)` (token of the forms that change something: support, feedback, breeds, broadcast), `users` (app version, last seen, support buttons), `farm` (members, records, then animals / barns / money / feed stock tabs), `_guard` (off without a password; local requests only unless `FARMIVO_ADMIN_ALLOW_REMOTE`, then a password of 12+ characters and `_recent_fails`: 8 wrong passwords from one address in 15 minutes lock it out for 15 minutes; HTTP Basic `admin`), `_no_cache`, `overview` (totals and newest farms, `_farm_row`, `_farms_table`, `_owner`, `_page`), deleting one farm with a form token (`_token`).
+
+`pages.py` (same blueprint): `activity`, `apps`, `problems`, `feedback` and `feedback_status`, `breed_photos` with `breed_rows`, `_breed_target`, `breed_upload` (`_jpeg`: any photo to a JPEG of at most 960 px when Pillow is installed), `breed_remove`, `_credits_file` / `_read_credits` / `_write_credits`; `broadcast`, `broadcast_send`, `broadcast_delete` with `broadcast_devices` and `send_announcement` (each phone in its language, dead tokens removed); `resend_code` and `mark_verified` (support); `_back` redirects with a `done` message. See ADMIN.md.
 
 ## 12. scripts
 
@@ -764,6 +819,7 @@ Run on the server from the project folder with the project's virtualenv, for exa
 | `tests/test_review.py` | Regression tests of the 2026-11-03 review: compare-and-set, double birth, `delivered` only through a birth, time zone, PATCH re-validation, outside photo URLs, replaced and deleted photos removed, photo headers, absurd amounts, CSV BOM and formula escaping, one broken farm in the reminder job, notifications removed with the account, wrong invite codes limited, farm address cleared. |
 | `tests/test_i18n.py` | Languages: every catalog entry has en/fr/ar with the same placeholders, Accept-Language negotiation, fallbacks, nested `ref` rendering, translated error details and validation messages, device and user language stored, pushes in each recipient's language (join, approval), stored notifications and reminder titles rendered per reader, reminder push body (animal named once), Arabic RTL email, the FCM payload shape, join requests hidden from workers. |
 | `tests/test_account.py` | `DELETE /v1/me`: member (farm kept), pending requester, user without a farm (email code removed), lone owner (farm records and photos gone, pending requester detached), owner with active members (409 in en/fr/ar, nothing deleted), owner after transfer, Firebase failure still 204, 401 without a token. Public pages: each page in each language (`lang`, `dir="rtl"` for Arabic, contact address, language switch) and the language from Accept-Language. The `auth_admin` fixture records Firebase deletions; `photo_store` is shared by the clients. |
+| `tests/test_nov18.py` | App version headers (written once an hour), versions and older ones, a server error / failed email recorded, old problems pruned, feedback (multipart screenshot, JSON, 10 per hour), an announcement pushed and listed per language (bad form token 400), every new admin page opens, weekly activity and stopped farms, support resend code / mark checked, breed photo upload (resized JPEG) and remove, animals for sale with their last weight, a whole barn vaccinated, weighing session, several animals moved, feed stock (expense booked and kept in step, out limited, low-stock notice and one push, expense deleted in Finance unlinks, workers without prices), the monthly summary page in en and ar. |
 | `tests/test_mongo_repository.py` | `MongoRepository` on `mongomock` (skipped if it isn't installed): CRUD, filters, farm isolation, `set` keeping `created_at`, one collection per type with `farm_id` / `user_id`. |
 
 ---

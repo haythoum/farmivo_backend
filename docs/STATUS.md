@@ -1,4 +1,4 @@
-# Project status (as of 17 Nov 2026)
+# Project status (as of 18 Nov 2026)
 
 **App id:** `com.quadralens.farmivo` (Android + iOS). **Firebase project:** `farmivo-4d932` (client config files committed in the app repos). Still needed: the backend service-account key, Email/Password sign-in enabled, APNs key for iOS push, a MongoDB URI.
 
@@ -101,3 +101,14 @@ The apps cannot delete a farm yet (planned, with an admin dashboard). On the ser
 - Adding or moving an animal into a barn that is then over its capacity: the answer carries `notice` ("Reminder: the barn … now has 6 animals for 5 places"), shown by the apps; the animal is added anyway.
 - Review fixes the same day: an entry naming an animal deleted since can be edited again (the animal is left out); breed photo links follow the scheme and host behind nginx (ProxyFix).
 - Deploy: `git pull`, `sudo supervisorctl restart farmivo`. If the breed photos were never downloaded: `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.fetch_breed_photos`.
+
+## 18 Nov 2026 release (dashboard and new app features)
+
+- **Admin dashboard** (ADMIN.md): Activity (sign-ups, new farms and farms in use per week; farms that stopped; never used), Apps (Android / iPhone, versions in use, people on an older version, phone models), Problems (server errors with traceback, emails and pushes not sent; `app/ops.py`, kept 90 days), Feedback inbox (with screenshots), Breed photos (status per breed, upload or remove your own), Announcements (push + dialog in the apps, per language), support on Users (resend the verification code, mark the email checked) and one farm's data (animals, barns, money, feed stock).
+- The apps send their platform, version, OS and phone model (`X-Farmivo-*`), kept on the user with `last_seen`.
+- `POST /feedback`, `GET /announcements`.
+- **For sale**: `for_sale`, `asking_price`, `sale_note` on animals, `?for_sale=true`; `latest_weight_kg` on animals.
+- **Work on a barn**: `POST /vaccinations/bulk` (a whole barn or chosen animals), `POST /weights/bulk` (weighing session); several animals moved with the existing `POST /animals/move`.
+- **Feed stock**: feeds in sacks, sacks in (with a price: the feed expense is booked) and out, low-stock warning (notice + push to managers once).
+- **Monthly finance summary**: `GET /finance/month-report?month=` (HTML in en/fr/ar that the apps save as PDF).
+- Deploy: `git pull`, `sudo supervisorctl restart farmivo`. Optional: `/home/ubuntu/farmivo/venvfarmivo/bin/pip install Pillow` so uploaded breed photos of any format are resized (without it only JPEG is accepted, as is).

@@ -293,6 +293,11 @@ class AnimalBase(Strict):
     # What the animal cost. With an origin other than born on farm it is also booked as an expense.
     purchase_price: float | None = Field(default=None, ge=0, le=1e12)
     barn_id: BarnRef = None  # the barn (GET /v1/barns) the animal lives in
+    # Offered for sale (Eid al-Adha, market): shown under "For sale" and shared (WhatsApp) with its photo, weight,
+    # age and the asking price. An animal that leaves the farm is no longer for sale.
+    for_sale: bool = False
+    asking_price: float | None = Field(default=None, ge=0, le=1e12)
+    sale_note: str | None = Field(default=None, max_length=300)
 
     @model_validator(mode="after")
     def _age_class_fits_species(self) -> "AnimalBase":
@@ -361,6 +366,11 @@ class AnimalOut(Record):
     age_days: int | None = None
     age_months: int | None = None
     age_label: str | None = None
+    for_sale: bool = False
+    asking_price: float | None = None
+    sale_note: str | None = None
+    latest_weight_kg: float | None = None  # the last weighing (lists and the animal's page)
+    latest_weight_date: Date | None = None
 
 
 class StatusChange(Strict):
@@ -450,6 +460,30 @@ class VaccinationBase(Strict):
 
 
 VaccinationUpdate = make_partial(VaccinationBase, "VaccinationUpdate")
+
+
+class BulkVaccinationIn(Strict):
+    """POST /v1/vaccinations/bulk body: one vaccine given to every animal on the farm in a barn (``barn_id``,
+    optionally one ``species`` of it) or to the chosen ``animal_ids``."""
+    barn_id: BarnRef = None
+    species: Species | None = None
+    animal_ids: list[str] = Field(default_factory=list, max_length=2000)
+    vaccine_name: str = Field(min_length=1, max_length=120)
+    date_given: Date
+    next_due_date: Date | None = None
+    batch_number: str | None = Field(default=None, max_length=60)
+    administered_by: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def _who(self) -> "BulkVaccinationIn":
+        if not self.barn_id and not self.animal_ids:
+            raise ValueError("Choose a barn or animals")
+        if self.next_due_date and self.next_due_date < self.date_given:
+            raise ValueError("The next due date cannot be before the date given")
+        if self.date_given > today():
+            raise ValueError("date cannot be in the future")
+        return self
 
 
 class VaccinationOut(VaccinationBase, Record):
@@ -593,6 +627,26 @@ class WeightBase(Strict):
 WeightUpdate = make_partial(WeightBase, "WeightUpdate")
 
 
+class WeighingEntry(Strict):
+    """One animal of a weighing session."""
+    animal_id: str
+    weight_kg: float = Field(gt=0, lt=5000)
+
+
+class WeighingSessionIn(Strict):
+    """POST /v1/weights/bulk body: the weights of several animals weighed the same day."""
+    date: Date = Field(default_factory=today)
+    entries: list[WeighingEntry] = Field(min_length=1, max_length=2000)
+    notes: str | None = Field(default=None, max_length=500)
+
+    @field_validator("date")
+    @classmethod
+    def _not_future(cls, v: Date) -> Date:
+        if v > today():
+            raise ValueError("date cannot be in the future")
+        return v
+
+
 class WeightOut(WeightBase, Record):
     """Weight record as returned."""
     pass
@@ -671,6 +725,57 @@ class ProductionSummary(BaseModel):
     days_with_records: int
     average_per_record_day: float
     daily: list[DailyTotal]
+
+
+# ---------------------------------------------------------------- feed stock
+class FeedItemBase(Strict):
+    """A feed kept in stock (barley, bran, hay bales ...), counted in sacks (or bales). ``low_at``: warn when the
+    stock falls to this number of sacks or fewer."""
+    name: str = Field(min_length=1, max_length=80)
+    sack_kg: float | None = Field(default=None, gt=0, le=5000)
+    low_at: float = Field(default=5, ge=0, le=1e6)
+    notes: str | None = Field(default=None, max_length=300)
+
+
+FeedItemUpdate = make_partial(FeedItemBase, "FeedItemUpdate")
+
+
+class FeedItemOut(FeedItemBase, Record):
+    """A feed with its stock: ``balance`` sacks (in minus out), ``low`` when balance <= low_at, the last
+    movement's date."""
+    balance: float = 0
+    low: bool = False
+    last_move: Date | None = None
+
+
+class FeedMoveBase(Strict):
+    """A stock movement: sacks in (bought: ``unit_price`` per sack books the feed expense in Finance) or out
+    (given to the animals)."""
+    feed_id: str
+    direction: str = Field(pattern="^(in|out)$")
+    sacks: float = Field(gt=0, le=1e6)
+    date: Date = Field(default_factory=today)
+    unit_price: float | None = Field(default=None, ge=0, le=1e9)
+    supplier: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=300)
+
+    @field_validator("date")
+    @classmethod
+    def _not_future(cls, v: Date) -> Date:
+        if v > today():
+            raise ValueError("date cannot be in the future")
+        return v
+
+
+FeedMoveUpdate = make_partial(FeedMoveBase, "FeedMoveUpdate")
+
+
+class FeedMoveOut(FeedMoveBase, Record):
+    """A stock movement as returned: the feed's name and the linked expense (``transaction_id``, ``amount``)."""
+    feed_name: str | None = None
+    transaction_id: str | None = None
+    amount: float | None = None
+    notice: str | None = None  # only after a save: "Barley: 3 sacks left" when the stock is low
 
 
 # ------------------------------------------------------------------ finance

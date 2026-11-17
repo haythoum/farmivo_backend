@@ -1,4 +1,6 @@
-"""Pages of the admin dashboard (see app/admin/__init__.py). Read-only except deleting a farm."""
+"""Pages of the admin dashboard (see app/admin/__init__.py): overview, farms, users and deleting a farm here;
+activity, app versions, problems, feedback, breed photos, announcements and the support actions in
+app/admin/pages.py. Every form that changes something carries a token tied to the admin password (_token)."""
 from __future__ import annotations
 
 import hashlib
@@ -77,6 +79,19 @@ def _token(farm_id: str) -> str:
     return hmac.new(key, f"delete:{farm_id}".encode(), hashlib.sha256).hexdigest()
 
 
+def _form_token(action: str) -> str:
+    """Token of the dashboard's forms for ``action`` (support, feedback, breeds, broadcast): a page of another
+    site cannot post them (it does not know the admin password the token is made from)."""
+    key = (get_settings().admin_password or "").encode()
+    return hmac.new(key, f"form:{action}".encode(), hashlib.sha256).hexdigest()
+
+
+def check_form(action: str) -> None:
+    """400 unless the posted form carries the token of ``action``."""
+    if not hmac.compare_digest(request.form.get("token", ""), _form_token(action)):
+        abort(400)
+
+
 def _owner(members: list[dict]) -> dict:
     return next((m for m in members if m.get("role") == "owner" and m.get("status") == "active"), {})
 
@@ -118,12 +133,25 @@ button{padding:9px 14px;border-radius:10px;border:0;background:var(--teal);color
 button.danger{background:var(--red)}.box{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:12px}
 .danger-box{border-color:#F3C1BC;background:#FFF6F5}.muted{color:var(--muted)}.ok{background:#E7F4E3;border:1px solid #BFE0B8;padding:10px 12px;border-radius:10px}
 .wrap{overflow-x:auto}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}.tabs a{padding:6px 12px;border-radius:999px;background:#fff;border:1px solid var(--line);text-decoration:none}
+.tabs a.on{background:var(--teal);color:#fff;border-color:var(--teal)}.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:#F2F5F4}
+.pill.red{background:#FDECEA;color:var(--red)}.pill.green{background:#E7F4E3;color:#2E7D32}.pill.amber{background:#FFF4DC;color:#8A5A00}
+.bar{height:10px;background:var(--teal);border-radius:6px;min-width:2px}.inline{display:inline}button.small{padding:5px 10px;font-size:13px}
+textarea{width:100%;min-height:90px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;font:inherit}
+pre{white-space:pre-wrap;font-size:12px;background:#F7F9F8;padding:8px;border-radius:8px;max-height:260px;overflow:auto}
+img.thumb{width:72px;height:54px;object-fit:cover;border-radius:8px;background:#F2F5F4}label{font-weight:600}
 </style></head><body><header><b>Farmivo admin</b><a href="{{ url_for('admin.overview') }}">Overview</a>
-<a href="{{ url_for('admin.farms') }}">Farms</a><a href="{{ url_for('admin.users') }}">Users</a></header><main>{{ body|safe }}</main></body></html>"""
+<a href="{{ url_for('admin.activity') }}">Activity</a><a href="{{ url_for('admin.apps') }}">Apps</a>
+<a href="{{ url_for('admin.problems') }}">Problems</a><a href="{{ url_for('admin.feedback') }}">Feedback</a>
+<a href="{{ url_for('admin.farms') }}">Farms</a><a href="{{ url_for('admin.users') }}">Users</a>
+<a href="{{ url_for('admin.breed_photos') }}">Breed photos</a><a href="{{ url_for('admin.broadcast') }}">Announcements</a>
+</header><main>{% if flash %}<p class="ok">{{ flash }}</p>{% endif %}{{ body|safe }}</main></body></html>"""
 
 
 def _page(body_template: str, **ctx) -> str:
-    return render_template_string(PAGE, body=render_template_string(body_template, **ctx))
+    """A dashboard page: the menu, an optional ``?done=`` message, and the body template rendered with ``ctx``."""
+    return render_template_string(PAGE, body=render_template_string(body_template, **ctx),
+                                  flash=request.args.get("done") or "")
 
 
 @bp.get("")
@@ -139,16 +167,28 @@ def overview():
         for a in repo.list(farm_path(f["id"], "animals")):
             if a.get("status") in ON_FARM_STATUSES:
                 species[a.get("species") or "other"] += 1
+    from app import ops
+    from app.routers.support import FEEDBACK
+
+    week = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    attention = [
+        ("Problems (7 days)", len(ops.problems(repo, days=7)), url_for("admin.problems")),
+        ("New feedback", sum(1 for f in repo.list(FEEDBACK) if f.get("status") == "new"), url_for("admin.feedback")),
+        ("New accounts (7 days)", sum(1 for u in users if (u.get("created_at") or "") >= week), url_for("admin.users")),
+        ("Seen in the apps (7 days)", sum(1 for u in users if (u.get("last_seen") or "") >= week), url_for("admin.apps")),
+    ]
     stats = [
         ("Farms", len(farms)), ("New farms (30 days)", sum(1 for f in farms if (f.get("created_at") or "") >= since)),
         ("Users", len(users)), ("Active members", sum(r["members"] for r in rows)),
         ("Waiting for approval", sum(r["pending"] for r in rows)), ("Animals on farms", sum(r["animals"] for r in rows)),
         ("Barns", sum(r["barns"] for r in rows)),
     ]
-    return _page("""<h1>Overview</h1><div class="cards">{% for l, n in stats %}<div class="card"><div class="n">{{ n }}</div>
+    return _page("""<h1>Overview</h1><h2>Needs a look</h2><div class="cards">{% for l, n, link in attention %}
+<a class="card" href="{{ link }}" style="text-decoration:none;color:inherit"><div class="n">{{ n }}</div><div class="l">{{ l }}</div></a>{% endfor %}</div>
+<h2>Totals</h2><div class="cards">{% for l, n in stats %}<div class="card"><div class="n">{{ n }}</div>
 <div class="l">{{ l }}</div></div>{% endfor %}</div>
 <h2>Animals on farms by species</h2><div class="cards">{% for s, n in species %}<div class="card"><div class="n">{{ n }}</div><div class="l">{{ s }}</div></div>{% else %}<p class="muted">No animals yet.</p>{% endfor %}</div>
-<h2>Newest farms</h2>{{ table|safe }}""", stats=stats, species=species.most_common(),
+<h2>Newest farms</h2>{{ table|safe }}""", stats=stats, attention=attention, species=species.most_common(),
                  table=_farms_table(rows[:10]))
 
 
@@ -181,23 +221,59 @@ placeholder="Name, address, email or id"><button>Search</button></form>{{ table|
 
 @bp.get("/farms/<farm_id>")
 def farm(farm_id: str):
-    """One farm: its members, what it holds, and the delete form."""
+    """One farm: its members, its animals, barns, last money entries and feed stock (read-only, for support), and
+    the delete form."""
+    from app import ops
+
     repo = get_repo()
     f = repo.get("farms", farm_id)
     if not f:
         abort(404)
     members = sorted(repo.list(members_path(farm_id)), key=lambda m: (m.get("status") != "active", m.get("role") or ""))
     counts = [(c, len(repo.list(farm_path(farm_id, c)))) for c in FARM_COLLECTIONS]
-    return _page("""<h1>{{ f.name }}</h1><p class="muted">{{ f.address }} · {{ f.currency }} · id {{ f.id }} · created {{ (f.created_at or '')[:10] }}</p>
+    barns = {b["id"]: b for b in repo.list(farm_path(farm_id, "barns"))}
+    animals = sorted(repo.list(farm_path(farm_id, "animals")),
+                     key=lambda a: (a.get("status") not in ON_FARM_STATUSES, a.get("farm_code") or a.get("ear_tag") or ""))
+    on_farm: Counter = Counter(a.get("barn_id") for a in animals if a.get("status") in ON_FARM_STATUSES)
+    txs = sorted(repo.list(farm_path(farm_id, "transactions")), key=lambda t: (t.get("date") or "", t.get("created_at") or ""),
+                 reverse=True)[:40]
+    feeds = repo.list(farm_path(farm_id, "feed_items"))
+    moves = repo.list(farm_path(farm_id, "feed_moves"))
+    stock = [{"name": i.get("name"), "low_at": i.get("low_at"),
+              "left": round(sum(m["sacks"] if m.get("direction") == "in" else -m["sacks"]
+                                for m in moves if m.get("feed_id") == i["id"]), 2)} for i in feeds]
+    days = sorted(ops.farm_days(repo, farm_id, ops.ACTIVITY_COLLECTIONS), reverse=True)
+    view = request.args.get("view") or "animals"
+    return _page("""<h1>{{ f.name }}</h1><p class="muted">{{ f.address }} · {{ f.currency }} · id {{ f.id }} · created {{ (f.created_at or '')[:10] }}
+· used on {{ days|length }} days{% if days %}, last {{ days[0] }}{% endif %}</p>
 <h2>Members</h2><div class="wrap"><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Since</th></tr>
 {% for m in members %}<tr><td>{{ m.name or '' }}</td><td>{{ m.email or '' }}</td><td>{{ m.role or '' }}</td><td>{{ m.status }}</td>
 <td>{{ (m.decided_at or m.requested_at or '')[:10] }}</td></tr>{% endfor %}</table></div>
 <h2>Records</h2><div class="cards">{% for c, n in counts %}<div class="card"><div class="n">{{ n }}</div><div class="l">{{ c }}</div></div>{% endfor %}</div>
+<h2>Data</h2><div class="tabs">{% for v, l in [('animals','Animals'),('barns','Barns'),('money','Money'),('feed','Feed stock')] %}
+<a class="{{ 'on' if v == view else '' }}" href="?view={{ v }}">{{ l }}</a>{% endfor %}</div>
+{% if view == 'animals' %}<div class="wrap"><table><tr><th>Number</th><th>Name</th><th>Species</th><th>Breed</th><th>Sex</th><th>Born</th>
+<th>Barn</th><th>Status</th><th>For sale</th></tr>{% for a in animals %}<tr><td>{{ a.farm_code or a.ear_tag }}{% if a.farm_code and a.ear_tag != a.farm_code %}<div class="muted">{{ a.ear_tag }}</div>{% endif %}</td>
+<td>{{ a.name or '' }}</td><td>{{ a.species }}</td><td>{{ a.breed or '' }}</td><td>{{ a.sex }}</td><td>{{ a.date_of_birth or a.age_class or '' }}</td>
+<td>{{ (barns.get(a.barn_id) or barns.get(a.last_barn_id) or {}).get('name', '') }}</td><td>{{ a.status }}{% if a.status_date %}<div class="muted">{{ a.status_date }}</div>{% endif %}</td>
+<td>{% if a.for_sale %}{{ a.asking_price or 'yes' }}{% endif %}</td></tr>{% else %}<tr><td colspan="9" class="muted">No animal.</td></tr>{% endfor %}</table></div>
+{% elif view == 'barns' %}<div class="wrap"><table><tr><th>Barn</th><th>Species</th><th class="num">Animals</th><th class="num">Capacity</th></tr>
+{% for b in barns.values() %}<tr><td>{{ b.name }}</td><td>{{ (b.species_list or [b.species])|join(', ') if (b.species_list or b.species) else 'any' }}</td>
+<td class="num">{{ on_farm.get(b.id, 0) }}</td><td class="num">{{ b.capacity or '' }}</td></tr>{% else %}<tr><td colspan="4" class="muted">No barn.</td></tr>{% endfor %}
+<tr><td class="muted">No barn</td><td></td><td class="num">{{ on_farm.get(None, 0) }}</td><td></td></tr></table></div>
+{% elif view == 'money' %}<p class="muted">The last 40 entries.</p><div class="wrap"><table><tr><th>Date</th><th>Type</th><th>Category</th><th>Description</th>
+<th class="num">Amount</th><th class="num">Animals</th></tr>{% for t in txs %}<tr><td>{{ t.date }}</td><td>{{ t.type }}</td><td>{{ t.category }}</td>
+<td>{{ t.description or '' }}</td><td class="num">{{ t.amount }}</td><td class="num">{{ (t.animal_ids or [])|length }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No entry.</td></tr>{% endfor %}</table></div>
+{% else %}<div class="wrap"><table><tr><th>Feed</th><th class="num">Sacks left</th><th class="num">Warn at</th></tr>
+{% for i in stock %}<tr><td>{{ i.name }}</td><td class="num">{% if i.left <= (i.low_at or 0) %}<span class="pill red">{{ i.left }}</span>{% else %}{{ i.left }}{% endif %}</td>
+<td class="num">{{ i.low_at }}</td></tr>{% else %}<tr><td colspan="3" class="muted">No feed stock kept.</td></tr>{% endfor %}</table></div>{% endif %}
 <div class="box danger-box"><h2 style="margin-top:0">Delete this farm</h2>
 <p>Deletes the farm, every record above and the animal photos. Its people keep their account (the farm leaves their list). <b>No undo.</b></p>
 <form method="post" action="{{ url_for('admin.delete', farm_id=f.id) }}"><input type="hidden" name="token" value="{{ token }}">
 <p>Type the farm name <b>{{ f.name }}</b> to confirm:</p><p><input type="text" name="confirm" autocomplete="off" required></p>
-<button class="danger">Delete the farm</button></form></div>""", f=f, members=members, counts=counts, token=_token(farm_id))
+<button class="danger">Delete the farm</button></form></div>""", f=f, members=members, counts=counts, token=_token(farm_id),
+                 barns=barns, animals=animals, on_farm=on_farm, txs=txs, stock=stock, days=days, view=view)
 
 
 @bp.post("/farms/<farm_id>/delete")
@@ -218,7 +294,8 @@ def delete(farm_id: str):
 
 @bp.get("/users")
 def users():
-    """Every user record with their farms."""
+    """Every user with their farms, app version and last visit; support actions (resend the verification code,
+    mark the email checked)."""
     repo = get_repo()
     q = (request.args.get("q") or "").strip().lower()
     by_uid: dict[str, list[dict]] = {}
@@ -230,17 +307,29 @@ def users():
         names[m["id"]] = m.get("email") or names.get(m["id"], "")
     rows = []
     for u in repo.list("users"):
-        email = names.get(u["id"], "")
+        email = u.get("email") or names.get(u["id"], "")
         row = {"uid": u["id"], "email": email, "name": u.get("name") or "", "lang": u.get("lang") or "",
-               "verified": "yes" if u.get("email_verified") else "", "created": (u.get("created_at") or "")[:10],
-               "farms": by_uid.get(u["id"], [])}
-        hay = f"{row['uid']} {email} {row['name']}".lower()
+               "verified": bool(u.get("email_verified")), "created": (u.get("created_at") or "")[:10],
+               "farms": by_uid.get(u["id"], []), "platform": u.get("app_platform") or "",
+               "version": u.get("app_version") or "", "device": u.get("device_model") or "",
+               "os": u.get("os_version") or "", "seen": (u.get("last_seen") or "")[:16].replace("T", " ")}
+        hay = f"{row['uid']} {email} {row['name']} {row['device']}".lower()
         if not q or q in hay:
             rows.append(row)
     rows.sort(key=lambda r: r["created"], reverse=True)
     return _page("""<h1>Users ({{ rows|length }})</h1><form class="search" method="get"><input type="search" name="q" value="{{ q }}"
-placeholder="Email, name or uid"><button>Search</button></form><div class="wrap"><table><tr><th>Email</th><th>Name</th><th>Farms</th>
-<th>Language</th><th>Email checked</th><th>Since</th></tr>{% for r in rows %}<tr><td>{{ r.email }}<div class="muted">{{ r.uid }}</div></td>
-<td>{{ r.name }}</td><td>{% for f in r.farms %}<div><a href="{{ url_for('admin.farm', farm_id=f.farm_id) }}">{{ f.farm }}</a> · {{ f.role }} · {{ f.status }}</div>{% else %}<span class="muted">none</span>{% endfor %}</td>
-<td>{{ r.lang }}</td><td>{{ r.verified }}</td><td>{{ r.created }}</td></tr>{% else %}<tr><td colspan="6" class="muted">No user.</td></tr>{% endfor %}</table></div>""",
-                 rows=rows, q=request.args.get("q") or "")
+placeholder="Email, name, phone model or uid"><button>Search</button></form><div class="wrap"><table><tr><th>Email</th><th>Name</th><th>Farms</th>
+<th>App</th><th>Last seen</th><th>Email checked</th><th>Since</th></tr>{% for r in rows %}<tr><td>{{ r.email }}<div class="muted">{{ r.uid }}</div></td>
+<td>{{ r.name }}<div class="muted">{{ r.lang }}</div></td><td>{% for f in r.farms %}<div><a href="{{ url_for('admin.farm', farm_id=f.farm_id) }}">{{ f.farm }}</a> · {{ f.role }} · {{ f.status }}</div>{% else %}<span class="muted">none</span>{% endfor %}</td>
+<td>{% if r.platform %}{{ r.platform }} {{ r.version }}<div class="muted">{{ r.device }} {{ r.os }}</div>{% else %}<span class="muted">not known yet</span>{% endif %}</td>
+<td>{{ r.seen }}</td>
+<td>{% if r.verified %}<span class="pill green">yes</span>{% else %}<span class="pill amber">no</span>
+{% if r.email %}<form class="inline" method="post" action="{{ url_for('admin.resend_code', uid=r.uid) }}"><input type="hidden" name="token" value="{{ token }}">
+<button class="small">Resend code</button></form>{% endif %}
+<form class="inline" method="post" action="{{ url_for('admin.mark_verified', uid=r.uid) }}"><input type="hidden" name="token" value="{{ token }}">
+<button class="small" style="background:#5B6B69">Mark checked</button></form>{% endif %}</td>
+<td>{{ r.created }}</td></tr>{% else %}<tr><td colspan="7" class="muted">No user.</td></tr>{% endfor %}</table></div>""",
+                 rows=rows, q=request.args.get("q") or "", token=_form_token("support"))
+
+
+from app.admin import pages  # noqa: E402,F401  (the other pages register on the same blueprint)

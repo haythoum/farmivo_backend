@@ -66,13 +66,17 @@ class FcmNotifier:
         from firebase_admin import messaging
 
         invalid: list[str] = []
+        failed: list[str] = []
         for start in range(0, len(tokens), 500):  # FCM multicast limit
             batch = tokens[start : start + 500]
             message = fcm_message(batch, title, body, data, channel)
             try:
                 response = messaging.send_each_for_multicast(message)
-            except Exception:  # noqa: BLE001 - never let push failures break the job
+            except Exception as exc:  # noqa: BLE001 - never let push failures break the job
                 logger.exception("FCM send failed")
+                from app import ops
+
+                ops.report("push_failed", f"{type(exc).__name__}: {exc}", title=title, devices=len(batch))
                 continue
             for token, result in zip(batch, response.responses):
                 if result.success:
@@ -82,6 +86,11 @@ class FcmNotifier:
                     invalid.append(token)
                 else:
                     logger.warning("FCM error for one token: %s", result.exception)
+                    failed.append(f"{type(result.exception).__name__}: {result.exception}")
+        if failed:
+            from app import ops
+
+            ops.report("push_failed", failed[0], title=title, devices=len(failed))
         return invalid
 
 

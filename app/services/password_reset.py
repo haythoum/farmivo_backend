@@ -88,9 +88,15 @@ def send_reset(repo: Repository, mailer: Mailer, email: str, lang: str,
         return
     except Exception as exc:  # noqa: BLE001 - missing service-account key, Firebase unreachable
         log.error("Could not create a password reset link: %s", exc)
+        from app import ops
+
+        ops.report("email_failed", f"Password reset link not created: {exc}", what="password reset")
         raise ApiError(502, "We could not send the email. Try again later", code="email_failed") from exc
     try:
         mailer.send_password_reset(address, with_lang(link, lang), lang)
     except MailError as exc:
         log.error("Could not send the password reset email: %s", exc)
+        from app import ops
+
+        ops.report("email_failed", str(exc), email=address, what="password reset")
         raise ApiError(502, "We could not send the email. Try again later", code="email_failed") from exc

@@ -2,7 +2,7 @@
 
 ## Storage layout
 MongoDB database `farmivo`:
-- **One collection per record type**, named after it: `farms`, `users`, `members`, `barns`, `animals`, `vaccinations`, `treatments`, `vet_visits`, `illnesses`, `reminders`, `breedings`, `weights`, `production`, `feedings`, `transactions`, `notifications`, `devices`. Photos: GridFS `photos.files` / `photos.chunks`.
+- **One collection per record type**, named after it: `farms`, `users`, `members`, `barns`, `animals`, `vaccinations`, `treatments`, `vet_visits`, `illnesses`, `reminders`, `breedings`, `weights`, `production`, `feedings`, `transactions`, `notifications`, `devices`, `feed_items`, `feed_moves`; global: `problems`, `feedback`, `announcements`. Photos: GridFS `photos.files` / `photos.chunks`.
 - `_id` is the record id. Every farm record carries `farm_id` (indexed); devices carry `user_id`.
 - Look at the data in the shell: `use farmivo`, `show collections`, `db.animals.find().pretty()`, `db.vaccinations.find({farm_id: "<id>"})`. Your farm id: `db.users.find()` (one document per Firebase user, `_id` = Firebase UID).
 - Internally the code still addresses records by Firestore-style paths (`farms/<farm_id>/animals`); the Mongo repository turns the last part into the collection name and the parent ids into fields, so the same code also runs on Firestore.
@@ -13,11 +13,11 @@ All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are 
 | Path | Contents |
 |---|---|
 | `farms/{farmId}` | name, currency (3 letters; a farm created without one gets its country's, TND by default), country, address, owner_uid, invite_code (uppercase, unique, e.g. `GVF-7K3P`); old farms may still have member_uids[] (only read for legacy accounts) |
-| `users/{uid}` | farm_id, status (`pending` / `active` / `rejected`, mirrors the member record), email_verified, lang (ar/fr/en of the last request). No `farm_id` = no farm |
+| `users/{uid}` | farm_id, status (`pending` / `active` / `rejected`, mirrors the member record), email_verified, lang (ar/fr/en of the last request), email, app_platform (android/ios), app_version ("1.6.0 (16)"), os_version, device_model, last_seen (from the apps' X-Farmivo-* headers, written at most hourly). No `farm_id` = no farm |
 | `farms/{farmId}/members/{uid}` | uid, email, name, role (`owner` / `manager` / `worker` / `viewer`), status (`pending` / `active` / `rejected`), requested_at, decided_at, decided_by |
 | `users/{uid}/devices/{id}` | token (FCM), platform (android/ios), language (ar/fr/en: the language pushes to this phone use) |
 | `farms/{farmId}/barns` | name (unique per farm), species / species_list (the species it takes; empty = any), capacity (places; more animals are allowed with a reminder), notes |
-| `farms/{farmId}/animals` | farm_code (`01-0007/26`, given by the server), ear_tag (unique per species on the farm; empty → the farm code), name, species, breed, sex, color, date_of_birth or age_class (age by teeth), date_added, origin (`born_on_farm` / purchased), purchase_price, mother_id, father_id, barn_id, last_barn_id (the barn it left), notes, status, status_date, sale_price, buyer, sale_tx_id (its sale entry), recipient, status_notes, photo_url |
+| `farms/{farmId}/animals` | farm_code (`01-0007/26`, given by the server), ear_tag (unique per species on the farm; empty → the farm code), name, species, breed, sex, color, date_of_birth or age_class (age by teeth), date_added, origin (`born_on_farm` / purchased), purchase_price, mother_id, father_id, barn_id, last_barn_id (the barn it left), notes, status, status_date, sale_price, buyer, sale_tx_id (its sale entry), recipient, status_notes, photo_url, for_sale, asking_price, sale_note (offered for sale; ignored once it left the farm) |
 | `farms/{farmId}/vaccinations` | animal_id, vaccine_name, date_given, next_due_date, batch_number, administered_by, notes |
 | `farms/{farmId}/treatments` | animal_id, name, medication, dosage, start_date, end_date, withdrawal_end_date, administered_by, notes |
 | `farms/{farmId}/vet_visits` | animal_id, visit_date, vet_name, reason, diagnosis, notes, follow_up_date |
@@ -27,6 +27,11 @@ All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are 
 | `farms/{farmId}/production` | animal_id (optional), date, product, quantity, unit, notes |
 | `farms/{farmId}/feedings` | animal_id or group_name, date, feed_type, quantity_kg, notes |
 | `farms/{farmId}/transactions` | type (income/expense), category, amount, date, description, barn_id, animal_ids[] (the animals that carry an expense or are sold; animal_id when one), whole_barn / whole_farm (shared by all the animals there when saved), weights[] (feed: share by age) |
+| `farms/{farmId}/feed_items` | name, sack_kg, low_at (warn at this many sacks or fewer), notes |
+| `farms/{farmId}/feed_moves` | feed_id, direction (`in` / `out`), sacks, date, unit_price (in; books the feed expense), supplier, notes, transaction_id (that expense) |
+| `problems` (global) | kind (`server_error` / `email_failed` / `push_failed`), message, at, and details (method, path, uid, trace / email, what / title, devices); older than 90 days removed |
+| `feedback` (global) | uid, email, name, farm_id, farm_name, role, text, screen, lang, app_platform, app_version, os_version, device_model, screenshot_url, status (`new` / `done`) |
+| `announcements` (global) | title_en/fr/ar, body_en/fr/ar, target (all / android / ios), phones (how many it was pushed to) |
 | `farms/{farmId}/reminders` | source_type, source_id, animal_id, title (English), title_key + title_params (server-made reminders, rendered in the reader's language), due_date, status, notified_buckets[] |
 | `farms/{farmId}/notifications` | title, body (English), title_key, body_key, params (rendered in the reader's language), type, animal_id, reminder_id, read |
 

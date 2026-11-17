@@ -56,7 +56,9 @@ sequenceDiagram
 | Create and edit records (POST / PATCH), upload photos, change animal status, record births, mark reminders done | | ✓ | ✓ | ✓ |
 | Delete notifications | | ✓ | ✓ | ✓ |
 | Delete records (animals, health, breeding, growth, production, feeding, reminders) | | | ✓ | ✓ |
-| Finance: transactions, totals, financial report, dashboard `finance` | | | ✓ | ✓ |
+| Finance: transactions, totals, financial report, monthly summary, dashboard `finance` | | | ✓ | ✓ |
+| Feed stock: record sacks in / out | | ✓ | ✓ | ✓ |
+| Feed stock: price per sack (books the expense), see prices | | | ✓ | ✓ |
 | Farm settings (`PATCH /farm`), see the invite code | | | ✓ | ✓ |
 | Members: list, approve, reject, change role (manager, worker, viewer), remove; rotate invite code | | | ✓ | ✓ |
 | Change or remove the owner | | | | (transfer) |

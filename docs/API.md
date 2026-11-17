@@ -135,6 +135,7 @@ Animal (response):
 - `GET /breeds/photo/<species>/<file>.jpg` → the photo (public, no sign-in; cached 7 days by the apps).
 - `GET /age-classes` → `{species: [{key, label, hint}]}` for cattle, sheep, goat, horse, dog and cat (labels in the request's language). Other species are aged by date of birth only.
 - `GET /animals?status=&species=&sex=&barn_id=&q=&limit=` → `[Animal]` sorted by ear tag. `barn_id=none` lists animals in no barn. `status` accepts any animal status or `on_farm`. `q` searches ear tag, name, breed (case-insensitive).
+- **For sale** (Eid al-Adha, market): animals carry `for_sale`, `asking_price`, `sale_note` (set with POST/PATCH like any field). `GET /animals?for_sale=true` lists the animals on the farm offered for sale; an animal that left the farm answers `for_sale: false`. Lists and the animal's page also carry `latest_weight_kg` / `latest_weight_date` (last weighing) for the share text.
 - `POST /animals/move` `{animal_ids: [id] (1–500), barn_id: id | null}` → `{moved, barn_id}`. Puts several animals in a barn at once, or outside (`barn_id: null` = no barn). Workers and above. All or nothing: `404` for an unknown animal or barn, `422` when an animal is not on the farm or the barn is kept for another species.
 - `POST /animals` → `201 Animal`. Body: `{ear_tag? (unique per species on the farm: goat 001 and dog 001 can both exist; empty → the animal's farm number), species (required), age_class? (must exist for the species), purchase_price? (≥ 0; with an origin other than born_on_farm it books one `purchase_animal` expense on date_added, kept in sync on edit), barn_id? (an existing barn; a barn reserved to one species only takes that species), sex (required), name?, breed?, date_of_birth?, date_added? (default today), origin? (default purchased), status? (default active), photo_url?, mother_id? (must be a female animal), father_id? (must be a male animal), notes?}`. `409` if the ear tag is taken by an animal of the same species. `date_of_birth` cannot be in the future.
 - `color?`: coat colour, one of `sardi` (صردي), `adraa` (أدرع), `white`, `brown`, `other`.
@@ -148,6 +149,8 @@ Animal (response):
 - `GET /animals/{id}/growth` → `{animal_id, points: [{date, weight_kg}] (ascending), latest_weight_kg, total_gain_kg, average_daily_gain_kg}` (aggregates null when not computable).
 
 ## Health & vaccination
+
+- `POST /vaccinations/bulk` `{barn_id? , species?, animal_ids?, vaccine_name, date_given, next_due_date?, batch_number?, administered_by?, notes?}` → `201 {created, skipped}`: vaccinate a whole barn (its animals on the farm, optionally one species) or the chosen animals at once; one vaccination and one reminder per animal. `422` without a barn or animals, or when no animal is on the farm. Workers and above.
 
 All record endpoints below support: `GET ""` (list, filters `animal_id`, `date_from`, `date_to`, `limit` ≤ 1000, sorted by the date field, newest first), `POST ""` (`201`), `GET /{id}`, `PATCH /{id}`, `DELETE /{id}` (`204`). Every record has `id`, `created_at`, `updated_at`. `404` if `animal_id` doesn't exist.
 
@@ -197,6 +200,8 @@ An animal that leaves the farm (sold, deceased, donated, gifted, sacrificed) lea
 
 ## Growth & production
 
+- `POST /weights/bulk` `{date? (default today), entries: [{animal_id, weight_kg}] (1–2000), notes?}` → `201 {created}`: a weighing session saved at once (all or nothing: `404` for an unknown animal).
+
 - Weights `/weights`: **animal_id**, **date**, **weight_kg** (>0), notes. Filter by `animal_id`. Chart data: `GET /animals/{id}/growth`.
 - Production `/production`: `animal_id?` (omit for herd/flock-level), **date**, **product**, **quantity** (≥0), `unit?` (defaults by product), notes.
 - `GET /production/summary?product=milk&date_from=&date_to=&animal_id=` → `{product, unit, date_from, date_to, total, days_with_records, average_per_record_day, daily: [{date, total}]}`. Default window: last 30 days.
@@ -208,6 +213,16 @@ An animal that leaves the farm (sold, deceased, donated, gifted, sacrificed) lea
 - `GET /animals/{id}/costs` (manager+) → `{currency, purchase_price (0 when born on the farm), purchase_date, expenses: [{transaction_id, date, category, label, amount (its share), total_amount, shared_with}], expenses_total, health_total (veterinary + medication), total_cost, direct_total (expenses on this animal alone), shared_total (its share of shared expenses), break_even (= total cost, the lowest sale price without a loss, while on the farm), sale_price, sale_date, result (sale − total cost once sold; − total cost once dead or given)}`.
 - `GET /finance/bilan?barn_id=` (manager+) → the herd's balance sheet, all dates, for the farm or one barn: `{currency, barn_id, purchases_total, purchases_count, lost_purchases (price of bought animals that died or were given), capital (= purchases − lost), expenses_by_category (operating, without the purchase transactions), operating_expenses, lost_count, expenses_total (= operating + lost), sales_total, sales_count, other_income (milk, wool…), cash_in, herd_count, herd_value (purchase price + expenses of the animals still on the farm), sold: [{id, ear_tag, farm_code, name, species, date, sale_price (its share in a sale of several: the average price), purchase_price, expenses, total_cost, result, transaction_id}] (newest first), sales: [{transaction_id, date, label, count, amount, average_price, total_cost, result, animals: [sold items]}] (the same animals by sale, newest first), sales_result, profit}` with **profit = (cash_in + herd_value) − (capital + expenses_total)**. The purchase expense the server books from an animal's price is counted once, from the animal; a "purchase_animal" expense entered by hand is capital too (shared between the animals it names, which then carry it in their purchase price and the herd value). On the whole farm, a sale stays counted after its animal is deleted.
 - `GET /finance/summary?date_from=&date_to=` → `{date_from, date_to, currency, income, expenses, net, income_by_category: {cat: amount}, expenses_by_category: {…}, monthly: [{month: "YYYY-MM", income, expenses}]}`. Default window: last 30 days.
+
+### Feed stock
+
+- `GET /feed-stock` → `[{id, name, sack_kg, low_at, notes, balance, low, last_move}]`, the feeds running low first.
+- `/feed-stock/items` CRUD `{name, sack_kg?, low_at? (default 5), notes?}`; deleting a feed deletes its movements (the expenses stay in Finance).
+- `/feed-stock/moves` CRUD `{feed_id, direction: in|out, sacks > 0, date? (default today), unit_price? (in only), supplier?, notes?}` → `{…, feed_name, amount, transaction_id, notice}`. Sacks in with a price book a `feed` expense (shared by the animals like any feed expense) kept in step on edit and delete; deleting that expense in Finance only unlinks it. Out more than the stock → `422 Not enough in stock: N sacks left`. Going to `low_at` or below answers `notice` and notifies the managers (once, when it crosses). Workers may record sacks; a price only from managers (`403`), and workers get `unit_price`/`amount` null.
+
+### Monthly finance summary
+
+- `GET /finance/month-report?month=YYYY-MM` (default this month) → an HTML page (A4, right to left in Arabic) in the caller's language: income, expenses and result against the month before, totals by category, animals sold, every entry. The apps save it as a PDF. Managers and the owner.
 
 ## Dashboard
 
@@ -260,6 +275,15 @@ Push payload (FCM), in the recipient's language (phone `language`, else the user
 
 `GET /reports/{kind}?format=json|csv&date_from=&date_to=` with `kind` = `herd` | `vaccinations` | `financial` | `production` (default range last 90 days; `herd` ignores dates).
 JSON: `{kind, date_from, date_to, columns: [...], rows: [{...}]}`. CSV: `text/csv` attachment — download and hand to the system share sheet.
+
+## Feedback and announcements (signed in, no farm needed)
+
+- `POST /feedback` → `201 {id}`: JSON `{text (1–3000), screen?}` or `multipart/form-data` with the same fields and an optional `screenshot` (JPEG/PNG/WebP, max 5 MB). 10 per hour per account (`429`). Lands in the admin dashboard.
+- `GET /announcements` → `[{id, title, body, sent_at}]`: the admin's announcements of the last 30 days, newest first, in the user's language. The apps show each id once in a dialog.
+
+### App headers
+
+The apps send `X-Farmivo-Platform` (`android`/`ios`), `X-Farmivo-Version` (`1.6.0 (16)`), `X-Farmivo-OS` and `X-Farmivo-Device` with every request; the server keeps the last ones on the user (admin dashboard: app versions, support).
 
 ## Password reset (no sign-in)
 

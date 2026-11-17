@@ -52,9 +52,18 @@ def register_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(Exception)
     def _unexpected(exc: Exception):
-        from pymongo.errors import PyMongoError
+        try:
+            from pymongo.errors import PyMongoError
+        except ImportError:  # the Firestore setup has no pymongo
+            PyMongoError = ()  # type: ignore[assignment,misc]
 
         app.logger.exception("Unhandled error")
+        from flask import g, request
+
+        from app import ops
+
+        identity = g.get("farmivo_identity")
+        ops.report_exception(exc, request.method, request.path, getattr(identity, "uid", None))
         if isinstance(exc, PyMongoError):
             return jsonify({"detail": t("err.db", request_lang())}), 503
         return jsonify({"detail": t("err.internal", request_lang())}), 500

@@ -154,8 +154,12 @@ def _after_write(ctx: Ctx, record: dict) -> None:
 
 
 def _after_delete(ctx: Ctx, record: dict) -> None:
-    """A deleted sale: its animals are back on the farm."""
+    """A deleted sale: its animals are back on the farm. A deleted feed purchase: its stock movement stays,
+    unlinked (app/routers/feed_stock.py)."""
     sales.sync(ctx.repo, ctx.farm_id, record, deleted=True)
+    from app.routers.feed_stock import unlink_expense
+
+    unlink_expense(ctx, record["id"])
 
 
 def _enrich(record: dict) -> dict:
@@ -259,3 +263,24 @@ def finance_summary():
     if start > end:
         raise ApiError(422, "date_from must not be after date_to")
     return out(compute_finance(ctx.repo, ctx.farm_id, start, end))
+
+
+@bp.get("/finance/month-report")
+def month_report():
+    """GET /v1/finance/month-report?month=2026-11 - the monthly finance summary as a printable HTML page in the
+    caller's language (app/month_report.py); the apps save it as a PDF. Defaults to the current month."""
+    from flask import Response
+
+    from app import month_report as report
+
+    ctx = get_ctx()
+    raw = q_str("month")
+    try:
+        month = date.fromisoformat(f"{raw}-01") if raw else today().replace(day=1)
+    except ValueError:
+        raise ApiError(422, [{"loc": ["query", "month"], "msg": "Input should be a month like 2026-11",
+                              "type": "value_error"}]) from None
+    farm = ctx.repo.get("farms", ctx.farm_id) or {}
+    lang = request_lang()
+    page = report.render_html(farm, month, lang, today(), report.data(ctx.repo, ctx.farm_id, month), tx_label)
+    return Response(page, content_type="text/html; charset=utf-8", headers={"Cache-Control": "no-store"})

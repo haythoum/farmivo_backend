@@ -93,6 +93,9 @@ def send_code(repo: Repository, mailer: Mailer, identity: Identity, secret: str)
         lang = normalize((user or {}).get("lang")) or request_lang()
         mailer.send_code(identity.email, code, minutes, lang)
     except MailError as exc:
+        from app import ops
+
+        ops.report("email_failed", str(exc), repo, email=identity.email, uid=identity.uid, what="verification code")
         raise ApiError(502, "We could not send the email. Try again later", code="email_failed") from exc
     repo.set("email_codes", identity.uid, {
         "email": identity.email,

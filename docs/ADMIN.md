@@ -1,7 +1,21 @@
 # Admin dashboard (/admin)
 
-A web page for Quadralens: every farm (owner, members, animals, barns, last activity), every user and their farms,
-the totals, and deleting a farm. It is **off** until a password is set.
+A web page for Quadralens to follow the apps and help the farmers. It is **off** until a password is set.
+
+| Page | What it shows / does |
+|---|---|
+| Overview | What needs a look (problems of the week, feedback to read, new accounts, people seen in the apps), the totals, animals by species, newest farms. |
+| Activity | Week by week: new accounts, new farms, **farms in use** (someone recorded or changed something that week). Farms that **stopped** (used on 2+ days, nothing for 3 weeks: worth a call) and farms created but never used. |
+| Apps | Android / iPhone split, the **app versions in use**, the people still on an **older version** (ask them to update), phone models, people not seen for 30 days. Filled as people open the updated apps (they send their version with every request). |
+| Problems | **Server errors** (a bug: the app said "Something went wrong"; with the request and the traceback), **emails not sent** (Mailjet refused or unreachable: verification codes, password resets) and **pushes not sent** (Firebase). Kept 90 days. |
+| Feedback | What people sent with "Send feedback" in the app: text, screen, screenshot, app version, phone, farm. Mark each one handled. |
+| Farms | Every farm; one farm: members, counts, and its **data** (animals, barns, the last 40 money entries, feed stock) to answer a support question; delete the farm. |
+| Users | Every account with its farms, app version, phone and last visit. **Resend code** (a new verification code; the usual limits: 60 s between codes, 5 an hour) and **Mark checked** (count the email as verified when the code email never arrives and you know the person). |
+| Breed photos | Per species: which breed has its **own photo**, shows the **species' photo** or has **none**; **upload** your own photo for any breed (JPEG, PNG or WebP, resized to 960 px when Pillow is installed on the server, else JPEG only) or remove it. |
+| Announcements | Write a message in English, French and/or Arabic and send it to everyone (or Android / iPhone only): a **push** to every phone, and a **dialog** shown once in the app for 30 days (also on phones that missed the push). Each person reads it in their language. "Stop showing it" removes it from the apps. |
+
+Every form that changes something carries a token made from the admin password, so another web page cannot post
+it for you.
 
 ## Turn it on (server)
 

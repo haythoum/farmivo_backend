@@ -56,16 +56,22 @@ app/
   costs.py           What each animal cost (purchase + its share of expenses, feed weighted by age) and the herd's
                      balance sheet ("bilan": capital, expenses, sales, herd value, real profit)
   sales.py           Sales of several animals in one finance entry: the animals leave the farm, each at the average price
+  month_report.py    The monthly finance summary page (HTML in en/fr/ar; the apps save it as PDF)
+  ops.py             What the admin dashboard watches: problems log (server errors, emails and pushes not sent),
+                     app version per user (X-Farmivo-* headers), weekly activity and farms that stopped
   legal.py           Texts of the public pages (privacy, terms, support, account deletion)
   routers/
     crud.py          Generic CRUD blueprint factory (list/get/create/patch/delete + hooks, newest first)
     animals.py       Animals, farm numbers, status changes (sold, dead, given ... and undo), photo upload, family tree,
                      costs, barn capacity reminder, delete cascade
     barns.py         Barns (species allowed, capacity), age classes, breeds and breed photos (/breeds/photo/... public)
-    health.py        Vaccinations, treatments, vet visits, illnesses, reminders endpoints
+    health.py        Vaccinations (also a whole barn at once), treatments, vet visits, illnesses, reminders endpoints
     breeding.py      Matings, pregnancy, miscarriage, birth recording (creates offspring), breeding rules checks
-    growth.py        Weights, production, feeding, growth stats, production summary
-    finance.py       Transactions (shared by animals, per barn filter, sales), finance summary, balance sheet
+    growth.py        Weights (also a weighing session), production, feeding, growth stats, production summary
+    feed_stock.py    Feed stock in sacks: in (books the feed expense) / out, low-stock warning
+    finance.py       Transactions (shared by animals, per barn filter, sales), finance summary, balance sheet,
+                     monthly summary page
+    support.py       Feedback from the apps (with screenshot) and the admin's announcements
     dashboard.py     Aggregated home screen payload
     members.py       Me, onboarding (create farm with its currency / join with invite code), members and roles
     farm.py          Farm settings, device (FCM token) registration
@@ -82,7 +88,9 @@ app/
     membership.py    Who belongs to which farm, join requests and approvals
     verification.py  6-digit email code after sign-up (Mailjet, services/mailer.py)
     password_reset.py, account.py   Password reset email, account deletion
-  admin/             Admin web dashboard (/admin, read-only except deleting a farm; docs/ADMIN.md)
+  admin/             Admin web dashboard (/admin; docs/ADMIN.md): views.py (overview, farms with their data, users,
+                     delete a farm), pages.py (activity, apps, problems, feedback, breed photos, announcements,
+                     support actions)
 scripts/             Server tools: check_setup, seed_demo, delete_farm, migrate_docs, fetch_breed_photos and the
                      one-off release upgrades (upgrade_2026_11_14, upgrade_2026_11_16, sync_breeding_reminders)
 tests/               pytest suite, runs on the in-memory repository (no database needed)

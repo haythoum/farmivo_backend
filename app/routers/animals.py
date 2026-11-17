@@ -28,7 +28,7 @@ from app.schemas import (
 )
 from app.services.photos import ALLOWED_TYPES
 from app.utils import age_parts, parse_date, today
-from app.web import body, no_content, out, q_int, q_str
+from app.web import body, no_content, out, q_bool, q_int, q_str
 
 bp = Blueprint("animals", __name__)
 
@@ -41,9 +41,23 @@ def barn_names(ctx: Ctx) -> dict[str, str]:
     return {b["id"]: b.get("name", "") for b in ctx.repo.list(path_of(ctx, "barns"))}
 
 
-def render_animal(record: dict, barns: dict[str, str] | None = None) -> AnimalOut:
+def latest_weights(ctx: Ctx, animal_id: str | None = None) -> dict[str, dict]:
+    """Animal id -> its last weighing {"date", "weight_kg"} (one query; one animal with ``animal_id``)."""
+    filters = [("animal_id", "==", animal_id)] if animal_id else None
+    last: dict[str, dict] = {}
+    for w in ctx.repo.list(path_of(ctx, "weights"), filters):
+        key = (str(w.get("date") or ""), str(w.get("created_at") or ""))
+        known = last.get(w["animal_id"])
+        if known is None or key > (str(known.get("date") or ""), str(known.get("created_at") or "")):
+            last[w["animal_id"]] = w
+    return last
+
+
+def render_animal(record: dict, barns: dict[str, str] | None = None,
+                  weights: dict[str, dict] | None = None) -> AnimalOut:
     """Convert a stored animal into AnimalOut, adding the age fields, the age class label (in the request's
-    language) and the barn name. ``barns`` = barn_names(ctx); when omitted the barn name is left empty."""
+    language), the barn name and the last weighing. ``barns`` = barn_names(ctx); when omitted the barn name is
+    left empty. ``weights`` = latest_weights(ctx). An animal that left the farm is never "for sale"."""
     dob = parse_date(record.get("date_of_birth"))
     until = parse_date(record.get("status_date")) if record.get("status") in DEAD_STATUSES else None
     days, months, label = age_parts(dob, until)
@@ -54,6 +68,11 @@ def render_animal(record: dict, barns: dict[str, str] | None = None) -> AnimalOu
         extra["barn_name"] = barns.get(record["barn_id"])
     if barns is not None and record.get("last_barn_id"):
         extra["last_barn_name"] = barns.get(record["last_barn_id"])
+    weighing = (weights or {}).get(record.get("id") or "")
+    if weighing:
+        extra["latest_weight_kg"], extra["latest_weight_date"] = weighing.get("weight_kg"), weighing.get("date")
+    if record.get("status") not in ON_FARM_STATUSES:
+        extra["for_sale"] = False
     return AnimalOut.model_validate({**record, **extra})
 
 
@@ -64,7 +83,7 @@ def render_one(ctx: Ctx, record: dict) -> AnimalOut:
         barn = ctx.repo.get(path_of(ctx, "barns"), record[key]) if record.get(key) else None
         if barn:
             names[barn["id"]] = barn.get("name", "")
-    return render_animal(record, names)
+    return render_animal(record, names, latest_weights(ctx, record.get("id")) if record.get("id") else None)
 
 
 def capacity_notice(ctx: Ctx, barn_id: str | None) -> str | None:
@@ -162,6 +181,7 @@ def list_animals():
     species, sex = q_str("species"), q_str("sex")
     barn = q_str("barn_id")  # a barn id, or 'none' for animals in no barn
     q = q_str("q")  # search ear tag, name or breed
+    for_sale = q_bool("for_sale")  # only the animals on the farm offered for sale
     limit = q_int("limit", 500, ge=1, le=2000)
     filters: list[tuple[str, str, object]] = []
     if status_ == "on_farm":
@@ -177,13 +197,16 @@ def list_animals():
     rows = ctx.repo.list(path_of(ctx, "animals"), filters, order_by="ear_tag")
     if barn == "none":
         rows = [r for r in rows if not r.get("barn_id")]
+    if for_sale:
+        rows = [r for r in rows if r.get("for_sale") and r.get("status") in ON_FARM_STATUSES]
     if q:
         needle = q.lower()
         rows = [
             r for r in rows if any(needle in (r.get(f) or "").lower() for f in ("ear_tag", "farm_code", "name", "breed"))
         ]
     barns = barn_names(ctx)
-    return out([render_animal(r, barns) for r in rows[:limit]])
+    weights = latest_weights(ctx)
+    return out([render_animal(r, barns, weights) for r in rows[:limit]])
 
 
 @bp.post("/animals")

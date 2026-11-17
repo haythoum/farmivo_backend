@@ -65,6 +65,36 @@ vaccinations = build_crud_blueprint(
 )
 bp.register_blueprint(vaccinations, url_prefix="/vaccinations")
 
+
+@bp.post("/vaccinations/bulk")
+def vaccinate_many():
+    """POST /v1/vaccinations/bulk - vaccinate a whole barn (every animal on the farm in it, optionally one species)
+    or the chosen animals at once: one vaccination per animal (each with its reminder). Workers and above.
+    Animals not on the farm are skipped. Returns {"created": n, "skipped": n}."""
+    from app.schemas import ON_FARM_STATUSES, BulkVaccinationIn
+
+    ctx = get_ctx()
+    data = body(BulkVaccinationIn)
+    if data.barn_id:
+        if not ctx.repo.get(path_of(ctx, "barns"), data.barn_id):
+            raise ApiError(404, "Barn not found")
+        animals = ctx.repo.list(path_of(ctx, "animals"), [("barn_id", "==", data.barn_id)])
+        if data.species:
+            animals = [a for a in animals if a.get("species") == data.species.value]
+        if data.animal_ids:
+            chosen = set(data.animal_ids)
+            animals = [a for a in animals if a["id"] in chosen]
+    else:
+        animals = [get_animal_or_404(ctx, i) for i in dict.fromkeys(data.animal_ids)]
+    on_farm = [a for a in animals if a.get("status") in ON_FARM_STATUSES]
+    if not on_farm:
+        raise ApiError(422, "No animal on the farm to vaccinate")
+    fields = data.model_dump(mode="json", exclude={"barn_id", "species", "animal_ids"})
+    for a in on_farm:
+        record = ctx.repo.create(path_of(ctx, "vaccinations"), {**fields, "animal_id": a["id"]})
+        _sync_vaccination(ctx, record)
+    return out({"created": len(on_farm), "skipped": len(animals) - len(on_farm)}, 201)
+
 # ---------------------------------------------------------------- treatments
 treatments = build_crud_blueprint(
     name="treatments",
