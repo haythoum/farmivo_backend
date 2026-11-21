@@ -5,9 +5,9 @@
 ## Delivered
 | Part | Branch | State |
 |---|---|---|
-| Backend (Flask + gunicorn/supervisor, MongoDB, optional MinIO photos, Firebase auth/push) | `feature/initial-api` | Running on the VPS. All feature areas, barns, farm numbers, breeding rules, costs and balance sheet, sales, breed photos, farm members with 4 roles and approval, several farms per account, email code (Mailjet), admin dashboard (<http://51.83.71.157:8000/admin>), problems log, feed stock, monthly PDF summary, announcements; 241 tests, docs |
-| Android (Java) | `feature/initial-app` | All feature areas, offline mode, for sale with WhatsApp sharing, work on many animals, feed stock, monthly PDF; version 3.1.0 (6); built on GitHub Actions on every push (APK in the run), used by the client |
-| iOS (SwiftUI) | `feature/initial-app` | All feature areas, same design and features as Android; version 1.1.0 (4); built and unit-tested on GitHub Actions (macOS) on every push |
+| Backend (Flask + gunicorn/supervisor, MongoDB, optional MinIO photos, Firebase auth/push) | `feature/initial-api` | Running on the VPS. All feature areas, barns, farm numbers, breeding rules, costs and balance sheet, sales, breed photos, farm members with 4 roles and approval, several farms per account, email code (Mailjet), admin dashboard (<http://51.83.71.157:8000/admin>), problems log, feed stock, monthly PDF summary, announcements, cash box, health costs, dashboard charts (`GET /dashboard/charts`); 252 tests, docs |
+| Android (Java) | `feature/initial-app` | All feature areas, offline mode, for sale with WhatsApp sharing, work on many animals, feed stock, monthly PDF, cash box, farm charts, in-app guide (tour, how-tos, questions); version 3.3.0 (8); built on GitHub Actions on every push (APK in the run), used by the client |
+| iOS (SwiftUI) | `feature/initial-app` | All feature areas, same design and features as Android (farm charts with Swift Charts, in-app guide); version 1.3.0 (6); built and unit-tested on GitHub Actions (macOS) on every push |
 | UI mockup | Claude artifact "Farmivo App Mockup" | 15 screens: sign in, dashboard, animals, profile, health, breeding, growth; create account, email code, create or join a farm, waiting for approval, members, approve with a role |
 
 ## Be aware: what was NOT verified
@@ -125,3 +125,10 @@ The apps cannot delete a farm yet (planned, with an admin dashboard). On the ser
 - **Cash box** (caisse, `/v1/cash`): the starting capital and top-ups (any worker can add money), then every expense takes from it and every income adds to it; Finance shows the balance.
 - Apps: cost field on health forms (managers), cash box card and "Add money to the cash box", nicer empty-farm sheep (outline, woolly).
 - Deploy: `git pull`, `sudo supervisorctl restart farmivo`, then once `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.upgrade_2026_11_21` (sale entries for animals sold without one).
+
+## 21 Nov 2026, second release: farm charts and the guide
+
+Looked at the Saudi app Throf (home and finance KPIs, help screen with FAQ, onboarding) and similar livestock apps; Farmivo already had their record keeping, so this release works on the interface:
+- **Farm charts** on Home (`GET /v1/dashboard/charts`, `app/insights.py`): key figures (birth rate, mortality, daily gain, milk this month vs last, cost and profit per animal), animals over 12 months, births · deaths · sales, ages, milk of 14 days, income and expenses over 6 months. Computed from existing records: nothing new to type.
+- **Guide in the apps**: a 4-page tour on first use, Me › Guide and help with 12 how-to topics, 8 questions and search, in Arabic, French and English, offline.
+- Versions: Android 3.3.0 (8), iOS 1.3.0 (6). Deploy: `git pull`, `sudo supervisorctl restart farmivo` (no script this time).

@@ -1487,3 +1487,29 @@ GET /v1/cash
  "balance": 15750, "moves": [{"direction": "in", "amount": 1000, "date": "2026-11-07", "who": "Ali", "by": "Ali"}]}
 ```
 Every expense and income recorded from `since` on changes the balance by itself. "Take money out" (managers, owner) records money taken for something else than the farm.
+
+## 26. Farm charts (Home, under the tiles)
+
+Home loads, with its other calls:
+```http
+GET /v1/dashboard/charts
+Accept-Language: fr
+```
+(answer: see API.md › Dashboard charts). The apps draw:
+
+| Part | From | Who |
+|---|---|---|
+| Key figures (scroll sideways): births + birth rate, deaths + mortality (red above 5 %), daily gain (g/day) + animals weighed, milk this month ▲/▼ vs last month, cost per animal this month, profit per animal over 12 months | `kpis` | money figures: managers and owner |
+| Animals on the farm (line, 12 months, "+5 in 12 months") | `herd_trend` | everyone |
+| Births, deaths and sales (bars, 6 months) | `movements` | everyone |
+| Ages (ring: under 6 months, 6–12 months, 1–2 years, over 2 years, unknown) | `age_groups` | everyone |
+| Milk (bars, 14 days, total) | `milk` | everyone, only when milk was recorded |
+| Income and expenses (bars, 6 months, "This month: +350 TND") | `finance` | managers and owner (`null` for others) |
+
+Touching a chart shows the numbers of that month or slice. Charts run left to right in Arabic too. Without internet the last answer saved on the phone is shown.
+
+## 27. Guide and help (in the apps, no server)
+
+- **Tour**: the first time the main screen opens on a phone, four full-screen pages (your farm in your pocket, vaccines reminders, charts, offline and team) with Skip / Next / Start. Not shown again on that phone.
+- **Me › Guide and help** (also Home › Get started on a new farm): search; "Watch the tour again"; 12 how-to topics (start your farm, animals, health, matings and births, weights and milk, many animals, selling, money and cash box, feed stock, team and roles, without internet, reports), each a sheet with numbered steps and a tip; 8 frequent questions; Help and support (quadralens.tn).
+- Content: JSON in English, French and Arabic written by `tools/make_guide.py` in the Android repo (Android `assets/guide/`, iOS data assets `GuideEN/FR/AR`). To change a text, edit the script, run it once for both apps and release the apps.
