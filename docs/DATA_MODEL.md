@@ -27,6 +27,7 @@ All timestamps are ISO-8601 UTC strings (`created_at`, `updated_at`); dates are 
 | `farms/{farmId}/production` | animal_id (optional), date, product, quantity, unit, notes |
 | `farms/{farmId}/feedings` | animal_id or group_name, date, feed_type, quantity_kg, notes |
 | `farms/{farmId}/transactions` | type (income/expense), category, amount, date, description, barn_id, animal_ids[] (the animals that carry an expense or are sold; animal_id when one), whole_barn / whole_farm (shared by all the animals there when saved), weights[] (feed: share by age) |
+| `farms/{farmId}/cash_moves` | direction (`in` money put in: capital, top-up / `out` taken out), amount, date, who, note, by (member who saved it). The cash box balance is computed: put in − out + income − expenses since the first money put in |
 | `farms/{farmId}/feed_items` | name, sack_kg, low_at (warn at this many sacks or fewer), notes |
 | `farms/{farmId}/feed_moves` | feed_id, direction (`in` / `out`), sacks, date, unit_price (in; books the feed expense), supplier, notes, transaction_id (that expense) |
 | `problems` (global) | kind (`server_error` / `email_failed` / `push_failed`), message, at, and details (method, path, uid, trace / email, what / title, devices); older than 90 days removed |

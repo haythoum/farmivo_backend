@@ -400,6 +400,18 @@ Pure functions over the repository (no Flask), used by the routers and the scrip
 | `data(repo, farm_id, month)` | The month's entries and totals, the month before's totals, the animals sold. |
 | `render_html(farm, month, lang, made_on, info, label)` | The printable A4 page (right to left in Arabic) the apps turn into a PDF. |
 
+### app/health_costs.py: what health work cost
+
+| Name | Description |
+|---|---|
+| `KINDS` | vaccinations → `veterinary`, treatments → `medication`, vet_visits → `veterinary` (category, date field, name field, description prefix). |
+| `guard(ctx)` | 403 when someone who may not see money (worker, viewer) sends `cost`. |
+| `description(collection, record, animal_label)`, `_label` | "Vaccination: PPR (03-0001)" (translated when shown: `finance.tx_label`, keys `tx.vaccination`, `tx.treatment`, `tx.vet_visit`). |
+| `sync(ctx, collection, record)` | Creates, updates or deletes the record's expense (through `finance._prepare`, carried by the animal); returns its id. |
+| `hooks(collection, after_write, after_delete)` | The CRUD hooks of a health collection: `before_create` / `before_update` (guard; a worker's edit keeps the cost; `transaction_id` kept), `write` (expense in step, then the collection's own hook: reminders), `delete`, `enrich` (cost hidden from workers and viewers). |
+| `unlink(ctx, tx_id)` | The expense was deleted in Finance: the record loses its cost and link. |
+| `book_bulk(ctx, vaccine, date, cost, animal_ids)` | A whole barn vaccinated with a cost: one `veterinary` expense shared by the animals ("Vaccination: PPR (12 animals)", `tx.vaccination_many`). |
+
 ## 10. app/services
 
 ### 10.1 services/reminders.py
@@ -769,6 +781,15 @@ CRUD from `build_crud_blueprint` (collection `breedings`, date field `mating_dat
 | `/v1/feed-stock/moves` (CRUD) | `_feed`, `balance`, `_check`, `_before_move_create`, `_before_move_update`, `_after_move_write`, `_after_move_delete`, `_move_view` | Sacks in/out; out never more than the stock (422); a price only from managers (403) and hidden from workers; crossing `low_at` notifies the managers once (`push.feed_low_*`) and answers `notice`. |
 | | `expense_text`, `sync_expense`, `unlink_expense`, `r2` | Sacks in with a price book the `feed` expense (through `finance._prepare`, shared like any feed); edit/delete keep it in step; an expense deleted in Finance unlinks the movement. |
 
+### 11.12c routers/cash.py: the cash box
+
+| Route | Function | Notes |
+|---|---|---|
+| `GET /v1/cash` | `get_cash`, `cash_box`, `r2` | Managers, owner. Counted from the first money put in (`since`): put in − taken out + income − expenses (purchases included) = `balance`; the last 100 movements. |
+| `/v1/cash/moves` (CRUD) | `_before_create` (records `by` = `_member_name`; a worker cannot take money out: 403 `err.cash_out_forbidden`) | `CashMoveBase`: direction `in` (capital, top-up) / `out`, amount, date, who, note. POST worker+, the rest manager+ (`permissions.required_role`). |
+
+`CashMoveBase`, `CashMoveUpdate`, `CashMoveOut` (`by`), `CashBoxOut` are in `schemas.py`. A sale at 0 is now an entry: `change_status` books an `animal_sale` income of the price or 0; `TransactionBase` accepts 0 only for an income `animal_sale` (`_amount`, `val.amount_positive`); `sales.sold_without_price(animal, repo, farm_id)` also accepts an animal whose own entry is at 0 (a later sale entry replaces it). `finance._AUTO` / `_AUTO_CATEGORIES` translate the server's own descriptions (purchase, sale, vaccination, treatment, vet visit, feed bought) per category.
+
 ### 11.12b routers/support.py
 
 | Route | Function | Notes |
@@ -798,6 +819,7 @@ Run on the server from the project folder with the project's virtualenv, for exa
 | `scripts/delete_farm.py` | `describe`, `contents`, `_owner`, `main()` | Lists farms (`--find`), shows what one holds (`--dry-run`), deletes it after typing its name. |
 | `scripts/fetch_breed_photos.py` | `http_get`, `api`, `lead_photo`, `credit`, `fetch_one`, `run`, `main()` | Downloads each breed's free JPEG lead photo from Wikipedia (User-Agent as Wikimedia asks), 480 px, with author and licence in `credits.json`; species photo `_species.jpg`; never replaces a photo put there by hand; `--force`, `--species`. Prints which breeds got their own photo. |
 | `scripts/upgrade_2026_11_14.py` | `number_animals`, `main()` | Farm numbers for animals that have none. |
+| `scripts/upgrade_2026_11_21.py` | `upgrade`, `main()` | Gives every animal marked sold without a sale entry its entry (its price, or 0), so it shows in the operations; safe to run twice. |
 | `scripts/upgrade_2026_11_16.py` | `upgrade`, `check`, `main()` | Sells the animals of sale entries entered before 16 Nov (`sales.sync`); `--check` prints the database, farms, income entries and their animals, and animals named in several sales. |
 | `scripts/sync_breeding_reminders.py` | `sync_all`, `main()` | Breeding reminders of every farm in line with the November rules. |
 | `scripts/migrate_docs.py` | `main()` | One-off move from the first version's single `docs` collection into one collection per type. Already-copied records are skipped; `--drop` removes `docs` once everything has been copied. |
@@ -819,6 +841,7 @@ Run on the server from the project folder with the project's virtualenv, for exa
 | `tests/test_i18n.py` | Languages: every catalog entry has en/fr/ar with the same placeholders, Accept-Language negotiation, fallbacks, nested `ref` rendering, translated error details and validation messages, device and user language stored, pushes in each recipient's language (join, approval), stored notifications and reminder titles rendered per reader, reminder push body (animal named once), Arabic RTL email, the FCM payload shape, join requests hidden from workers. |
 | `tests/test_account.py` | `DELETE /v1/me`: member (farm kept), pending requester, user without a farm (email code removed), lone owner (farm records and photos gone, pending requester detached), owner with active members (409 in en/fr/ar, nothing deleted), owner after transfer, Firebase failure still 204, 401 without a token. Public pages: each page in each language (`lang`, `dir="rtl"` for Arabic, contact address, language switch) and the language from Accept-Language. The `auth_admin` fixture records Firebase deletions; `photo_store` is shared by the clients. |
 | `tests/test_nov18.py` | App version headers (written once an hour), versions and older ones, a server error / failed email recorded, old problems pruned, an announcement pushed and listed per language (bad form token 400), every new admin page opens, weekly activity and stopped farms, support resend code / mark checked, breed photo upload (resized JPEG) and remove, animals for sale with their last weight, a whole barn vaccinated, weighing session, several animals moved, feed stock (expense booked and kept in step, out limited, low-stock notice and one push, expense deleted in Finance unlinks, workers without prices), the monthly summary page in en and ar. |
+| `tests/test_nov21.py` | Vaccination cost booked, changed, removed and translated; treatment and vet visit costs, delete, unlink from Finance; whole-barn vaccination cost shared; workers without money (403, hidden, kept); a sale at 0 is an entry with its label and a price later, an expense at 0 refused; the cash box (since, put in, income, expenses, worker top-up, no take-out, no view, take-out); the 21 Nov upgrade. |
 | `tests/test_mongo_repository.py` | `MongoRepository` on `mongomock` (skipped if it isn't installed): CRUD, filters, farm isolation, `set` keeping `created_at`, one collection per type with `farm_id` / `user_id`. |
 
 ---

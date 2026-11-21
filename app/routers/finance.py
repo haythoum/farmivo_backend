@@ -8,7 +8,7 @@ import re
 
 from flask import Blueprint
 
-from app import costs, sales
+from app import costs, health_costs, sales
 from app.deps import Ctx, get_ctx
 from app.errors import ApiError
 from app.i18n import request_lang, t
@@ -33,7 +33,18 @@ _AUTO = [
     (re.compile(r"^Purchase of (?P<animal>.+)$"), "tx.purchase"),
     (re.compile(r"^Sale of (?P<animal>.+) to (?P<buyer>.+)$"), "tx.sale_to"),
     (re.compile(r"^Sale of (?P<animal>.+)$"), "tx.sale"),
+    (re.compile(r"^Vaccination: (?P<name>.+) \((?P<n>\d+) animals\)$"), "tx.vaccination_many"),
+    (re.compile(r"^Vaccination: (?P<name>.+) \((?P<animal>[^()]+)\)$"), "tx.vaccination"),
+    (re.compile(r"^Treatment: (?P<name>.+) \((?P<animal>[^()]+)\)$"), "tx.treatment"),
+    (re.compile(r"^Vet visit: (?P<name>.+) \((?P<animal>[^()]+)\)$"), "tx.vet_visit"),
+    (re.compile(r"^Feed bought: (?P<feed>.+), (?P<sacks>[\d.]+) sacks \((?P<supplier>.+)\)$"), "tx.feed_from"),
+    (re.compile(r"^Feed bought: (?P<feed>.+), (?P<sacks>[\d.]+) sacks$"), "tx.feed"),
 ]
+# Which categories each text belongs to (a typed description that looks alike is kept as typed).
+_AUTO_CATEGORIES = {"tx.purchase": {costs.PURCHASE_CATEGORY}, "tx.sale_to": {costs.SALE_CATEGORY},
+                    "tx.sale": {costs.SALE_CATEGORY}, "tx.vaccination_many": {"veterinary"},
+                    "tx.vaccination": {"veterinary"}, "tx.treatment": {"medication"}, "tx.vet_visit": {"veterinary"},
+                    "tx.feed_from": {"feed"}, "tx.feed": {"feed"}}
 
 
 def tx_label(tx: dict, lang: str) -> str | None:
@@ -43,8 +54,8 @@ def tx_label(tx: dict, lang: str) -> str | None:
         return None
     for pattern, key in _AUTO:
         m = pattern.match(text)
-        if m and tx.get("category") in (costs.PURCHASE_CATEGORY, costs.SALE_CATEGORY):
-            return t(key, lang, **m.groupdict())
+        if m and tx.get("category") in _AUTO_CATEGORIES.get(key, set()):
+            return t(key, lang, **{k: v or "" for k, v in m.groupdict().items()})
     return text
 
 
@@ -160,6 +171,7 @@ def _after_delete(ctx: Ctx, record: dict) -> None:
     from app.routers.feed_stock import unlink_expense
 
     unlink_expense(ctx, record["id"])
+    health_costs.unlink(ctx, record["id"])
 
 
 def _enrich(record: dict) -> dict:

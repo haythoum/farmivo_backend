@@ -1458,3 +1458,32 @@ GET /v1/announcements
 [{"id": "a1", "title": "Aid Mubarak", "body": "Mark your sheep for sale in Farmivo …", "sent_at": "2026-11-17T10:00:00+00:00"}]
 ```
 The app shows each id once in a dialog (Android: bell icon; iOS: bell and the title) and remembers it.
+
+## 23. What health work cost (managers, owner)
+
+The vaccination, treatment and vet visit forms have **Cost** (only for managers and the owner):
+```http
+POST /v1/vaccinations
+{"animal_id": "<id>", "vaccine_name": "PPR", "date_given": "2026-11-20", "cost": 12.5}
+```
+→ `201 {…, "transaction_id": "<expense>"}`: Finance gets the expense "Vaccination: PPR (03-0001)" (shown in the reader's language) carried by that animal, so the animal's costs and the balance sheet include it. Changing the cost changes the expense; clearing it or deleting the record deletes it. Vaccinate the whole barn with a cost: one expense for all, shared by the animals vaccinated.
+
+## 24. A sale at 0
+
+Animal › Change status › Sold, with price 0 or empty → the sale entry is booked at 0: the animal shows in Finance's operations ("Sale of 03-0001", +0) and in the sales with its number. Its price can be typed later in that entry; the animal gets it.
+
+## 25. Cash box (Finance › Cash box)
+
+```http
+POST /v1/cash/moves
+{"amount": 15000, "date": "2026-11-01", "who": "Jamil", "note": "Starting capital"}
+```
+Later top-ups the same way (workers too: Me › Add money to the cash box). Then:
+```http
+GET /v1/cash
+```
+```json
+{"currency": "TND", "since": "2026-11-01", "put_in": 16000, "taken_out": 0, "income": 150, "expenses": 400,
+ "balance": 15750, "moves": [{"direction": "in", "amount": 1000, "date": "2026-11-07", "who": "Ali", "by": "Ali"}]}
+```
+Every expense and income recorded from `since` on changes the balance by itself. "Take money out" (managers, owner) records money taken for something else than the farm.

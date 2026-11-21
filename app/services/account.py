@@ -27,7 +27,7 @@ log = logging.getLogger("farmivo.account")
 FARM_COLLECTIONS = (
     "animals", "barns", "vaccinations", "treatments", "vet_visits", "illnesses", "reminders", "breedings",
     "weights", "production", "feedings", "transactions", "notifications", "members", "counters",
-    "feed_items", "feed_moves",
+    "feed_items", "feed_moves", "cash_moves",
 )
 
 

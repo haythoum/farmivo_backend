@@ -33,7 +33,7 @@ SEEN_EVERY = timedelta(hours=1)
 # What the people of a farm record themselves (not notifications, members or counters the server writes).
 ACTIVITY_COLLECTIONS = (
     "animals", "barns", "vaccinations", "treatments", "vet_visits", "illnesses", "breedings", "weights",
-    "production", "feedings", "transactions", "feed_items", "feed_moves",
+    "production", "feedings", "transactions", "feed_items", "feed_moves", "cash_moves",
 )
 CLIENT_HEADERS = {
     "app_platform": "X-Farmivo-Platform", "app_version": "X-Farmivo-Version",

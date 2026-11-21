@@ -1,4 +1,4 @@
-# Project status (as of 18 Nov 2026)
+# Project status (as of 21 Nov 2026)
 
 **App id:** `com.quadralens.farmivo` (Android + iOS). **Firebase project:** `farmivo-4d932` (client config files committed in the app repos). Still needed: the backend service-account key, Email/Password sign-in enabled, APNs key for iOS push, a MongoDB URI.
 
@@ -117,3 +117,11 @@ The apps cannot delete a farm yet (planned, with an admin dashboard). On the ser
 - GitHub Actions builds both apps on every push (`ci-status` branch: last result).
 - Dashboard link: <http://51.83.71.157:8000/admin>.
 - Deploy: `git pull`, `sudo supervisorctl restart farmivo`. Optional: `/home/ubuntu/farmivo/venvfarmivo/bin/pip install Pillow` so uploaded breed photos of any format are resized (without it only JPEG is accepted, as is).
+
+## 21 Nov 2026 release (client feedback)
+
+- **What health work cost**: a cost on a vaccination, a treatment or a vet visit books the animal's expense in Finance by itself (`app/health_costs.py`); a whole barn vaccinated with a cost books one expense shared by the animals. Managers and owner only.
+- **A sale at 0 is an entry**: an animal marked sold without a price (or at 0) now has its sale entry in Finance: it shows in the operations with its number and counts as sold; the price can be set later in the entry.
+- **Cash box** (caisse, `/v1/cash`): the starting capital and top-ups (any worker can add money), then every expense takes from it and every income adds to it; Finance shows the balance.
+- Apps: cost field on health forms (managers), cash box card and "Add money to the cash box", nicer empty-farm sheep (outline, woolly).
+- Deploy: `git pull`, `sudo supervisorctl restart farmivo`, then once `/home/ubuntu/farmivo/venvfarmivo/bin/python -m scripts.upgrade_2026_11_21` (sale entries for animals sold without one).

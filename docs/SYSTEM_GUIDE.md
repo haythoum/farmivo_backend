@@ -94,6 +94,7 @@ flowchart TB
 | `check_setup` | Checks settings, MongoDB, Firebase key step by step |
 | `fetch_breed_photos` | Downloads the breed photos (once; again with `--force`) |
 | `upgrade_2026_11_14` | Farm numbers for existing animals |
+| `upgrade_2026_11_21` | Sale entries (price or 0) for animals sold without one |
 | `upgrade_2026_11_16` (`--check`) | Sells the animals of sale entries entered before 16 Nov; `--check` lists sale entries and their animals |
 | `sync_breeding_reminders` | Breeding reminders after the November breeding rules |
 | `delete_farm`, `seed_demo`, `migrate_docs` | Admin: delete one farm, demo data, old storage layout |

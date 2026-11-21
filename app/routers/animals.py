@@ -350,12 +350,14 @@ def change_status(animal_id: str):
         for other, price in sales.prices(rest).items():
             ctx.repo.update(path_of(ctx, "animals"), other, {"sale_price": price})
         patch["sale_tx_id"] = None
-    elif status == "sold" and change.sale_price:
+    elif status == "sold":
+        # Every sale is an entry in Finance, also at 0 (given for nothing, price not known yet): the animal then
+        # shows in the operations and counts as sold.
         label = animal.get("name") or animal.get("ear_tag")
         fields = {
             "type": "income",
             "category": "animal_sale",
-            "amount": change.sale_price,
+            "amount": float(change.sale_price or 0),
             "date": change.date.isoformat(),
             "description": f"Sale of {label}" + (f" to {change.buyer}" if change.buyer else ""),
             "animal_id": animal_id,

@@ -451,6 +451,8 @@ class VaccinationBase(Strict):
     batch_number: str | None = Field(default=None, max_length=60)
     administered_by: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=1000)
+    # What it cost: booked in Finance as this animal's expense by itself (app/health_costs.py). Managers / owner.
+    cost: float | None = Field(default=None, ge=0, le=1e9)
 
     @model_validator(mode="after")
     def _due_after_given(self) -> "VaccinationBase":
@@ -474,6 +476,8 @@ class BulkVaccinationIn(Strict):
     batch_number: str | None = Field(default=None, max_length=60)
     administered_by: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=1000)
+    # The whole vaccination's cost (all animals together): one expense shared by the animals vaccinated.
+    cost: float | None = Field(default=None, ge=0, le=1e9)
 
     @model_validator(mode="after")
     def _who(self) -> "BulkVaccinationIn":
@@ -487,8 +491,8 @@ class BulkVaccinationIn(Strict):
 
 
 class VaccinationOut(VaccinationBase, Record):
-    """Vaccination as returned."""
-    pass
+    """Vaccination as returned (``transaction_id``: the expense of its cost)."""
+    transaction_id: str | None = None
 
 
 class TreatmentBase(Strict):
@@ -502,14 +506,16 @@ class TreatmentBase(Strict):
     withdrawal_end_date: Date | None = None  # milk/meat withdrawal period
     administered_by: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=1000)
+    # What it cost: booked in Finance as this animal's expense by itself (app/health_costs.py). Managers / owner.
+    cost: float | None = Field(default=None, ge=0, le=1e9)
 
 
 TreatmentUpdate = make_partial(TreatmentBase, "TreatmentUpdate")
 
 
 class TreatmentOut(TreatmentBase, Record):
-    """Treatment as returned."""
-    pass
+    """Treatment as returned (``transaction_id``: the expense of its cost)."""
+    transaction_id: str | None = None
 
 
 class VetVisitBase(Strict):
@@ -521,14 +527,16 @@ class VetVisitBase(Strict):
     diagnosis: str | None = Field(default=None, max_length=500)
     notes: str | None = Field(default=None, max_length=1000)
     follow_up_date: Date | None = None
+    # What it cost: booked in Finance as this animal's expense by itself (app/health_costs.py). Managers / owner.
+    cost: float | None = Field(default=None, ge=0, le=1e9)
 
 
 VetVisitUpdate = make_partial(VetVisitBase, "VetVisitUpdate")
 
 
 class VetVisitOut(VetVisitBase, Record):
-    """Vet visit as returned."""
-    pass
+    """Vet visit as returned (``transaction_id``: the expense of its cost)."""
+    transaction_id: str | None = None
 
 
 class IllnessBase(Strict):
@@ -778,6 +786,45 @@ class FeedMoveOut(FeedMoveBase, Record):
     notice: str | None = None  # only after a save: "Barley: 3 sacks left" when the stock is low
 
 
+# ------------------------------------------------------------------ cash box
+class CashMoveBase(Strict):
+    """Money put into the farm's cash box (``in``: the starting capital, a top-up) or taken out of it for something
+    else than the farm (``out``). The farm's income and expenses then add to / take from the box by themselves."""
+    direction: str = Field(default="in", pattern="^(in|out)$")
+    amount: float = Field(gt=0, le=1e12)
+    date: Date = Field(default_factory=today)
+    who: str | None = Field(default=None, max_length=120)  # who brought or took the money
+    note: str | None = Field(default=None, max_length=300)
+
+    @field_validator("date")
+    @classmethod
+    def _not_future(cls, v: Date) -> Date:
+        if v > today():
+            raise ValueError("date cannot be in the future")
+        return v
+
+
+CashMoveUpdate = make_partial(CashMoveBase, "CashMoveUpdate")
+
+
+class CashMoveOut(CashMoveBase, Record):
+    """A cash box movement as returned (``by``: the name of the member who saved it)."""
+    by: str | None = None
+
+
+class CashBoxOut(BaseModel):
+    """GET /v1/cash: what is in the cash box. Counted from the first money put in (``since``): money put in,
+    minus money taken out, plus the farm's income, minus its expenses (purchases of animals included)."""
+    currency: str
+    since: Date | None = None
+    put_in: float = 0
+    taken_out: float = 0
+    income: float = 0
+    expenses: float = 0
+    balance: float = 0
+    moves: list[CashMoveOut] = []
+
+
 # ------------------------------------------------------------------ finance
 class TransactionBase(Strict):
     """Income/expense body. An expense can be for the whole farm, for a barn (``barn_id``) or for animals:
@@ -786,13 +833,20 @@ class TransactionBase(Strict):
     between those animals: each animal's file shows its share."""
     type: TransactionType
     category: str = Field(min_length=1, max_length=60)
-    amount: float = Field(gt=0, le=1e12)
+    # 0 only for a sale of animals (an animal given away for nothing, or sold before its price is known).
+    amount: float = Field(ge=0, le=1e12)
     date: Date
     description: str | None = Field(default=None, max_length=300)
     animal_id: str | None = None
     barn_id: BarnRef = None
     whole_barn: bool = False
     animal_ids: list[str] = Field(default_factory=list, max_length=2000)
+
+    @model_validator(mode="after")
+    def _amount(self) -> "TransactionBase":
+        if self.amount <= 0 and not (self.type == TransactionType.income and self.category == "animal_sale"):
+            raise ValueError("The amount must be more than 0")
+        return self
 
 
 TransactionUpdate = make_partial(TransactionBase, "TransactionUpdate")

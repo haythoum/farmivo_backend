@@ -7,6 +7,7 @@ from datetime import date, timedelta
 
 from flask import Blueprint
 
+from app import health_costs
 from app.deps import Ctx, get_ctx
 from app.errors import ApiError
 from app.i18n import request_lang
@@ -60,8 +61,8 @@ vaccinations = build_crud_blueprint(
     update_model=VaccinationUpdate,
     out_model=VaccinationOut,
     date_field="date_given",
-    after_write=_sync_vaccination,
-    after_delete=lambda ctx, rec: delete_reminder(ctx.repo, ctx.farm_id, f"vacc_{rec['id']}"),
+    **health_costs.hooks("vaccinations", after_write=_sync_vaccination,
+                         after_delete=lambda ctx, rec: delete_reminder(ctx.repo, ctx.farm_id, f"vacc_{rec['id']}")),
 )
 bp.register_blueprint(vaccinations, url_prefix="/vaccinations")
 
@@ -74,6 +75,7 @@ def vaccinate_many():
     from app.schemas import ON_FARM_STATUSES, BulkVaccinationIn
 
     ctx = get_ctx()
+    health_costs.guard(ctx)
     data = body(BulkVaccinationIn)
     if data.barn_id:
         if not ctx.repo.get(path_of(ctx, "barns"), data.barn_id):
@@ -89,11 +91,14 @@ def vaccinate_many():
     on_farm = [a for a in animals if a.get("status") in ON_FARM_STATUSES]
     if not on_farm:
         raise ApiError(422, "No animal on the farm to vaccinate")
-    fields = data.model_dump(mode="json", exclude={"barn_id", "species", "animal_ids"})
+    fields = data.model_dump(mode="json", exclude={"barn_id", "species", "animal_ids", "cost"})
     for a in on_farm:
         record = ctx.repo.create(path_of(ctx, "vaccinations"), {**fields, "animal_id": a["id"]})
         _sync_vaccination(ctx, record)
-    return out({"created": len(on_farm), "skipped": len(animals) - len(on_farm)}, 201)
+    # The whole vaccination's cost: one expense shared by the animals vaccinated.
+    tx_id = health_costs.book_bulk(ctx, data.vaccine_name, data.date_given.isoformat(), float(data.cost or 0),
+                                   [a["id"] for a in on_farm])
+    return out({"created": len(on_farm), "skipped": len(animals) - len(on_farm), "transaction_id": tx_id}, 201)
 
 # ---------------------------------------------------------------- treatments
 treatments = build_crud_blueprint(
@@ -103,6 +108,7 @@ treatments = build_crud_blueprint(
     update_model=TreatmentUpdate,
     out_model=TreatmentOut,
     date_field="start_date",
+    **health_costs.hooks("treatments"),
 )
 bp.register_blueprint(treatments, url_prefix="/treatments")
 
@@ -133,8 +139,8 @@ vet_visits = build_crud_blueprint(
     update_model=VetVisitUpdate,
     out_model=VetVisitOut,
     date_field="visit_date",
-    after_write=_sync_vet_visit,
-    after_delete=lambda ctx, rec: delete_reminder(ctx.repo, ctx.farm_id, f"vet_{rec['id']}"),
+    **health_costs.hooks("vet_visits", after_write=_sync_vet_visit,
+                         after_delete=lambda ctx, rec: delete_reminder(ctx.repo, ctx.farm_id, f"vet_{rec['id']}")),
 )
 bp.register_blueprint(vet_visits, url_prefix="/vet-visits")
 

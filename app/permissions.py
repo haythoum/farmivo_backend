@@ -29,7 +29,7 @@ def required_role(method: str, path: str) -> str:
     """Lowest role allowed to call ``method path`` (path with or without the /v1 prefix).
 
     - owner only: transferring ownership, deleting the farm (DELETE /farm)
-    - manager+: finance, an animal's costs, financial report, members and invite code, farm settings (PATCH /farm), barns
+    - manager+: finance, the cash box (except putting money in: worker+), an animal's costs, financial report, members and invite code, farm settings (PATCH /farm), barns
       (POST/PATCH/DELETE), any DELETE of farm records (except notifications)
     - worker+: creating and editing records (POST/PATCH), deleting notifications
     - viewer+: reading (GET) everything else, marking notifications read
@@ -40,6 +40,10 @@ def required_role(method: str, path: str) -> str:
         return "owner"  # transferring ownership, deleting the farm
     if p.startswith("/animals/") and p.endswith("/costs"):
         return "manager"  # what an animal cost: finance
+    if p == "/cash/moves" and method == "POST":
+        return "worker"  # anyone who works on the farm may put money in the cash box (not see it)
+    if p.startswith("/cash"):
+        return "manager"  # the cash box: finance
     if p.startswith(_MANAGER_PREFIXES):
         return "manager"
     if method in ("GET", "HEAD", "OPTIONS"):

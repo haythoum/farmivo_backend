@@ -182,7 +182,7 @@ def test_vaccinate_a_whole_barn(make_client):
     c.post(f"/v1/animals/{ids[2]}/status", json={"status": "deceased"})
     r = c.post("/v1/vaccinations/bulk", json={"barn_id": barn["id"], "species": "sheep", "vaccine_name": "Enterotoxemia",
                                               "date_given": "2026-11-15", "next_due_date": "2027-05-15"})
-    assert r.status_code == 201 and r.json == {"created": 2, "skipped": 0}  # the dead one left the barn
+    assert r.status_code == 201 and r.json["created"] == 2 and r.json["skipped"] == 0  # the dead one left the barn
     vaccinated = {v["animal_id"] for v in c.get("/v1/vaccinations").json}
     assert vaccinated == set(ids[:2])
     assert len([x for x in c.get("/v1/reminders").json if x.get("source_type") == "vaccination"]) == 2

@@ -58,6 +58,9 @@ sequenceDiagram
 | Delete records (animals, health, breeding, growth, production, feeding, reminders) | | | ✓ | ✓ |
 | Finance: transactions, totals, financial report, monthly summary, dashboard `finance` | | | ✓ | ✓ |
 | Feed stock: record sacks in / out | | ✓ | ✓ | ✓ |
+| Cash box: put money in (top-up) | | ✓ | ✓ | ✓ |
+| Cash box: see it, take money out, change or delete a movement | | | ✓ | ✓ |
+| Health records: enter or see what it cost (`cost`) | | | ✓ | ✓ |
 | Feed stock: price per sack (books the expense), see prices | | | ✓ | ✓ |
 | Farm settings (`PATCH /farm`), see the invite code | | | ✓ | ✓ |
 | Members: list, approve, reject, change role (manager, worker, viewer), remove; rotate invite code | | | ✓ | ✓ |
