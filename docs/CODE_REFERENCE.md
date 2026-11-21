@@ -387,7 +387,7 @@ Pure functions over the repository (no Flask), used by the routers and the scrip
 | `prune(repo, keep_days)`, `problems(repo, kind, days)` | Delete problems older than 90 days; list the last days' problems newest first. |
 | `client_info(headers)`, `record_client(repo, uid, email, info)` | The app's `X-Farmivo-Platform/Version/OS/Device`; kept on `users/<uid>` with `last_seen` and the email (called by `deps.get_identity`); writes only when something changed or an hour passed. |
 | `version_key(version)`, `app_versions(users)` | Sortable "1.6.0 (16)" (build number first); platform split, versions in use, newest per platform and the users on an older one. |
-| `week_start(day)`, `farm_days(repo, farm_id, collections)`, `weekly_activity(repo, collections, weeks, today)`, `stopped_farms(farms, farm_days_by_id, quiet_days, today)` | Monday of a week; the days a farm recorded something; new accounts, new farms and farms in use per week; farms used on 2+ days but quiet for 3 weeks. |
+| `_day(stamp)`, `week_start(day)`, `farm_days(repo, farm_id, collections)`, `weekly_activity(repo, collections, weeks, today)`, `stopped_farms(farms, farm_days_by_id, quiet_days, today)` | Monday of a week; the days a farm recorded something; new accounts, new farms and farms in use per week; farms used on 2+ days but quiet for 3 weeks. |
 
 ### app/month_report.py: the monthly finance summary
 
@@ -411,6 +411,23 @@ Pure functions over the repository (no Flask), used by the routers and the scrip
 | `hooks(collection, after_write, after_delete)` | The CRUD hooks of a health collection: `before_create` / `before_update` (guard; a worker's edit keeps the cost; `transaction_id` kept), `write` (expense in step, then the collection's own hook: reminders), `delete`, `enrich` (cost hidden from workers and viewers). |
 | `unlink(ctx, tx_id)` | The expense was deleted in Finance: the record loses its cost and link. |
 | `book_bulk(ctx, vaccine, date, cost, animal_ids)` | A whole barn vaccinated with a cost: one `veterinary` expense shared by the animals ("Vaccination: PPR (12 animals)", `tx.vaccination_many`). |
+
+### app/insights.py: dashboard charts and key figures
+
+| Name | What it does |
+|---|---|
+| `GAIN_WINDOW_DAYS`, `AGE_GROUPS` | 120 days of weighings for the daily gain; the age groups of the chart. |
+| `day(value)` | A stored date as a date; None for empty or bad values (never raises). |
+| `month_start(d, back)`, `month_end(first)` | First day of a month `back` months earlier (negative = later); last day of a month. |
+| `arrived(a)`, `left(a)` | Day an animal came (birth for born on the farm, else date added) and left (status date; None while on the farm). |
+| `on_farm_at(animals, day)` | Animals on the farm at the end of a day. |
+| `age_group(a, now)` | under_6m, 6_12m, 1_2y, over_2y or unknown. |
+| `movement(a)`, `departure(a)` | ("births"/"purchases", day) and ("deaths"/"sales", day) of an animal, or None. |
+| `average_daily_gain(weights)` | (mean kg/day of animals weighed twice or more, how many animals). |
+| `pct(part, whole)` | Percent with one decimal, None when whole is 0. |
+| `charts(ctx)` | The whole answer of GET /v1/dashboard/charts (finance and money figures only for managers and the owner). |
+
+`app/routers/dashboard.py` › `dashboard_charts`: GET /v1/dashboard/charts.
 
 ## 10. app/services
 
@@ -846,6 +863,8 @@ Run on the server from the project folder with the project's virtualenv, for exa
 
 ---
 
+| `tests/test_charts.py` | Month helpers, average daily gain, charts of a farm (trend, movements, ages, milk, money), workers get no money. |
+
 ## 14. Coverage check
 
 This document is checked against the code with:
@@ -864,4 +883,4 @@ print(len(names), "top-level classes/functions,", len(missing), "missing:", miss
 EOF
 ```
 
-Result when this document was last updated (17 Nov 2026): **406 top-level classes and functions, 0 missing**.
+Result when this document was last updated (21 Nov 2026): **501 top-level classes and functions, 0 missing**.

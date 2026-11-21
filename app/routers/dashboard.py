@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint
 
+from app import insights
 from app.deps import get_ctx
 from app.i18n import request_lang
 from app.permissions import can_see_finance
@@ -124,3 +125,9 @@ def dashboard():
         },
         unread_notifications=unread,
     ))
+
+
+@bp.get("/dashboard/charts")
+def dashboard_charts():
+    """GET /v1/dashboard/charts - herd trend, movements, ages, milk, finance per month and key figures."""
+    return out(insights.charts(get_ctx()))

@@ -254,6 +254,26 @@ An animal that leaves the farm (sold, deceased, donated, gifted, sacrificed) lea
 ```
 `animals.total` counts animals currently on the farm; `by_status` covers all animals ever added. Maps may be empty. `pregnant_count` and `due_soon` cover confirmed pregnancies only; `awaiting_check_count` counts matings still `pending`. `given` = donated + gifted in the period.
 
+### Dashboard charts
+
+`GET /dashboard/charts` (any member; money parts only for managers and the owner). Everything comes from records the farm already keeps.
+```json
+{
+  "generated_for": "2026-11-21",
+  "herd_trend": [{"month": "2025-12", "animals": 38}, … 12 months, the last one = today],
+  "movements": [{"month": "2026-06", "births": 2, "deaths": 0, "sales": 1, "purchases": 0}, … 6 months],
+  "age_groups": {"under_6m": 9, "6_12m": 4, "1_2y": 12, "over_2y": 15, "unknown": 2},
+  "milk": {"unit": "liters", "days": [{"date": "2026-11-08", "quantity": 41.5}, … 14 days, 0 when nothing recorded]},
+  "finance": {"currency": "TND", "months": [{"month": "2026-06", "income": 1200.0, "expenses": 800.0, "net": 400.0}, … 6]},  // null for workers and viewers
+  "kpis": {"animals": 42, "births_year": 11, "deaths_year": 2, "sales_year": 9, "average_herd_year": 39.5,
+           "birth_rate_pct": 27.8, "mortality_pct": 5.1, "average_daily_gain_kg": 0.185, "animals_weighed": 14,
+           "this_month": {"births": 1, "deaths": 0, "sales": 2, "milk": 610.0, "income": 950.0, "expenses": 420.0},
+           "last_month": {…same keys…},
+           "cost_per_animal_month": 10.0, "profit_per_animal_year": 35.4, "currency": "TND"}   // last three: managers and owner
+}
+```
+Herd count at the end of a month = animals that had arrived (born on the farm: birth date; else date added) and had not left (status date of a sold, dead, given… animal). Year = last 365 days; rates are per 100 animals of the average herd over the 12 months. Average daily gain = mean over animals weighed at least twice in the last 120 days of (last − first weight) / days. `null` rates when there is nothing to divide by.
+
 ## Notifications
 
 - `GET /notifications?unread_only=false&limit=50` → `[{id, title, body, type, animal_id, reminder_id, read, created_at}]` newest first. `title`/`body` are in the request's language. Workers and viewers don't see `join_request` notifications (and `read-all` doesn't touch them). Personal notifications (`membership_approved`, stored with `for_uid`) are seen only by that member. The `read` flag is shared by the farm.
