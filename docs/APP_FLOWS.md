@@ -1513,3 +1513,13 @@ Touching a chart shows the numbers of that month or slice. Charts run left to ri
 - **Tour**: the first time the main screen opens on a phone, four full-screen pages (your farm in your pocket, vaccines reminders, charts, offline and team) with Skip / Next / Start. Not shown again on that phone.
 - **Me › Guide and help** (also Home › Get started on a new farm): search; "Watch the tour again"; 12 how-to topics (start your farm, animals, health, matings and births, weights and milk, many animals, selling, money and cash box, feed stock, team and roles, without internet, reports), each a sheet with numbered steps and a tip; 8 frequent questions; Help and support (quadralens.tn).
 - Content: JSON in English, French and Arabic written by `tools/make_guide.py` in the Android repo (Android `assets/guide/`, iOS data assets `GuideEN/FR/AR`). To change a text, edit the script, run it once for both apps and release the apps.
+
+## 28. How the forms behave (both apps, 21 Nov 2026)
+
+Every record form (animals, health, breeding, growth, money, feed, barns …) and the birth and weighing sheets:
+- Short choices are buttons (one tap); a chosen optional button tapped again clears it. Long lists open a sheet with search (animals, breeds with photos, barns, categories).
+- Dates: calendar; quick buttons Today / Yesterday, or In 1 month / 3 months / 6 months / 1 year under next-dose, follow-up, due and withdrawal dates (counted from the form's other date).
+- Labels say "optional" on fields that may stay empty; required ones have no mark and turn red with "Required" when missing.
+- Number boxes show their unit: kg, or the farm's currency (`GET /me` › `farm.currency`).
+- Save stays at the bottom of the screen. Closing a form after typing asks "Discard changes?" (Keep editing / Discard); a swipe or a tap outside no longer loses it.
+The calls sent are unchanged.
