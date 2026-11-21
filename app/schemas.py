@@ -182,6 +182,7 @@ class MeFarm(BaseModel):
     """The farm summary inside GET /v1/me."""
     id: str
     name: str | None = None
+    currency: str | None = None  # shown next to money inputs in the apps
 
 
 class MeOut(BaseModel):

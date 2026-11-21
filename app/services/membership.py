@@ -200,7 +200,7 @@ def me_payload(identity: Identity, membership: Membership, email_verified: bool 
         "name": name or (membership.member or {}).get("name") or identity.name,
         "status": membership.status,
         "role": membership.role,
-        "farm": {"id": farm["id"], "name": farm.get("name")} if farm and membership.status != "none" else None,
+        "farm": {"id": farm["id"], "name": farm.get("name"), "currency": farm.get("currency")} if farm and membership.status != "none" else None,
         "farms_count": farms_count,
     }
 
