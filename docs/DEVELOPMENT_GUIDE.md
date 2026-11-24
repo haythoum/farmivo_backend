@@ -117,9 +117,9 @@ Set your Team in Signing & Capabilities; add **Push Notifications** capability (
 | Back up data | Atlas backups, or `mongodump --host <host> -u <user> -p --authenticationDatabase <auth db> --db farmivo` |
 
 ## 6. Testing
-- App builds: GitHub Actions (`.github/workflows/build.yml` in each app repo) builds and runs the unit tests on every code push; the APK is attached to the run; a short report goes to the `ci-status` branch (`git fetch origin ci-status && git show origin/ci-status:android.txt`).
+- App builds: none automatic since 24 Nov 2026 (the GitHub Actions workflows were removed: they cost money). Build in Android Studio (`./gradlew assembleRelease`) and Xcode before each release.
 - Backend: `pytest` — API behaviour (auth, members, CRUD, reminders, breeding rules and births, finance: sharing, balance sheet, sales, photos, reports, translations) plus repository tests. The Mongo repository test uses `mongomock`.
-- Android / iOS: Android unit tests in `app/src/test` (`SignUpRules`, formatting); iOS `FarmivoTests` (JSON decoding, formatting, error parsing, splash texts). Both run on GitHub Actions on every push.
+- Android / iOS: Android unit tests in `app/src/test` (`SignUpRules`, formatting); iOS `FarmivoTests` (JSON decoding, formatting, error parsing, splash texts). Run them in Android Studio and Xcode.
 - Manual end-to-end checklist: register → add animal with photo → add vaccination with next due date → see the reminder → call the cron endpoint → receive the push → record a mating → record the birth → check the offspring exist and the dashboard changed → export a CSV report.
 
 ## 7. Troubleshooting

@@ -44,6 +44,6 @@ The UI mockup (7 screens) is the "Farmivo App Mockup" artifact in Claude; its sc
 | Announcements from Farmivo | `routers/support.py`, admin › Announcements | `ui/Announcements` | `Announcements` (`WorkKit.swift`) |
 | Admin dashboard, problems log, app versions | `app/admin/`, `app/ops.py` | sends `X-Farmivo-*` headers (`ApiClient.appHeaders`) | sends `X-Farmivo-*` headers (`APIClient.appHeaders`) |
 
-## Builds (GitHub Actions)
+## Builds
 
-Each app repository has `.github/workflows/build.yml`: every push of code builds the app and runs its unit tests (Android: APK `farmivo-debug-apk` to download from the run; iOS: simulator build and `FarmivoTests` on a Mac). The result also goes to the branch `ci-status` (`android.txt` / `ios.txt`: commit, success or failure, errors, end of the log): a report branch only, never merged or built. Pushes that change only docs do not start a build.
+No automatic builds: the GitHub Actions workflows were removed on 24 Nov 2026 because they cost money (storage and macOS minutes). Build and test in Android Studio and Xcode before each release. The branch `ci-status` keeps the last old reports.

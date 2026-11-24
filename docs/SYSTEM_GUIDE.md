@@ -41,7 +41,6 @@ flowchart LR
   FCM -->|notification| A & I
   FL -->|Mailjet API: 6-digit sign-up code| MAIL[Mailjet]
   ADM[Admin dashboard in a browser<br/>http://51.83.71.157:8000/admin] -->|basic auth| FL
-  GH[GitHub Actions] -->|build + tests on every push| A & I
 ```
 
 | Piece | Responsibility | Talks to |
@@ -53,7 +52,7 @@ flowchart LR
 | cron | Calls the reminder job once a day | API |
 | Mailjet | Delivers the 6-digit email code after sign-up (`MAILJET_API_KEY` / `_SECRET`; without it the code goes to the server log) | API |
 | Admin dashboard | <http://51.83.71.157:8000/admin>: activity, app versions, problems log, farms and users, breed photos, announcements ([ADMIN.md](ADMIN.md)) | API (same process), MongoDB, FCM |
-| GitHub Actions | Builds both apps and runs their tests on every code push; report on the `ci-status` branch | the app repositories |
+| Builds | Android Studio and Xcode on a developer machine (GitHub Actions stopped 24 Nov 2026 for cost) | — |
 | Phone storage | Saved lists and the outbox of changes made offline (Android `files/offline/<uid>/`, iOS Application Support `offline/<uid>/`) | the app's own API client |
 
 ## 2. Deployment
@@ -409,7 +408,7 @@ Supporting app classes:
 | Admin dashboard | `FARMIVO_ADMIN_PASSWORD` (12+ characters), `FARMIVO_ADMIN_ALLOW_REMOTE=true` → <http://51.83.71.157:8000/admin> | none | none |
 | App version reported | stored on `users` (`app_platform`, `app_version`, `os_version`, `device_model`, `last_seen`) | `versionName` / `versionCode` in `app/build.gradle` (3.1.0 / 6) → `X-Farmivo-Version` | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` (1.1.0 / 4) → `X-Farmivo-Version` |
 | Offline storage | none | `filesDir/offline/<uid>/` | Application Support `offline/<uid>/` |
-| Builds | none | `.github/workflows/build.yml` (JDK 17, Gradle 8.13) | `.github/workflows/build.yml` (macOS, Xcode, simulator) |
+| Builds | none | Android Studio (JDK 17, Gradle 8.13) | Xcode |
 | App id | none | `applicationId com.quadralens.farmivo` | bundle id `com.quadralens.farmivo` |
 
 ---

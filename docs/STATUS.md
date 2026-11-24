@@ -6,8 +6,8 @@
 | Part | Branch | State |
 |---|---|---|
 | Backend (Flask + gunicorn/supervisor, MongoDB, optional MinIO photos, Firebase auth/push) | `feature/initial-api` | Running on the VPS. All feature areas, barns, farm numbers, breeding rules, costs and balance sheet, sales, breed photos, farm members with 4 roles and approval, several farms per account, email code (Mailjet), admin dashboard (<http://51.83.71.157:8000/admin>), problems log, feed stock, monthly PDF summary, announcements, cash box, health costs, dashboard charts (`GET /dashboard/charts`); 252 tests, docs |
-| Android (Java) | `feature/initial-app` | All feature areas, offline mode, for sale with WhatsApp sharing, work on many animals, feed stock, monthly PDF, cash box, farm charts, in-app guide (tour, how-tos, questions); version 3.3.0 (8); built on GitHub Actions on every push (APK in the run), used by the client |
-| iOS (SwiftUI) | `feature/initial-app` | All feature areas, same design and features as Android (farm charts with Swift Charts, in-app guide); version 1.3.0 (6); built and unit-tested on GitHub Actions (macOS) on every push |
+| Android (Java) | `feature/initial-app` | All feature areas, offline mode, for sale with WhatsApp sharing, work on many animals, feed stock, monthly PDF, cash box, farm charts, in-app guide (tour, how-tos, questions); version 3.3.0 (8); used by the client |
+| iOS (SwiftUI) | `feature/initial-app` | All feature areas, same design and features as Android (farm charts with Swift Charts, in-app guide); version 1.3.0 (6) |
 | UI mockup | Claude artifact "Farmivo App Mockup" | 15 screens: sign in, dashboard, animals, profile, health, breeding, growth; create account, email code, create or join a farm, waiting for approval, members, approve with a role |
 
 ## Be aware: what was NOT verified
@@ -21,7 +21,7 @@ The code was written in a sandbox with **no access to PyPI, the Android SDK/Mave
 - Email verification code: tested with a fake mailer (16 tests); real Mailjet delivery was never tried (tested with a fake Mailjet client).
 Plan for the first session: run `pytest`, build both apps, fix compile errors, then do the manual end-to-end checklist in DEVELOPMENT_GUIDE.md.
 
-**Since then (Nov 2026):** since 17 Nov both apps are compiled and their unit tests run on GitHub Actions on every push (report on the `ci-status` branch); the iOS build passes with all 17 tests. What a compiler cannot see (how the screens look and behave on a phone) still needs the checklist in each app's `docs/FEATURE_CHECKLIST.md` (section L for the 18 Nov features). Before that: the backend runs on the VPS against real MongoDB 3.6 and Firebase; Android is built and used by the client. Changes are still written in a sandbox without the Android SDK or Swift compiler: the Java is checked for syntax, duplicate variables and lambda captures, the Swift for translations and documentation only, so **every release must be built in Android Studio and Xcode before it goes to the stores**.
+**Since then (Nov 2026):** from 17 to 24 Nov both apps were compiled on GitHub Actions on every push (stopped on 24 Nov for cost; the last builds passed). What a compiler cannot see (how the screens look and behave on a phone) still needs the checklist in each app's `docs/FEATURE_CHECKLIST.md` (section L for the 18 Nov features). Before that: the backend runs on the VPS against real MongoDB 3.6 and Firebase; Android is built and used by the client. Changes are still written in a sandbox without the Android SDK or Swift compiler: the Java is checked for syntax, duplicate variables and lambda captures, the Swift for translations and documentation only, so **every release must be built in Android Studio and Xcode before it goes to the stores**.
 
 ## Backend bug review (membership after sign-in, notifications)
 
@@ -114,7 +114,7 @@ The apps cannot delete a farm yet (planned, with an admin dashboard). On the ser
 - **Feed stock**: feeds in sacks, sacks in (with a price: the feed expense is booked) and out, low-stock warning (notice + push to managers once).
 - **Monthly finance summary**: `GET /finance/month-report?month=` (HTML in en/fr/ar that the apps save as PDF).
 - Apps: Android 3.1.0 (6), iOS 1.1.0 (4): offline mode, for sale + WhatsApp, several animals at once (move, vaccinate, weigh, sell), barn vaccination and weighing session, feed stock, monthly PDF, announcements. No in-app feedback and no Crashlytics (removed on request).
-- GitHub Actions builds both apps on every push (`ci-status` branch: last result).
+- GitHub Actions builds stopped on 24 Nov 2026 (cost); build in Android Studio and Xcode.
 - Dashboard link: <http://51.83.71.157:8000/admin>.
 - Deploy: `git pull`, `sudo supervisorctl restart farmivo`. Optional: `/home/ubuntu/farmivo/venvfarmivo/bin/pip install Pillow` so uploaded breed photos of any format are resized (without it only JPEG is accepted, as is).
 

@@ -159,7 +159,7 @@ flowchart TD
 - **Work on many animals:** selection in the Animals list (long press / Select) with a bottom bar; bulk endpoints for vaccinations and weights; a barn's menu works on the whole barn.
 - **Sharing:** Android share intents through a FileProvider (`${applicationId}.files`, WhatsApp first when installed); iOS `UIActivityViewController`.
 - **PDF:** the server makes the monthly summary page; Android prints it to PDF, iOS draws it (`PDFMaker`, `UIPrintPageRenderer`).
-- **Builds:** GitHub Actions in each app repo build and test every code push; the last result is on the `ci-status` branch.
+- **Builds:** no automatic builds since 24 Nov 2026 (GitHub Actions stopped for cost); the apps are built and tested in Android Studio and Xcode before each release.
 
 ## 4. Security model
 - Auth: Firebase ID tokens verified server-side on every call; no passwords reach the backend.
