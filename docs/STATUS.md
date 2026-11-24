@@ -133,3 +133,10 @@ Looked at the Saudi app Throf (home and finance KPIs, help screen with FAQ, onbo
 - **Guide in the apps**: a 4-page tour on first use, Me › Guide and help with 12 how-to topics, 8 questions and search, in Arabic, French and English, offline.
 - Versions: Android 3.3.0 (8), iOS 1.3.0 (6). Deploy: `git pull`, `sudo supervisorctl restart farmivo` (no script this time).
 - **Reworked forms** (both apps, same release): short choices as buttons tapped once (species, sex, method, income or expense, yes / no), long lists in sheets with search and check marks, the Material calendar (Android) with quick dates (Today / Yesterday, In 1 month … In 1 year for next doses), "optional" instead of red stars, units in the boxes (kg, the farm's currency: `GET /me` now sends `farm.currency`), Save pinned at the bottom, "Discard changes?" before losing typed data; record birth and weighing session redone in the same style.
+
+## 24 Nov 2026: redesign started (client unhappy with the look)
+
+- New design board "Farmivo Redesign 2026": three directions; the client chose **A · Clean Pro** (forest green #1F5C3A, lime #C6F36B, light grey), keeping the animated farm scene with its grazing sheep. The board has every screen in A (Home, Animals, Animal page, Add, New farm, Money, Health, Breeding, Barn, Reports, Me, Notifications, Sign in), the reworked full-screen forms (New animal, Vaccination, Expense, list picker) and Arabic Home + Vaccination.
+- **Phase 1 in the apps** (Android 4.0.0 (9), iOS 2.0.0 (7)): new palette everywhere, Inter font on Android, green farm scene, new + button, Home herd card, quick actions and key figures. No server change (GET /me now also sends `farm.currency`).
+- Next phases: full-screen forms; animal page, Animals list and barn; Health, Breeding, Money, Reports, Me, Notifications, Sign in.
+- GitHub Actions builds stopped (cost): build and test in Android Studio and Xcode before each release.
