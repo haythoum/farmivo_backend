@@ -985,6 +985,8 @@ class NotificationOut(Record):
     type: str = "info"
     animal_id: str | None = None
     reminder_id: str | None = None
+    # Join requests: who asked, so the list can offer "Accept as worker" / "Refuse" (managers and the owner only see them).
+    subject_uid: str | None = None
     read: bool = False
 
 

@@ -63,7 +63,8 @@ def test_join_flow_pending_then_approved(client, make_client, notifier, repo):
     members = client.get("/v1/farm/members").json
     assert [m["uid"] for m in members] == ["worker-1", "user-1"] and members[0]["status"] == "pending"
     assert notifier.sent[-1]["tokens"] == ["owner-token-123"] and "Ali wants to join" in notifier.sent[-1]["title"]
-    assert any(n["type"] == "join_request" for n in client.get("/v1/notifications").json)
+    joins = [n for n in client.get("/v1/notifications").json if n["type"] == "join_request"]
+    assert joins and joins[0]["subject_uid"] == "worker-1"  # the list's "Accept as worker" / "Refuse" buttons
     # approve: default role worker, push to the new member
     approved = client.post("/v1/farm/members/worker-1/approve")
     assert approved.status_code == 200 and approved.json["role"] == "worker" and approved.json["status"] == "active"

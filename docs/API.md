@@ -276,7 +276,7 @@ Herd count at the end of a month = animals that had arrived (born on the farm: b
 
 ## Notifications
 
-- `GET /notifications?unread_only=false&limit=50` → `[{id, title, body, type, animal_id, reminder_id, read, created_at}]` newest first. `title`/`body` are in the request's language. Workers and viewers don't see `join_request` notifications (and `read-all` doesn't touch them). Personal notifications (`membership_approved`, stored with `for_uid`) are seen only by that member. The `read` flag is shared by the farm.
+- `GET /notifications?unread_only=false&limit=50` → `[{id, title, body, type, animal_id, reminder_id, subject_uid, read, created_at}]` newest first. `subject_uid` (join requests) is who asked: the apps' "Accept as worker" / "Refuse" buttons call `/farm/members/{subject_uid}/approve|reject`. `title`/`body` are in the request's language. Workers and viewers don't see `join_request` notifications (and `read-all` doesn't touch them). Personal notifications (`membership_approved`, stored with `for_uid`) are seen only by that member. The `read` flag is shared by the farm.
 - `POST /notifications/{id}/read` → Notification; `POST /notifications/read-all` → `204`; `DELETE /notifications/{id}` → `204`. A notification the caller may not see answers `404`.
 - `join_request` notifications are marked read automatically once the request is approved, rejected, cancelled or removed (by anyone), so they don't stay unread for other managers.
 - **When a push is tapped**, the app calls `POST /notifications/{data.notification_id}/read` (when the id is present), then opens the screen for `data.type`.
