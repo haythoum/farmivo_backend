@@ -7,6 +7,7 @@ farm sees its charts with no extra typing:
 * ``movements``: births, deaths, sales and purchases in each of the last 6 months;
 * ``age_groups``: animals on the farm by age (under 6 months, 6-12 months, 1-2 years, over 2 years, unknown);
 * ``milk``: litres per day over the last 14 days;
+* ``gain_months``: the mean gain per day of the animals weighed in each of the last 6 months (Reports' Weights chart);
 * ``finance``: income, expenses and net in each of the last 6 months (owner and managers only, else null);
 * ``kpis``: the year's birth and death rates, the average daily gain of the animals weighed lately, this month
   against last month, and for the owner and managers the cost per animal this month and the profit per animal over
@@ -119,6 +120,25 @@ def average_daily_gain(weights: list[dict]) -> tuple[float | None, int]:
     return (round(sum(gains) / len(gains), 3) if gains else None), len(gains)
 
 
+def monthly_gain(weights: list[dict], months: list[str]) -> list[dict]:
+    """Mean gain per day in each month: between two weighings of the same animal, counted in the month of the
+    later one ({"month": "2026-11", "gain_kg_day": 0.138 | None})."""
+    by_animal: dict[str, list[tuple[date, float]]] = {}
+    for w in weights:
+        d = day(w.get("date"))
+        if w.get("animal_id") and d is not None:
+            by_animal.setdefault(w["animal_id"], []).append((d, float(w["weight_kg"])))
+    gains: dict[str, list[float]] = {m: [] for m in months}
+    for rows in by_animal.values():
+        rows.sort()
+        for (d0, w0), (d1, w1) in zip(rows, rows[1:]):
+            span = (d1 - d0).days
+            key = d1.strftime("%Y-%m")
+            if span > 0 and key in gains:
+                gains[key].append((w1 - w0) / span)
+    return [{"month": m, "gain_kg_day": round(sum(v) / len(v), 3) if v else None} for m, v in gains.items()]
+
+
 def pct(part: float, whole: float) -> float | None:
     """part / whole in %, one decimal; None when whole is 0."""
     return round(100 * part / whole, 1) if whole else None
@@ -172,6 +192,8 @@ def charts(ctx: Any) -> dict:
 
     weights = ctx.repo.list(path_of(ctx, "weights"), [("date", ">=", (now - timedelta(days=GAIN_WINDOW_DAYS)).isoformat())])
     adg, weighed = average_daily_gain(weights)
+    # Weights a little before the 6 months too, so the first month has a previous weighing to compare with.
+    gain_rows = ctx.repo.list(path_of(ctx, "weights"), [("date", ">=", (month_start(now, 5) - timedelta(days=120)).isoformat())])
 
     avg_herd = sum(p["animals"] for p in trend) / len(trend)
     kpis: dict[str, Any] = {
@@ -212,6 +234,7 @@ def charts(ctx: Any) -> dict:
         "movements": list(moves.values()),
         "age_groups": ages,
         "milk": {"unit": "liters", "days": milk},
+        "gain_months": monthly_gain(gain_rows, months6),
         "finance": finance,
         "kpis": kpis,
     }

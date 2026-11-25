@@ -230,9 +230,9 @@ An animal that leaves the farm (sold, deceased, donated, gifted, sacrificed) lea
 - `/feed-stock/items` CRUD `{name, sack_kg?, low_at? (default 5), notes?}`; deleting a feed deletes its movements (the expenses stay in Finance).
 - `/feed-stock/moves` CRUD `{feed_id, direction: in|out, sacks > 0, date? (default today), unit_price? (in only), supplier?, notes?}` → `{…, feed_name, amount, transaction_id, notice}`. Sacks in with a price book a `feed` expense (shared by the animals like any feed expense) kept in step on edit and delete; deleting that expense in Finance only unlinks it. Out more than the stock → `422 Not enough in stock: N sacks left`. Going to `low_at` or below answers `notice` and notifies the managers (once, when it crosses). Workers may record sacks; a price only from managers (`403`), and workers get `unit_price`/`amount` null.
 
-### Monthly finance summary
+### Monthly summary
 
-- `GET /finance/month-report?month=YYYY-MM` (default this month) → an HTML page (A4, right to left in Arabic) in the caller's language: income, expenses and result against the month before, totals by category, animals sold, every entry. The apps save it as a PDF. Managers and the owner.
+- `GET /finance/month-report?month=YYYY-MM` (default this month) → an HTML page (A4, right to left in Arabic) in the caller's language: the herd and its health in the month (on the farm at the end, births, deaths, sold, vaccinations given, treatments started), then income, expenses and result against the month before, totals by category, animals sold, every entry. The apps save it as a PDF. Managers and the owner.
 
 ## Dashboard
 
@@ -264,6 +264,7 @@ An animal that leaves the farm (sold, deceased, donated, gifted, sacrificed) lea
   "movements": [{"month": "2026-06", "births": 2, "deaths": 0, "sales": 1, "purchases": 0}, … 6 months],
   "age_groups": {"under_6m": 9, "6_12m": 4, "1_2y": 12, "over_2y": 15, "unknown": 2},
   "milk": {"unit": "liters", "days": [{"date": "2026-11-08", "quantity": 41.5}, … 14 days, 0 when nothing recorded]},
+  "gain_months": [{"month": "2026-06", "gain_kg_day": 0.138}, … 6 months, null when nobody was weighed twice],
   "finance": {"currency": "TND", "months": [{"month": "2026-06", "income": 1200.0, "expenses": 800.0, "net": 400.0}, … 6]},  // null for workers and viewers
   "kpis": {"animals": 42, "births_year": 11, "deaths_year": 2, "sales_year": 9, "average_herd_year": 39.5,
            "birth_rate_pct": 27.8, "mortality_pct": 5.1, "average_daily_gain_kg": 0.185, "animals_weighed": 14,

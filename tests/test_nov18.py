@@ -270,4 +270,6 @@ def test_monthly_finance_summary_page(make_client):
     assert "October 2026" in page and "900" in page and "420" in page and "480" in page and "Veterinary" in page
     ar = c.get("/v1/finance/month-report?month=2026-10", headers={"Accept-Language": "ar"}).data.decode()
     assert 'dir="rtl"' in ar and "أكتوبر 2026" in ar and "البيطرة" in ar
+    # Redesign 24 Nov 2026: the herd and its health come first ("Herd, births, health and money").
+    assert "Herd and health" in page and "Monthly summary" in page and "#1F5C3A" in page
     assert c.get("/v1/finance/month-report?month=2026-13").status_code == 422

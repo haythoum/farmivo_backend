@@ -24,6 +24,13 @@ def test_average_daily_gain():
     assert insights.average_daily_gain([]) == (None, 0)
 
 
+def test_monthly_gain():
+    rows = [{"animal_id": "a", "date": "2026-10-20", "weight_kg": 20}, {"animal_id": "a", "date": "2026-11-09", "weight_kg": 22},
+            {"animal_id": "b", "date": "2026-11-01", "weight_kg": 30}, {"animal_id": "b", "date": "2026-11-11", "weight_kg": 31}]
+    out = insights.monthly_gain(rows, ["2026-10", "2026-11"])
+    assert out == [{"month": "2026-10", "gain_kg_day": None}, {"month": "2026-11", "gain_kg_day": 0.1}]
+
+
 def test_charts_for_a_farm(make_client):
     c = farm_client(make_client)
     now = date.today()
@@ -51,6 +58,7 @@ def test_charts_for_a_farm(make_client):
     assert k["animals"] == 3 and k["deaths_year"] == 1 and k["average_daily_gain_kg"] == 0.2
     assert k["this_month"]["milk"] == 12 and k["this_month"]["expenses"] == 300
     assert k["cost_per_animal_month"] == 100 and j["finance"]["months"][-1]["net"] == -300
+    assert len(j["gain_months"]) == 6 and j["gain_months"][-1]["gain_kg_day"] == 0.2
 
 
 def test_workers_get_no_money(make_client):

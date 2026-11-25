@@ -1,8 +1,10 @@
-"""The monthly finance summary (GET /v1/finance/month-report?month=2026-11): one printable A4 page in the
-reader's language (English, French or Arabic, right to left) that the apps turn into a PDF to keep or share
-(Android: print to PDF; iOS: WKWebView.createPDF).
+"""The monthly summary (GET /v1/finance/month-report?month=2026-11): one printable A4 page in the reader's
+language (English, French or Arabic, right to left) that the apps turn into a PDF to keep or share (Android: print
+to PDF; iOS: WKWebView.createPDF).
 
-It shows the month's income, expenses and result next to the month before, the totals by category, the
+It shows the herd and its health in the month (animals on the farm at the end, births, deaths, sales,
+vaccinations given, treatments started; redesign 24 Nov 2026, board "A · Reports": "Herd, births, health and
+money"), then the month's income, expenses and result next to the month before, the totals by category, the
 animals sold and every entry of the month. Money is in the farm's currency.
 """
 from __future__ import annotations
@@ -14,7 +16,15 @@ from app import costs
 from app.repository import Repository, farm_path
 
 TEXTS = {
-    "title": ("Monthly finance summary", "Bilan financier du mois", "الملخص المالي الشهري"),
+    "title": ("Monthly summary", "Bilan du mois", "الملخص الشهري"),
+    "herd": ("Herd and health", "Troupeau et santé", "القطيع والصحة"),
+    "on_farm": ("On the farm at the end of the month", "Sur la ferme en fin de mois", "في المزرعة آخر الشهر"),
+    "births": ("Births", "Naissances", "الولادات"),
+    "deaths": ("Deaths", "Morts", "النفوق"),
+    "sold": ("Sold", "Vendus", "المباعة"),
+    "vaccinations": ("Vaccinations given", "Vaccinations faites", "التلقيحات"),
+    "treatments": ("Treatments started", "Traitements commencés", "العلاجات"),
+    "money": ("Money", "Argent", "المال"),
     "income": ("Income", "Revenus", "الإيرادات"),
     "expenses": ("Expenses", "Dépenses", "المصاريف"),
     "result": ("Result", "Résultat", "النتيجة"),
@@ -121,8 +131,29 @@ def data(repo: Repository, farm_id: str, month: date) -> dict:
     before = entries(*month_bounds(previous_month(month)))
     sold = [r for r in rows if r.get("type") == "income" and r.get("category") == costs.SALE_CATEGORY]
     return {"first": first, "last": last, "rows": rows, "now": totals(rows), "before": totals(before),
+            "herd": herd(repo, farm_id, first, last),
             "sales": {"entries": len(sold), "animals": sum(len(costs.tx_animals(r)) or 1 for r in sold),
                       "amount": sum(float(r["amount"]) for r in sold)}}
+
+
+def herd(repo: Repository, farm_id: str, first: date, last: date) -> dict:
+    """The herd in the month: on the farm at its end, births, deaths and sales in it, vaccinations given and
+    treatments started."""
+    from app.insights import departure, movement, on_farm_at
+
+    animals = repo.list(farm_path(farm_id, "animals"))
+    counts = {"births": 0, "deaths": 0, "sales": 0}
+    for a in animals:
+        for ev in (movement(a), departure(a)):
+            if ev and ev[0] in counts and first <= ev[1] <= last:
+                counts[ev[0]] += 1
+
+    def between(collection: str, field: str) -> int:
+        return len(repo.list(farm_path(farm_id, collection),
+                             [(field, ">=", first.isoformat()), (field, "<=", last.isoformat())]))
+
+    return {"on_farm": on_farm_at(animals, last), **counts,
+            "vaccinations": between("vaccinations", "date_given"), "treatments": between("treatments", "start_date")}
 
 
 def render_html(farm: dict, month: date, lang: str, made_on: date, info: dict,
@@ -152,6 +183,13 @@ def render_html(farm: dict, month: date, lang: str, made_on: date, info: dict,
 <th class="num">{tr('amount', lang)}</th><th class="num">{tr('share', lang)}</th></tr>{lines}</table>"""
 
     result_word = tr("profit", lang) if now["result"] >= 0 else tr("loss", lang)
+    h = info.get("herd") or {}
+    herd_html = ""
+    if h:
+        cells = "".join(f'<div class="fig"><div class="n">{h.get(k, 0)}</div><div class="muted">{tr(t, lang)}</div></div>'
+                        for k, t in (("on_farm", "on_farm"), ("births", "births"), ("deaths", "deaths"), ("sales", "sold"),
+                                     ("vaccinations", "vaccinations"), ("treatments", "treatments")))
+        herd_html = f'<h2>{tr("herd", lang)}</h2><div class="figs">{cells}</div><h2>{tr("money", lang)}</h2>'
     sales = info["sales"]
     sales_html = ""
     if sales["entries"]:
@@ -178,11 +216,13 @@ def render_html(farm: dict, month: date, lang: str, made_on: date, info: dict,
 * {{ box-sizing: border-box; }}
 body {{ margin: 0; font: 12.5px/1.45 -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Naskh Arabic", Arial, sans-serif;
        color: #1E2A29; background: #fff; }}
-.head {{ background: #1F6F6B; color: #fff; border-radius: 14px; padding: 16px 18px; display: flex;
+.figs {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }}
+.fig {{ background: #F4F6F3; border-radius: 12px; padding: 10px 12px; }} .fig .n {{ font-size: 20px; font-weight: 800; }}
+.head {{ background: #1F5C3A; color: #fff; border-radius: 14px; padding: 16px 18px; display: flex;
         justify-content: space-between; align-items: flex-end; gap: 12px; }}
 .head .brand {{ font-size: 13px; opacity: .9; }} .head h1 {{ margin: 2px 0 0; font-size: 21px; }}
 .head .farm {{ font-size: 15px; font-weight: 700; text-align: end; }}
-h2 {{ font-size: 15px; margin: 18px 0 8px; color: #134A47; }} h3 {{ font-size: 13px; margin: 14px 0 6px; }}
+h2 {{ font-size: 15px; margin: 18px 0 8px; color: #14412A; }} h3 {{ font-size: 13px; margin: 14px 0 6px; }}
 table {{ width: 100%; border-collapse: collapse; }}
 th, td {{ padding: 6px 8px; border-bottom: 1px solid #E1E8E6; text-align: start; vertical-align: top; }}
 th {{ background: #F2F5F4; font-size: 11.5px; color: #5B6B69; }}
@@ -200,6 +240,7 @@ tr {{ page-break-inside: avoid; }}
 </style></head><body>
 <div class="head"><div><div class="brand">Farmivo</div><h1>{tr('title', lang)}</h1>
 <div>{month_label(month, lang)}</div></div><div class="farm">{escape(farm.get('name') or '')}</div></div>
+{herd_html}
 <table style="margin-top:14px"><tr><th></th><th class="num">{tr('this_month', lang)}</th>
 <th class="num">{tr('previous', lang)}</th></tr>
 {summary_row('income', now['income'], before['income'])}
