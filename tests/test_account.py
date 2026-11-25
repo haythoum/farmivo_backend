@@ -89,7 +89,7 @@ def test_owner_with_active_members_must_transfer(make_client, client, repo, auth
     fr = client.delete("/v1/me", headers={"Accept-Language": "fr"})
     assert fr.json["detail"].startswith("Transférez la propriété")
     ar = client.delete("/v1/me", headers={"Accept-Language": "ar"})
-    assert "انقل ملكية المزرعة" in ar.json["detail"]
+    assert "انقل ملكية الضيعة" in ar.json["detail"]
 
 
 def test_owner_can_delete_after_transfer(make_client, client, repo, auth_admin):

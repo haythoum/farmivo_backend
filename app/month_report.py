@@ -18,7 +18,7 @@ from app.repository import Repository, farm_path
 TEXTS = {
     "title": ("Monthly summary", "Bilan du mois", "الملخص الشهري"),
     "herd": ("Herd and health", "Troupeau et santé", "القطيع والصحة"),
-    "on_farm": ("On the farm at the end of the month", "Sur la ferme en fin de mois", "في المزرعة آخر الشهر"),
+    "on_farm": ("On the farm at the end of the month", "Sur la ferme en fin de mois", "في الضيعة آخر الشهر"),
     "births": ("Births", "Naissances", "الولادات"),
     "deaths": ("Deaths", "Morts", "النفوق"),
     "sold": ("Sold", "Vendus", "المباعة"),

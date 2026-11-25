@@ -61,7 +61,7 @@ def test_error_details_follow_accept_language(make_client):
     ar = c.get("/v1/animals", headers=AR)
     assert en.json == {"detail": "You are not a member of a farm yet", "code": "no_farm"}
     assert fr.json == {"detail": "Vous n'êtes encore membre d'aucune ferme", "code": "no_farm"}
-    assert ar.json["detail"] == "لست عضوًا في أي مزرعة بعد" and ar.json["code"] == "no_farm"
+    assert ar.json["detail"] == "لست عضوًا في أي ضيعة بعد" and ar.json["code"] == "no_farm"
     assert c.post("/v1/farms/join", json={"invite_code": "ZZZ-2222"}, headers=FR).json["detail"] == \
         "Aucune ferme avec ce code"
     assert c.get("/v1/nope", headers=AR).json["detail"] == "غير موجود"
