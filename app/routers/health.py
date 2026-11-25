@@ -229,6 +229,19 @@ def mark_reminder_done(reminder_id: str):
     return out(_render_reminder(record, today()))
 
 
+@reminders_bp.post("/reminders/<reminder_id>/tomorrow")
+def put_reminder_off(reminder_id: str):
+    """POST /v1/reminders/<id>/tomorrow - put a reminder off to tomorrow (board "A · Notifications": "Tomorrow").
+    It is due again tomorrow and its pushes start over."""
+    ctx = get_ctx()
+    tomorrow = (today() + timedelta(days=1)).isoformat()
+    record = ctx.repo.update(path_of(ctx, "reminders"), reminder_id,
+                             {"due_date": tomorrow, "status": "pending", "notified_buckets": []})
+    if not record:
+        raise ApiError(404, "Reminder not found")
+    return out(_render_reminder(record, today()))
+
+
 @reminders_bp.delete("/reminders/<reminder_id>")
 def delete_custom_reminder(reminder_id: str):
     """DELETE /v1/reminders/<id> - delete a reminder."""

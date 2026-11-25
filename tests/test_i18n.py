@@ -175,6 +175,13 @@ def test_custom_reminder_keeps_its_text(client):
     assert client.get("/v1/reminders", headers=AR).json[0]["title"] == "Buy feed"
 
 
+def test_reminder_put_off_to_tomorrow(client):
+    r = client.post("/v1/reminders", json={"title": "Buy feed", "due_date": iso(-2)}).json
+    moved = client.post(f"/v1/reminders/{r['id']}/tomorrow")
+    assert moved.status_code == 200 and moved.json["due_date"] == iso(1) and moved.json["days_until"] == 1
+    assert client.post("/v1/reminders/nope/tomorrow").status_code == 404
+
+
 # ------------------------------------------------------------------ email
 
 def test_verification_email_language(make_client, mailer):

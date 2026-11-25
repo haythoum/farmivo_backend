@@ -170,6 +170,7 @@ Setting `next_due_date` on a vaccination, `follow_up_date` on a vet visit, or an
 - `GET /reminders?status=pending|done|all (default pending)&within_days=&animal_id=&source_type=` → `[Reminder]` ascending by due date (overdue first). `within_days=30` includes overdue.
 - `POST /reminders` `{title, due_date, animal_id?}` → `201 Reminder` (custom reminder)
 - `POST /reminders/{id}/done` → Reminder
+- `POST /reminders/{id}/tomorrow` → Reminder: due again tomorrow, its pushes start over (Notifications' "Tomorrow" button)
 - `DELETE /reminders/{id}` → `204`
 
 Reminder: `{id, source_type, source_id, animal_id, title, due_date, status, days_until}` (`days_until` negative = overdue).

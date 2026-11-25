@@ -274,6 +274,7 @@ def test_user_pointing_at_someone_elses_farm_is_not_upgraded(make_client, repo):
     ("POST", "/v1/farm/invite-code", "manager"),
     ("POST", "/v1/farm/transfer-ownership", "owner"),
     ("POST", "/v1/reminders/1/done", "worker"),
+    ("POST", "/v1/reminders/1/tomorrow", "worker"),
     ("DELETE", "/v1/reminders/1", "manager"),
 ])
 def test_permission_policy(method, path, role):
